@@ -1,0 +1,53 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Threading.Tasks;
+using DryIoc;
+using Nncase.Evaluator;
+using Nncase.Evaluator.Affine;
+using Nncase.Evaluator.Buffers;
+using Nncase.Evaluator.Distributed;
+using Nncase.Evaluator.Imaging;
+using Nncase.Evaluator.Math;
+using Nncase.Evaluator.NN;
+using Nncase.Evaluator.Random;
+using Nncase.Evaluator.RNN;
+using Nncase.Evaluator.Shapes;
+using Nncase.Evaluator.TIR;
+using Nncase.Evaluator.Triton;
+using Nncase.Hosting;
+
+namespace Nncase;
+
+/// <summary>
+/// Evaluator application part extensions.
+/// </summary>
+public static class EvaluatorApplicationPart
+{
+    /// <summary>
+    /// Add evaluator assembly.
+    /// </summary>
+    /// <param name="registrator">Service registrator.</param>
+    /// <returns>Configured service registrator.</returns>
+    public static IRegistrator AddEvaluator(this IRegistrator registrator)
+    {
+        return registrator.RegisterModule<EvaluatorModule>()
+            .RegisterModule<AffineModule>()
+            .RegisterModule<BufferModule>()
+            .RegisterModule<DistributedModule>()
+            .RegisterModule<ImagingModule>()
+            .RegisterModule<MathModule>()
+            .RegisterModule<NNModule>()
+            .RegisterModule<RandomModule>()
+            .RegisterModule<RNNModule>()
+            .RegisterModule<ShapesModule>()
+            .RegisterModule<TensorsModule>()
+            .RegisterModule<TIRModule>()
+            .RegisterModule<TritonModule>();
+    }
+}

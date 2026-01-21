@@ -1,0 +1,27 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Nncase.PatternMatch;
+using static Nncase.IR.TypePatternUtility;
+
+namespace Nncase.IR.Affine;
+
+[PatternFunctionalGenerator]
+public sealed partial class Gather : Op
+{
+    public static readonly ParameterInfo Source = new(typeof(Gather), 0, "source", IsPointer());
+
+    public AffineRelation Relation { get; }
+
+    public Shape Shape { get; }
+
+    /// <inheritdoc/>
+    public override bool CanFoldConstCall => false;
+
+    public override string DisplayProperty() => $"{Relation}, {Shape}";
+}

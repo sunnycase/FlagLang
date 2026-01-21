@@ -1,0 +1,18 @@
+BEGIN_NS_NNCASE_RUNTIME
+${NNCASE_BUILTIN_RUNTIMES_DECL}
+END_NS_NNCASE_RUNTIME
+
+namespace
+{
+struct runtime_registration
+{
+    module_kind_t id;
+    runtime_activator_t activator;
+    rt_module_collector_t collector;
+};
+
+runtime_registration builtin_runtimes[] =
+{
+${NNCASE_BUILTIN_RUNTIMES_REG}
+};
+}

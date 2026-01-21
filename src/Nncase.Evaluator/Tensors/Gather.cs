@@ -1,0 +1,123 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Linq;
+using NetFabric.Hyperlinq;
+using Nncase.CostModel;
+using Nncase.IR;
+using Nncase.IR.Tensors;
+using Nncase.Utilities;
+using OrtKISharp;
+using static Nncase.IR.F.Tensors;
+using Gather = Nncase.IR.Tensors.Gather;
+
+namespace Nncase.Evaluator.Tensors;
+
+/// <summary>
+/// Evaluator for <see cref="Gather"/>.
+/// </summary>
+public class GatherEvaluator : IEvaluator<Gather>, ITypeInferencer<Gather>, ICostEvaluator<Gather>, IMetricEvaluator<Gather>
+{
+    /// <inheritdoc/>
+    public IValue Visit(IEvaluateContext context, Gather gather)
+    {
+        var input = context.GetOrtArgumentValue(gather, Gather.Input);
+        var axis = gather.Axis;
+        var index = context.GetOrtArgumentValue(gather, Gather.Index);
+        return OrtKI.Gather(input, index, axis).ToValue(context.GetReturnType());
+    }
+
+    /// <inheritdoc/>
+    public IRType Visit(ITypeInferenceContext context, Gather target)
+    {
+        var input = context.CheckArgumentType<IRType>(target, Gather.Input);
+        var index = context.CheckArgumentType<IRType>(target, Gather.Index);
+
+        return (input, index) switch
+        {
+            (TensorType a, TensorType b) => Visit(a, target.Axis, b),
+            (DistributedType a, DistributedType b) => Visit(a, target.Axis, b),
+            _ => new InvalidType($"{input}, {index}"),
+        };
+    }
+
+    /// <inheritdoc/>
+    public Cost Visit(ICostEvaluateContext context, Gather target)
+    {
+        var inputType = context.GetArgumentType<IRType>(target, Gather.Input);
+        var indexType = context.GetArgumentType<IRType>(target, Gather.Index);
+        var retType = context.GetReturnType<IRType>();
+
+        var gatherPart = 1U;
+        if (inputType is DistributedType d && d.AxisPolicies[target.Axis] is SBPSplit split)
+        {
+            gatherPart = split.Axes.Select(a => d.Placement.Hierarchy[a]).Aggregate(1U, (a, b) => (uint)(a * b));
+        }
+
+        return new()
+        {
+            [CostFactorNames.MemoryLoad] = CostUtility.GetMemoryAccess(inputType) + CostUtility.GetMemoryAccess(indexType),
+            [CostFactorNames.MemoryStore] = CostUtility.GetMemoryAccess(retType) * gatherPart,
+        };
+    }
+
+    public Metric Visit(IMetricEvaluateContext context, Gather target)
+    {
+        var ret_type = context.GetReturnType<TensorType>();
+        return new()
+        {
+            [MetricFactorNames.OffChipMemoryTraffic] = CostUtility.GetMemoryAccess(ret_type) * 2,
+        };
+    }
+
+    private IRType Visit(TensorType input, int axis, TensorType index)
+    {
+        if (input.Shape.IsUnranked)
+        {
+            return input;
+        }
+
+        axis = axis < 0 ? axis + input.Shape.Rank : axis;
+
+        // input_shape[:axis] + index_shape + input_shape[axis + 1:]
+        var inShape = input.Shape.ToArray();
+        var newShape = inShape[..axis].Concat(index.Shape).Concat(inShape[(axis + 1)..]).ToArray();
+        return new TensorType(input.DType, newShape);
+    }
+
+    private IRType Visit(DistributedType input, int axis, DistributedType index)
+    {
+        var invalid = new InvalidType(input.ToString() + " " + index.ToString());
+        if (Visit(input.TensorType, axis, index.TensorType) is not TensorType tensorType)
+        {
+            return invalid;
+        }
+
+        if (input.Placement != index.Placement)
+        {
+            return invalid;
+        }
+
+        if (index.AxisPolicies.Any(sbp => sbp is SBPSplit))
+        {
+            return new InvalidType($"the index can't be split");
+        }
+
+        var ndsbp = input.AxisPolicies[..axis].ToArray().Concat(index.AxisPolicies).Concat(input.AxisPolicies[(axis + 1)..].ToArray()).ToArray();
+
+        // one topo axis can only be spilt on one dim axis
+        if (!DistributedUtility.IsDistributable(ndsbp))
+        {
+            return invalid;
+        }
+
+        // not support partial
+        if (ndsbp.Any(sbp => sbp is SBPPartial))
+        {
+            return invalid;
+        }
+
+        return new DistributedType(tensorType, ndsbp, input.Placement);
+    }
+}

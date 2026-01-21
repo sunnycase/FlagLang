@@ -12,7 +12,7 @@ from types import ModuleType
 from typing import Any, Callable, Dict, Optional, Tuple, Type, Union, Iterable, List
 
 from .. import knobs, language
-from .._C.libtriton import ir, gluon_ir
+from .._C.libtriton import ir
 from ..language import constexpr, str_to_ty, tensor, tuple as tl_tuple
 from ..language.core import _unwrap_if_constexpr, base_value, base_type
 # ideally we wouldn't need any runtime component
@@ -98,7 +98,7 @@ def flatten_values_to_ir(values: Iterable[base_value]):
     return handles
 
 
-def unflatten_ir_values(handles: List[ir.value], types: List[base_type]):
+def unflatten_ir_values(handles: List[ir.expr], types: List[base_type]):
     cursor = 0
     for ty in types:
         value, cursor = ty._unflatten_ir(handles, cursor)
@@ -439,7 +439,7 @@ class CodeGenerator(ast.NodeVisitor):
         self.name_loc_as_prefix = None
 
     def _maybe_set_loc_to_name(self, val, name):
-        if isinstance(val, (ir.value, ir.block_argument)):
+        if isinstance(val, (ir.expr, ir.var)):
             val.set_loc(self.builder.create_name_loc(name, val.get_loc()))
         elif _is_triton_value(val):
             handles = []
@@ -1598,12 +1598,9 @@ class CodeGenerator(ast.NodeVisitor):
 
         return ret
 
-    from ..experimental.gluon import language as ttgl
     statically_implemented_functions: Dict[object, Callable[[ast.Call], Any]] = {
         language.core.static_assert: execute_static_assert,
         language.core.static_print: static_executor(print),
-        ttgl.static_assert: execute_static_assert,
-        ttgl.static_print: static_executor(print),
         int: static_executor(int),
         len: static_executor(len),
     }

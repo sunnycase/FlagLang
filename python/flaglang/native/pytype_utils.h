@@ -1,0 +1,216 @@
+/* Copyright 2019-2021 Canaan Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+#pragma once
+#include "nncase/runtime/runtime_op_utility.h"
+#include <nncase/runtime/datatypes.h>
+#include <nncase/runtime/debug.h>
+#include <pybind11/numpy.h>
+#include <pybind11/pybind11.h>
+
+namespace pybind11::detail {
+// Similar to enums in `pybind11/numpy.h`. Determined by doing:
+// python3 -c 'import numpy as np; print(np.dtype(np.float16).num)'
+constexpr int NPY_FLOAT16 = 23;
+
+// Kinda following:
+// https://github.com/pybind/pybind11/blob/9bb3313162c0b856125e481ceece9d8faa567716/include/pybind11/numpy.h#L1000
+template <> struct npy_format_descriptor<nncase::half> {
+    static pybind11::dtype dtype() {
+        handle ptr = npy_api::get().PyArray_DescrFromType_(NPY_FLOAT16);
+        return reinterpret_borrow<pybind11::dtype>(ptr);
+    }
+    static std::string format() {
+        // following:
+        // https://docs.python.org/3/library/struct.html#format-characters
+        return "e";
+    }
+    static constexpr auto name() { return _("float16"); }
+};
+} // namespace pybind11::detail
+
+namespace nncase {
+pybind11::dtype to_dtype(typecode_t type) {
+    namespace py = pybind11;
+
+    switch (type) {
+    case dt_boolean:
+        return py::dtype::of<bool>();
+    case dt_uint8:
+        return py::dtype::of<uint8_t>();
+    case dt_uint16:
+        return py::dtype::of<uint16_t>();
+    case dt_uint32:
+        return py::dtype::of<uint32_t>();
+    case dt_uint64:
+        return py::dtype::of<uint64_t>();
+    case dt_int8:
+        return py::dtype::of<int8_t>();
+    case dt_int16:
+        return py::dtype::of<int16_t>();
+    case dt_int32:
+        return py::dtype::of<int32_t>();
+    case dt_int64:
+        return py::dtype::of<int64_t>();
+    case dt_float16:
+        return py::dtype("float16");
+    case dt_bfloat16:
+        return py::dtype("bfloat16");
+    case dt_float32:
+        return py::dtype::of<float>();
+    case dt_float64:
+        return py::dtype::of<double>();
+    default:
+        throw std::runtime_error("Unsupported dtype " + to_string(type));
+    }
+}
+
+pybind11::dtype to_dtype(const datatype_t type) {
+    if (type.is_a<vector_type_t>()) {
+        auto vectype = type.as<vector_type_t>().unwrap();
+        return to_dtype(vectype->elemtype());
+    } else if (type.is_a<prim_type_t>()) {
+        auto primtype = type.as<prim_type_t>().unwrap();
+        return to_dtype(primtype->typecode());
+    } else {
+        throw std::runtime_error("Unsupported datatype " +
+                                 to_string(type->typecode()));
+    }
+}
+
+typecode_t from_dtype(pybind11::dtype dtype) {
+    namespace py = pybind11;
+
+    if (dtype.is(py::dtype::of<bool>()))
+        return dt_boolean;
+    else if (dtype.is(py::dtype::of<uint8_t>()))
+        return dt_uint8;
+    else if (dtype.is(py::dtype::of<uint16_t>()))
+        return dt_uint16;
+    else if (dtype.is(py::dtype::of<uint32_t>()))
+        return dt_uint32;
+    else if (dtype.is(py::dtype::of<uint64_t>()))
+        return dt_uint64;
+    else if (dtype.is(py::dtype::of<int8_t>()))
+        return dt_int8;
+    else if (dtype.is(py::dtype::of<int16_t>()))
+        return dt_int16;
+    else if (dtype.is(py::dtype::of<int32_t>()))
+        return dt_int32;
+    else if (dtype.is(py::dtype::of<int64_t>()))
+        return dt_int64;
+    else if (dtype.is(py::dtype("float16")))
+        return dt_float16;
+    else if (dtype.is(py::dtype("bfloat16")))
+        return dt_bfloat16;
+    else if (dtype.is(py::dtype::of<float>()))
+        return dt_float32;
+    else if (dtype.is(py::dtype::of<double>()))
+        return dt_float64;
+    throw std::runtime_error("Unsupported dtype " +
+                             (std::string)py::str(dtype));
+}
+
+typecode_t from_dtype(pybind11::array array) {
+    namespace py = pybind11;
+
+    if (py::isinstance<py::array_t<bool>>(array))
+        return dt_boolean;
+    else if (py::isinstance<py::array_t<uint8_t>>(array))
+        return dt_uint8;
+    else if (py::isinstance<py::array_t<uint16_t>>(array))
+        return dt_uint16;
+    else if (py::isinstance<py::array_t<uint32_t>>(array))
+        return dt_uint32;
+    else if (py::isinstance<py::array_t<uint64_t>>(array))
+        return dt_uint64;
+    else if (py::isinstance<py::array_t<int8_t>>(array))
+        return dt_int8;
+    else if (py::isinstance<py::array_t<int16_t>>(array))
+        return dt_int16;
+    else if (py::isinstance<py::array_t<int32_t>>(array))
+        return dt_int32;
+    else if (py::isinstance<py::array_t<int64_t>>(array))
+        return dt_int64;
+    else if (py::isinstance<py::array_t<half>>(array))
+        return dt_float16;
+    else if (py::isinstance<py::array_t<float>>(array))
+        return dt_float32;
+    else if (py::isinstance<py::array_t<double>>(array))
+        return dt_float64;
+    else if (py::isinstance<py::array_t<uintptr_t>>(array))
+        return dt_pointer;
+    throw std::runtime_error("Unsupported dtype " +
+                             (std::string)py::str(array.dtype()));
+}
+
+dims_t to_rt_shape(const std::vector<pybind11::ssize_t> &value) {
+    dims_t shape(value.size());
+    for (size_t i = 0; i < shape.size(); i++)
+        shape[i] = (size_t)value[i];
+    return shape;
+}
+
+strides_t to_rt_strides(size_t elemsize,
+                        const std::vector<pybind11::ssize_t> &value) {
+    strides_t strides(value.size());
+    for (size_t i = 0; i < strides.size(); i++)
+        strides[i] = (size_t)value[i] / elemsize;
+    return strides;
+}
+
+std::vector<pybind11::ssize_t> to_py_shape(const datatype_t &dtype,
+                                           std::span<const size_t> value) {
+    namespace py = pybind11;
+
+    std::vector<py::ssize_t> shape(value.size());
+    for (size_t i = 0; i < shape.size(); i++) {
+        shape[i] = (py::ssize_t)value[i];
+    }
+
+    if (dtype.is_a<vector_type_t>()) {
+        auto vectype = dtype.as<vector_type_t>().unwrap();
+        for (auto lane : vectype->lanes()) {
+            shape.push_back((py::ssize_t)lane);
+        }
+    } else if (dtype.is_a<prim_type_t>()) {
+    } else {
+        throw std::runtime_error("Unsupported datatype");
+    }
+    return shape;
+}
+
+std::vector<pybind11::ssize_t> to_py_strides(const datatype_t &dtype,
+                                             std::span<const size_t> value) {
+    namespace py = pybind11;
+    size_t elemsize = dtype->size_bytes();
+
+    std::vector<py::ssize_t> strides(value.size());
+    for (size_t i = 0; i < strides.size(); i++)
+        strides[i] = (py::ssize_t)value[i] * elemsize;
+
+    if (dtype.is_a<vector_type_t>()) {
+        auto vectype = dtype.as<vector_type_t>().unwrap();
+        auto inner_elemsize = vectype->elemtype()->size_bytes();
+        auto inner_strides = runtime::get_default_strides(vectype->lanes());
+        for (size_t i = 0; i < inner_strides.size(); i++) {
+            strides.push_back((py::ssize_t)(inner_strides[i] * inner_elemsize));
+        }
+    } else if (dtype.is_a<prim_type_t>()) {
+    } else {
+        throw std::runtime_error("Unsupported datatype");
+    }
+    return strides;
+}
+} // namespace nncase

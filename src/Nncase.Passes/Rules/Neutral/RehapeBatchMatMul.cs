@@ -1,0 +1,52 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using Nncase.IR;
+using Nncase.PatternMatch;
+using static Nncase.IR.F.NN;
+using static Nncase.IR.F.Tensors;
+using static Nncase.IR.TypePatternUtility;
+using static Nncase.PatternMatch.F.Math;
+using static Nncase.PatternMatch.Utility;
+using static Nncase.Utilities.MetadataUtility;
+using Shape = Nncase.IR.Shape;
+
+namespace Nncase.Passes.Rules.Neutral;
+
+/// <summary>
+/// Transform <see cref="IR.Math.MatMul"/> to <see cref="IR.NN.Conv2D"/>.
+/// </summary>
+[RuleGenerator]
+public sealed partial class ReshapeBatchMatmul : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsMatMul(
+        "mm",
+        "call",
+        _ => true,
+        IsWildcard("a") with { TypePattern = (HasRank(3) | HasRank(4)) & HasFixedShape() },
+        IsWildcard("b") with { TypePattern = HasFixedShape() });
+
+    private Expr? GetReplace(Call call, Expr a, Expr b)
+    {
+        var aShape = (RankedShape)a.CheckedShape;
+        var bShape = (RankedShape)b.CheckedShape;
+        if (aShape[^2] != 1 || bShape.Size != bShape[^2] * bShape[^1])
+        {
+            return null;
+        }
+
+        var newAShape = new RankedShape(aShape.Size / aShape[^1], aShape[^1]);
+        var newBShape = new RankedShape(bShape[^2], bShape[^1]);
+
+        return Reshape(
+            MatMul(
+                Reshape(a, newAShape),
+                Reshape(b, newBShape)).InheritMetaData(call),
+            call.CheckedShape).InheritMetaData(call);
+    }
+}

@@ -86,14 +86,12 @@ class ASTSource:
 
 class IRSource:
 
-    def __init__(self, path, context, backend):
+    def __init__(self, path, backend):
         self.path = path
         path = Path(path)
         self.ext = path.suffix[1:]
         self.language = Language.TRITON
         self.src = path.read_text()
-        ir.load_dialects(context)
-        backend.load_dialects(context)
 
         # We don't have a easy-to-use PTX parser that we can use, so keep that regex for now.
         # TODO - replace with a proper parser
@@ -104,7 +102,7 @@ class IRSource:
             types = re.findall(arg_type_pattern[self.ext], signature)
             self.signature = {k: convert_type_repr(ty) for k, ty in enumerate(types)}
         else:
-            self.module = ir.parse_mlir_module(self.path, context)
+            self.module = ir.parse_mlir_module(self.path)
             fn_name = self.module.get_entry_func_name()
             self.name = "@" + fn_name
             funcOp = self.module.get_function(fn_name)
@@ -232,11 +230,11 @@ def compile(src, target=None, options=None, _env_vars=None):
     # create backend
     if ir_source:
         assert isinstance(src, str), "source must be either AST or a filepath"
-        context = ir.context()
-        src = IRSource(src, context, backend)
+        src = IRSource(src, backend)
 
     extra_options = src.parse_options()
     options = backend.parse_options(dict(options or dict(), **extra_options))
+    context = backend.make_context(options)
     # create cache manager
     env_vars = get_cache_invalidating_env_vars() if _env_vars is None else _env_vars
     key = get_cache_key(src, backend, options, env_vars=env_vars)
@@ -287,20 +285,14 @@ def compile(src, target=None, options=None, _env_vars=None):
     if ir_source:
         first_stage += 1
 
-    # For IRSource, we have already grabbed the context + called both
-    # ir.load_dialects and backend.load_dialects.
-    if not isinstance(src, IRSource):
-        context = ir.context()
-        ir.load_dialects(context)
-        backend.load_dialects(context)
-
     codegen_fns = backend.get_codegen_implementation(options)
     module_map = backend.get_module_map()
-    try:
-        module = src.make_ir(target, options, codegen_fns, module_map, context)
-    except Exception as e:
-        filter_traceback(e)
-        raise
+    module = src.make_ir(target, options, codegen_fns, module_map, context)
+    # try:
+    #     module = src.make_ir(target, options, codegen_fns, module_map, context)
+    # except Exception as e:
+    #     filter_traceback(e)
+    #     raise
 
     if ir_source:
         ir_filename = f"{file_name}.{src.ext}"

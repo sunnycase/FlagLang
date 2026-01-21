@@ -1,0 +1,410 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace Nncase.Converters;
+
+internal class HalfConverters :
+    ISpanConverter<Half, bool>,
+    ISpanConverter<Half, sbyte>,
+    ISpanConverter<Half, byte>,
+    ISpanConverter<Half, short>,
+    ISpanConverter<Half, ushort>,
+    ISpanConverter<Half, int>,
+    ISpanConverter<Half, uint>,
+    ISpanConverter<Half, long>,
+    ISpanConverter<Half, ulong>,
+    ISpanConverter<Half, Half>,
+    ISpanConverter<Half, float>,
+    ISpanConverter<Half, double>,
+    ISpanConverter<Half, BFloat16>,
+    ISpanConverter<Half, Float8E4M3>,
+    ISpanConverter<Half, Float8E5M2>,
+    ISpanConverter<Vector64<Half>, float>,
+    ISpanConverter<Half, Vector64<float>>
+{
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<bool> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        for (int i = 0; i < source.Length; i++)
+        {
+            dest[i] = source[i] != (Half)0.0f;
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<sbyte> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        if (castMode == CastMode.CheckOverflow)
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = checked((sbyte)source[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = (sbyte)source[i];
+            }
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<byte> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        if (castMode == CastMode.CheckOverflow)
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = checked((byte)source[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = (byte)source[i];
+            }
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<short> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        if (castMode == CastMode.CheckOverflow)
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = checked((byte)source[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = (byte)source[i];
+            }
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<ushort> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        if (castMode == CastMode.CheckOverflow)
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = checked((ushort)source[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = (ushort)source[i];
+            }
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<int> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        if (castMode == CastMode.CheckOverflow)
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = checked((int)source[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = (int)source[i];
+            }
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<uint> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        if (castMode == CastMode.CheckOverflow)
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = checked((uint)source[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = (uint)source[i];
+            }
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<long> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        if (castMode == CastMode.CheckOverflow)
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = checked((long)source[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = (long)source[i];
+            }
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<ulong> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        if (castMode == CastMode.CheckOverflow)
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = checked((ulong)source[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                dest[i] = (ulong)source[i];
+            }
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<Half> dest, CastMode castMode)
+    {
+        source.CopyTo(dest);
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<float> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        for (int i = 0; i < source.Length; i++)
+        {
+            dest[i] = (float)source[i];
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<double> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        for (int i = 0; i < source.Length; i++)
+        {
+            dest[i] = (double)source[i];
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<Float8E4M3> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        for (int i = 0; i < source.Length; i++)
+        {
+            dest[i] = (Float8E4M3)source[i];
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<Float8E5M2> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        for (int i = 0; i < source.Length; i++)
+        {
+            dest[i] = (Float8E5M2)source[i];
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<BFloat16> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        if (dest.Length < source.Length)
+        {
+            throw new ArgumentException("Dest buffer is not sufficient.");
+        }
+
+        for (int i = 0; i < source.Length; i++)
+        {
+            dest[i] = (BFloat16)(float)source[i];
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Vector64<Half>> source, Span<float> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        var elementsPerVector = Vector64<Half>.Count;
+        var requiredDestSize = source.Length * elementsPerVector;
+
+        if (dest.Length < requiredDestSize)
+        {
+            throw new ArgumentException("Destination buffer is not large enough for the flattened vector data");
+        }
+
+        for (int i = 0; i < source.Length; i++)
+        {
+            ConvertTo(source[i].AsSpan(), dest.Slice(i * elementsPerVector, elementsPerVector), castMode);
+        }
+    }
+
+    public void ConvertTo(ReadOnlySpan<Half> source, Span<Vector64<float>> dest, CastMode castMode)
+    {
+        if (castMode == CastMode.Exact)
+        {
+            throw new InvalidCastException();
+        }
+
+        var elementsPerVector = Vector64<Half>.Count;
+        var requiredSourceSize = dest.Length * elementsPerVector;
+
+        if (source.Length < requiredSourceSize)
+        {
+            throw new ArgumentException("Source buffer does not contain enough elements to fill the vectors");
+        }
+
+        for (int i = 0; i < dest.Length; i++)
+        {
+            var vector = default(Vector64<float>);
+            ConvertTo(source.Slice(i * elementsPerVector, elementsPerVector), vector.AsSpan(), castMode);
+        }
+    }
+}

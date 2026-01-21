@@ -1,0 +1,103 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using Nncase.Diagnostics;
+using Nncase.IR;
+using Nncase.Utilities;
+
+namespace Nncase.CodeGen
+{
+    public static class CodeGenDumper
+    {
+        public static void DumpIdMap(Dictionary<BaseFunction, FunctionId> ids)
+        {
+            var idInfo = ids.Select(pair => $"{pair.Value.ModuleId} {pair.Value.Id} {pair.Key.Name}").ToArray();
+            using var file = DumpScope.Current.OpenFile("ids.txt");
+            DumpUtility.WriteResult(file, idInfo);
+        }
+
+        public static void WriteDebugInfo(uint fnId, uint moduleId, List<(BaseExpr Expr, (long Min, long Max) Range)> sourceMap)
+        {
+            var dir = DumpScope.Current.Directory;
+
+            // stackvm id is 0
+            var debugInfoDir = Path.Join(dir, "StackVMInst");
+            if (!Directory.Exists(debugInfoDir))
+            {
+                Directory.CreateDirectory(debugInfoDir);
+            }
+
+            using var stream = File.OpenWrite(Path.Join(dir, "StackVMInst", $"{fnId}_{moduleId}.txt"));
+            DumpUtility.WriteResult(stream, sourceMap.Where(x => x.Expr is not PrimFunctionWrapper).Select(x => ToStr(x.Expr) + x.Range).ToArray());
+        }
+
+        // todo: refactor this
+        public static string ToStr(BaseExpr expr)
+        {
+            string str;
+            if (expr is Call call)
+            {
+                if (call.Target is BaseFunction fn)
+                {
+                    str = $"Expr: call fn_{fn.Name}";
+                }
+                else if (call.Target is Op o)
+                {
+                    str = $"Expr:{o.GetType().Name}";
+                }
+                else
+                {
+                    str = $"Expr:{expr}";
+                }
+            }
+            else if (expr is Var v)
+            {
+                str = $"Expr:{v.Name}";
+            }
+            else if (expr is If)
+            {
+                str = "Expr: if";
+            }
+            else
+            {
+                str = $"Expr:{expr}";
+            }
+
+            return str + $"_{expr.GetHashCode()}";
+        }
+
+        public static void PrintAlloc(ushort localId, Expr expr, string prefix)
+        {
+            string? str;
+            if (expr is Call call)
+            {
+                if (call.Target is BaseFunction fn)
+                {
+                    str = $"{prefix} id:{localId} Expr: call fn_{fn.Name}";
+                }
+                else if (call.Target is Op o)
+                {
+                    str = $"{prefix} id:{localId} Expr:{o.GetType().Name}";
+                }
+                else
+                {
+                    str = $"{prefix} id:{localId} Expr:{expr}";
+                }
+            }
+            else if (expr is Var v)
+            {
+                str = $"{prefix} id:{localId} Expr:{v.Name}";
+            }
+            else if (expr is If)
+            {
+                str = "Expr: if";
+            }
+            else
+            {
+                str = $"{prefix} id:{localId} Expr:{expr}";
+            }
+
+            Console.WriteLine(str);
+        }
+    }
+}

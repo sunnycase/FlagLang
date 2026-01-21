@@ -1,0 +1,120 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System.Collections;
+using System.Diagnostics.CodeAnalysis;
+using System.Reactive;
+using NetFabric.Hyperlinq;
+using Nncase.Graphs;
+using Nncase.IR;
+using Nncase.IR.Affine;
+using QuikGraph;
+using QuikGraph.Algorithms;
+using QuikGraph.Algorithms.ShortestPath;
+using QuikGraph.Graphviz;
+
+namespace Nncase.Schedule.TileGraph;
+
+public enum BufferEdgeKind
+{
+    Intra,
+    Inter,
+}
+
+public sealed class BufferGraph : TieredAdjacencyGraph<BufferIdentity, EquatableTaggedEdge<BufferIdentity, BufferEdgeKind>>
+{
+    public BufferGraph(int topLevel, [NotNull] AdjacencyGraph<BufferIdentity, EquatableTaggedEdge<BufferIdentity, BufferEdgeKind>> wrappedGraph)
+        : base(wrappedGraph)
+    {
+        OpId = -1;
+        Level = topLevel;
+    }
+
+    public BufferGraph([NotNull] BufferGraph parentGraph, int level, int opid)
+        : base(parentGraph)
+    {
+        OpId = opid;
+        Level = level;
+    }
+
+    public int Level { get; }
+
+    public int OpId { get; }
+
+    public override string ToString() => $"Op{OpId}@{Level}";
+}
+
+public sealed class BufferizationAlgorithm : AlgorithmBase<TieredTileGraph>
+{
+    public BufferizationAlgorithm(TieredTileGraph visitedGraph)
+        : base(visitedGraph)
+    {
+        BufferGraphMemo = new();
+    }
+
+    public Dictionary<TieredTileGraph, BufferGraph> BufferGraphMemo { get; internal set; }
+
+    protected override void InternalCompute()
+    {
+        Visit(VisitedGraph);
+    }
+
+    private void Visit(TieredTileGraph rootGraph)
+    {
+        if (!BufferGraphMemo.TryGetValue(rootGraph, out _))
+        {
+            var wrappedGraph = new AdjacencyGraph<BufferIdentity, EquatableTaggedEdge<BufferIdentity, BufferEdgeKind>>(allowParallelEdges: false);
+            var rootBufferGraph = new BufferGraph(rootGraph.Level, wrappedGraph);
+            Visit(rootGraph, rootBufferGraph, rootGraph);
+            foreach (var edge in rootGraph.Edges)
+            {
+                var source = new BufferIdentity(edge.Source, edge.Source.ReadAccesses.Length);
+                var target = new BufferIdentity(edge.Target, edge.Tag);
+                rootBufferGraph.AddEdge(new(source, target, BufferEdgeKind.Inter));
+            }
+
+            BufferGraphMemo.Add(rootGraph, rootBufferGraph);
+        }
+    }
+
+    private HashSet<TileGrid> Visit(TieredTileGraph graph, BufferGraph bufferGraph, TieredTileGraph rootGraph)
+    {
+        var opnodes = new HashSet<TileGrid>();
+        if (graph.ClustersCount == 0)
+        {
+            foreach (var item in graph.Vertices)
+            {
+                opnodes.Add(item);
+                var outBid = new BufferIdentity(item, item.ReadAccesses.Length);
+                for (int i = 0; i < item.ReadAccesses.Length; i++)
+                {
+                    bufferGraph.AddVerticesAndEdge(new(new(item, i), outBid, BufferEdgeKind.Intra));
+                }
+            }
+        }
+        else
+        {
+            foreach (var childGraph in graph.Clusters.OfType<TieredTileGraph>())
+            {
+                if (!BufferGraphMemo.TryGetValue(graph, out _))
+                {
+                    var childBufferGraph = bufferGraph.CreateCluster<BufferGraph>(childGraph.Level, childGraph.OpId);
+                    opnodes.UnionWith(Visit(childGraph, childBufferGraph, rootGraph));
+                    BufferGraphMemo.Add(childGraph, childBufferGraph);
+                }
+            }
+        }
+
+        foreach (var edge in rootGraph.Edges)
+        {
+            if (opnodes.Contains(edge.Source) && opnodes.Contains(edge.Target))
+            {
+                var source = new BufferIdentity(edge.Source, edge.Source.ReadAccesses.Length);
+                var target = new BufferIdentity(edge.Target, edge.Tag);
+                bufferGraph.AddEdge(new(source, target, BufferEdgeKind.Inter));
+            }
+        }
+
+        return opnodes;
+    }
+}

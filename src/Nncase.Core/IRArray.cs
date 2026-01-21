@@ -1,0 +1,148 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
+
+namespace Nncase.IR;
+
+/// <summary>
+/// the ir array.
+/// </summary>
+[CollectionBuilder(typeof(IRArrayBuilder), "Create")]
+public struct IRArray<T> : IStructuralEquatable, IEquatable<IRArray<T>>, IReadOnlyList<T>, IEnumerable<T>
+{
+    private readonly int _hashcode;
+    private readonly ImmutableArray<T> _array;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="IRArray{T}"/> struct.
+    /// construct Ir Array with array.
+    /// </summary>
+    public IRArray(ImmutableArray<T> array)
+    {
+        _array = array;
+        _hashcode = HashCode.Combine(StructuralComparisons.StructuralEqualityComparer.GetHashCode(_array));
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="IRArray{T}"/> struct.
+    /// ctor from ienumerable.
+    /// </summary>
+    public IRArray(ReadOnlySpan<T> enumerable)
+        : this(enumerable.ToImmutableArray())
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="IRArray{T}"/> struct.
+    /// empty ir array.
+    /// </summary>
+    public IRArray()
+        : this(ImmutableArray<T>.Empty)
+    {
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether check the ret.
+    /// </summary>
+    public bool IsDefaultOrEmpty => _array.IsDefaultOrEmpty;
+
+    /// <inheritdoc/>
+    public int Count => _array.Length;
+
+    /// <inheritdoc/>
+    public T this[int index] => _array[index];
+
+    public ReadOnlySpan<T> this[Range range] => _array.AsSpan()[range];
+
+    public static implicit operator IRArray<T>(ImmutableArray<T> array) =>
+        new IRArray<T>(array);
+
+    public static implicit operator IRArray<T>(T[] array) =>
+        new IRArray<T>(ImmutableArray.Create(array));
+
+    public static implicit operator ReadOnlySpan<T>(IRArray<T> array) =>
+        array._array.AsSpan();
+
+    public static bool operator ==(IRArray<T> left, IRArray<T> right)
+    {
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(IRArray<T> left, IRArray<T> right)
+    {
+        return !(left == right);
+    }
+
+    public bool Contains(T item)
+    {
+        return ((ICollection<T>)_array).Contains(item);
+    }
+
+    /// <inheritdoc/>
+    public bool Equals(object? other, IEqualityComparer comparer)
+    {
+        return other is IRArray<T> array && ((IStructuralEquatable)_array).Equals(array._array, comparer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj)
+    {
+        return obj is IRArray<T> array && Equals(array);
+    }
+
+    /// <inheritdoc/>
+    public bool Equals(IRArray<T> other)
+    {
+        return StructuralComparisons.StructuralEqualityComparer.Equals(_array, other._array);
+    }
+
+    public ImmutableArray<T>.Enumerator GetEnumerator()
+    {
+        return _array.GetEnumerator();
+    }
+
+    /// <inheritdoc/>
+    IEnumerator<T> IEnumerable<T>.GetEnumerator()
+    {
+        return ((IEnumerable<T>)_array).GetEnumerator();
+    }
+
+    /// <inheritdoc/>
+    public int GetHashCode(IEqualityComparer comparer)
+    {
+        return ((IStructuralEquatable)_array).GetHashCode(comparer);
+    }
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        return _hashcode;
+    }
+
+    public int IndexOf(T item)
+    {
+        return ((IList<T>)_array).IndexOf(item);
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return ((IEnumerable)_array).GetEnumerator();
+    }
+
+    public override string ToString() => "{" + string.Join(", ", _array) + "}";
+}
+
+public static class IRArrayBuilder
+{
+    /// <summary>
+    /// Create a new IRArray from a span.
+    /// </summary>
+    /// <param name="span">The span to create the IRArray from.</param>
+    /// <returns>A new IRArray instance.</returns>
+    public static IRArray<T> Create<T>(ReadOnlySpan<T> span) => new(span);
+}

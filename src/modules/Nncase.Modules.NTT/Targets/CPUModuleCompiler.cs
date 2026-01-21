@@ -1,0 +1,48 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using Nncase.CodeGen;
+using Nncase.CodeGen.NTT;
+using Nncase.IR;
+using Nncase.Passes;
+
+namespace Nncase.Targets;
+
+public class CPUModuleCompiler : INTTModuleCompiler
+{
+    public string ModuleKind => CPUTarget.Kind;
+
+    public MaskVectorStyle MaskVectorStyle => RuntimeInformation.ProcessArchitecture switch
+    {
+        Architecture.X64 or Architecture.Arm64 => MaskVectorStyle.Fat,
+        _ => throw new NotSupportedException($"Unsupported architecture: {RuntimeInformation.ProcessArchitecture}"),
+    };
+
+    public int Lane => RuntimeInformation.ProcessArchitecture switch
+    {
+        Architecture.X64 => 32,
+        Architecture.Arm64 => 16,
+        _ => throw new NotSupportedException($"Unsupported architecture: {RuntimeInformation.ProcessArchitecture}"),
+    };
+
+    public int Nr => RuntimeInformation.ProcessArchitecture switch
+    {
+        Architecture.X64 => 4,
+        Architecture.Arm64 => 4,
+        _ => throw new NotSupportedException($"Unsupported architecture: {RuntimeInformation.ProcessArchitecture}"),
+    };
+
+    public IModuleBuilder CreateModuleBuilder(CompileOptions options) => new NTTModuleBuilder(ModuleKind, options);
+
+    public bool IsSupportedCall(Call call, CompileOptions options)
+    {
+        return call.Target switch
+        {
+            Op op => PassUtility.IsCpuSupported(op, call, call.Arguments, ModuleKind),
+            _ => false,
+        };
+    }
+}

@@ -1,0 +1,33 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System.Linq;
+using Nncase.IR;
+using Nncase.PatternMatch;
+using static Nncase.IR.TypePatternUtility;
+using static Nncase.PatternMatch.F.Tensors;
+using static Nncase.PatternMatch.Utility;
+
+namespace Nncase.Passes.Rules.Neutral;
+
+[RuleGenerator]
+public sealed partial class FoldGatherReshape : RewriteRule<Pattern>
+{
+    // Reshape(Gather(Shape, 0, 0), new[] { 0 }) -> GetItem(Shape, 0)
+    public override Pattern Pattern => IsGather(
+        "gather",
+        _ => true,
+        IsReshape(IsWildcard("input"), IsFixedShape("newShape")),
+        IsTensorConst("index"));
+
+    private BaseExpr? GetReplace(Expr input, long[] newShape, IR.Tensors.Gather gather, int index)
+    {
+        int axis = gather.Axis;
+        if (newShape.SequenceEqual(new[] { 1L }) && axis == 1)
+        {
+            return input[index];
+        }
+
+        return null;
+    }
+}

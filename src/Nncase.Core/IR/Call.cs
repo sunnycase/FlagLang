@@ -1,0 +1,141 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using NetFabric.Hyperlinq;
+using Nncase.Utilities;
+
+namespace Nncase.IR;
+
+/// <summary>
+/// the interface that we can use parameterinfo the parameter.
+/// </summary>
+public interface IParameterList<T>
+{
+    /// <summary>
+    /// get parameter info.
+    /// </summary>
+    T this[ParameterInfo parameter] { get; }
+}
+
+public abstract class BaseCall : Expr, IParameterList<BaseExpr>
+{
+    public BaseCall(IEnumerable<BaseExpr> operands)
+        : base(operands)
+    {
+    }
+
+    public BaseCall(BaseExpr[] operands)
+        : base(operands)
+    {
+    }
+
+    public abstract ReadOnlySpan<BaseExpr> Arguments { get; }
+
+    // /// <summary>
+    // /// used by fake ir, represents that whether this op permit int 16 quant.
+    // /// </summary>
+    // public bool PermitInt16Quant = false;
+
+    /// <summary>
+    /// Gets or sets quant config with cosine, List of DataType represents data types for each input might be quantized, List of QuantParam represents quant params for each input.
+    /// may be deleted in the future since there is EnodeBestQuantConfigWithCosine, reserve it now for debug and for unexpected usage when EnodeBestQuantConfigWithCosine is not enough.
+    /// </summary>
+    public List<Tuple<List<DataType>, List<List<QuantParam>>, float>>? EnodeQuantConfigWithCosine { get; set; }
+
+    /// <summary>
+    /// Gets or sets quant config with cosine, List of DataType represents data types for each input might be quantized, List of QuantParam represents quant params for each input.
+    /// </summary>
+    public Tuple<List<DataType>, List<List<QuantParam>>, float>? EnodeBestQuantConfigWithCosine { get; set; }
+
+    /// <summary>
+    /// get param expr.
+    /// </summary>
+    public virtual BaseExpr this[ParameterInfo parameter] => throw new NotSupportedException();
+
+    public virtual void ParametersForeach(Action<BaseExpr, ParameterInfo> f) => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Call expression.
+/// </summary>
+public sealed class Call : BaseCall, IParameterList<BaseExpr>
+{
+    /// <summary>
+    /// Initializes a new instance of the <see cref="Call"/> class.
+    /// </summary>
+    /// <param name="target">Call target.</param>
+    /// <param name="arguments">Arguments.</param>
+    public Call(Expr target, ReadOnlySpan<BaseExpr> arguments)
+        : base(ArrayUtility.Concat(target, arguments))
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="Call"/> class.
+    /// </summary>
+    /// <param name="target">Call target.</param>
+    /// <param name="arguments">Arguments.</param>
+    public Call(Expr target, params BaseExpr[] arguments)
+        : this(target, (ReadOnlySpan<BaseExpr>)arguments)
+    {
+    }
+
+    public Expr Target => (Expr)Operands[0];
+
+    public override ReadOnlySpan<BaseExpr> Arguments => Operands[1..];
+
+    /// <summary>
+    /// get param expr.
+    /// </summary>
+    public override BaseExpr this[ParameterInfo parameter] => Arguments[ValidateParameterIndex(parameter, Target)];
+
+    public override void ParametersForeach(Action<BaseExpr, ParameterInfo> f)
+    {
+        var parameterInfos = ((Op)Target).Parameters.ToArray();
+        for (int i = 0; i < Arguments.Length; i++)
+        {
+            f(Arguments[i], parameterInfos[i]);
+        }
+    }
+
+    /// <inheritdoc/>
+    public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context)
+        => functor.VisitCall(this, context);
+
+    public Call With(Expr? target = null, BaseExpr[]? arguments = null, IRMetadata? metadata = null)
+    {
+        var call = new Call(target ?? Target, arguments ?? Arguments)
+        {
+            Metadata = metadata ?? new IRMetadata { OutputNames = Metadata.OutputNames },
+        };
+
+        return call;
+    }
+
+    public Call WithArguments((ParameterInfo Parameter, BaseExpr Argument)[]? replaceArguments = null, IRMetadata? metadata = null)
+    {
+        var newArguments = replaceArguments is null
+            ? Arguments.ToArray()
+            : Arguments.AsValueEnumerable().Select((arg, i) => replaceArguments.FirstOrDefault(a => ValidateParameterIndex(a.Parameter, Target) == i).Argument ?? arg).ToArray();
+        return With(arguments: newArguments, metadata: metadata);
+    }
+
+    private static int ValidateParameterIndex(ParameterInfo parameter, Expr target)
+    {
+        var type = target.GetType();
+        if (type == parameter.OwnerType)
+        {
+            return parameter.Index;
+        }
+        else
+        {
+            throw new ArgumentOutOfRangeException($"Target {target} doesn't have parameter: {parameter.OwnerType}.{parameter.Name}.");
+        }
+    }
+}

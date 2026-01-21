@@ -1,0 +1,642 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using CommunityToolkit.HighPerformance;
+using CommunityToolkit.HighPerformance.Helpers;
+using NetFabric.Hyperlinq;
+using Nncase.IR;
+
+namespace Nncase;
+
+/// <summary>
+/// Tensor or tuple of tensors.
+/// </summary>
+public interface IValue : IReadOnlyList<IValue>
+{
+    /// <summary>
+    /// Gets type.
+    /// </summary>
+    IRType Type { get; }
+
+    /// <summary>
+    /// Get a single tensor.
+    /// </summary>
+    /// <returns>The single tensor.</returns>
+    Tensor AsTensor();
+
+    /// <summary>
+    /// Get tensors.
+    /// </summary>
+    /// <returns>The tensors.</returns>
+    Tensor[] AsTensors();
+
+    T AsObjectRef<T>()
+        where T : class, IEquatable<T>;
+}
+
+/// <summary>
+/// Value extensions.
+/// </summary>
+public static class Value
+{
+    /// <summary>
+    /// Gets get the None Value.
+    /// </summary>
+    public static IValue None => NoneValue.Default;
+
+    public static ShapeValue FromShape(long[] shape)
+    {
+        return new ShapeValue(shape);
+    }
+
+    /// <summary>
+    /// Create value form a tensor.
+    /// </summary>
+    /// <param name="tensor">The single tensor.</param>
+    /// <returns>Created value.</returns>
+    public static TensorValue FromTensor(Tensor tensor)
+    {
+        return new TensorValue(tensor);
+    }
+
+    /// <summary>
+    /// Create value form a tensor.
+    /// </summary>
+    /// <param name="tensor">The single tensor.</param>
+    /// <param name="ndSBP">NdSBP.</param>
+    /// <param name="placement">Placement.</param>
+    /// <returns>Created value.</returns>
+    public static TensorValue FromTensor(Tensor tensor, IRArray<SBP> ndSBP, Placement placement)
+    {
+        return new TensorValue(tensor, ndSBP, placement);
+    }
+
+    public static TensorValue FromTensorLike(Tensor tensor, IRType type)
+        => type switch
+        {
+            DistributedType dt => FromTensor(tensor, dt.AxisPolicies, dt.Placement),
+            _ => FromTensor(tensor),
+        };
+
+    /// <summary>
+    /// Create value form tensors.
+    /// </summary>
+    /// <param name="tensors">The single tensor.</param>
+    /// <returns>Created value.</returns>
+    public static TupleValue FromTensors(params Tensor[] tensors)
+    {
+        return new TupleValue(tensors.Select(x => new TensorValue(x)).ToArray());
+    }
+
+    /// <summary>
+    /// Create value form a constant.
+    /// </summary>
+    /// <param name="const">The constant.</param>
+    /// <returns>Created value.</returns>
+    public static IValue FromConst(Const @const)
+    {
+        switch (@const)
+        {
+            case TensorConst tc:
+                return FromTensor(tc.Value);
+            case TupleConst tpc:
+                return tpc.Value;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(@const));
+        }
+    }
+}
+
+/// <summary>
+/// The None Value.
+/// </summary>
+public sealed class NoneValue : IValue, IEquatable<NoneValue?>
+{
+    /// <summary>
+    /// Get the default None Value instane.
+    /// </summary>
+    public static readonly NoneValue Default = new();
+
+    private NoneValue()
+    {
+    }
+
+    /// <inheritdoc/>
+    public IRType Type => NoneType.Default;
+
+    /// <inheritdoc/>
+    public int Count => 1;
+
+    /// <inheritdoc/>
+    public IValue this[int index] => index == 0 ? this : throw new ArgumentOutOfRangeException(nameof(index));
+
+    public static bool operator ==(NoneValue? left, NoneValue? right) => true;
+
+    public static bool operator !=(NoneValue? left, NoneValue? right) => false;
+
+    /// <inheritdoc/>
+    public Tensor AsTensor()
+    {
+        throw new InvalidOperationException("This Is None Value!");
+    }
+
+    /// <inheritdoc/>
+    public Tensor[] AsTensors()
+    {
+        throw new InvalidOperationException("This Is None Value!");
+    }
+
+    /// <inheritdoc/>
+    public IEnumerator<IValue> GetEnumerator()
+    {
+        yield break;
+    }
+
+    /// <inheritdoc/>
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        yield break;
+    }
+
+    public override bool Equals(object? obj) => Equals(obj as NoneValue);
+
+    public bool Equals(NoneValue? other) => other is not null;
+
+    public override int GetHashCode() => 0;
+
+    T IValue.AsObjectRef<T>() => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Tensor value.
+/// </summary>
+public sealed class TensorValue : IValue, IEquatable<TensorValue?>
+{
+    private readonly Tensor _value;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="TensorValue"/> class.
+    /// </summary>
+    /// <param name="tensor">Tensor.</param>
+    public TensorValue(Tensor tensor)
+    {
+        _value = tensor;
+        Type = new TensorType(_value.ElementType, _value.Shape);
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="TensorValue"/> class.
+    /// </summary>
+    /// <param name="tensor">Tensor.</param>
+    /// <param name="ndSBP">NdSBP.</param>
+    /// <param name="placement">Placement.</param>
+    public TensorValue(Tensor tensor, IRArray<SBP> ndSBP, Placement placement)
+    {
+        _value = tensor;
+        var tensorType = new TensorType(_value.ElementType, _value.Shape);
+        Type = new DistributedType(tensorType, ndSBP, placement);
+    }
+
+    /// <inheritdoc/>
+    public int Count => 1;
+
+    /// <inheritdoc/>
+    public IRType Type { get; }
+
+    /// <inheritdoc/>
+    public IValue this[int index] => index == 0 ? this : throw new ArgumentOutOfRangeException(nameof(index));
+
+    /// <inheritdoc/>
+    public IEnumerator<IValue> GetEnumerator()
+    {
+        yield break;
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        yield break;
+    }
+
+    /// <inheritdoc/>
+    public Tensor AsTensor()
+    {
+        return _value;
+    }
+
+    /// <inheritdoc/>
+    public Tensor[] AsTensors()
+    {
+        return new[] { _value };
+    }
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj)
+    {
+        return Equals(obj as TensorValue);
+    }
+
+    /// <inheritdoc/>
+    public bool Equals(TensorValue? other)
+    {
+        return other != null &&
+               EqualityComparer<Tensor>.Default.Equals(_value, other._value);
+    }
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(_value);
+    }
+
+    /// <inheritdoc/>
+    public override string ToString()
+    {
+        if (_value.BytesBuffer.Length <= 64)
+        {
+            return _value.Shape.ToString() + " : " + _value.GetArrayString(false);
+        }
+
+        return _value.Shape.ToString();
+    }
+
+    T IValue.AsObjectRef<T>() => throw new NotImplementedException();
+}
+
+/// <summary>
+/// Tuple value.
+/// </summary>
+public sealed class TupleValue : IValue, IEquatable<TupleValue?>
+{
+    public static readonly TupleValue Void = new TupleValue(ReadOnlySpan<IValue>.Empty);
+
+    private readonly IValue[] _values;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="TupleValue"/> class.
+    /// </summary>
+    /// <param name="values">Tuple fields.</param>
+    public TupleValue(ReadOnlySpan<IValue> values)
+    {
+        _values = values.ToArray();
+        Type = new TupleType(values.AsValueEnumerable().Select(x => x.Type).ToArray());
+    }
+
+    /// <inheritdoc/>
+    public int Count => _values.Length;
+
+    /// <inheritdoc/>
+    public IRType Type { get; }
+
+    /// <inheritdoc/>
+    public IValue this[int index] => _values[index];
+
+    /// <inheritdoc/>
+    public Tensor AsTensor()
+    {
+        throw new InvalidOperationException();
+    }
+
+    /// <inheritdoc/>
+    public IEnumerator<IValue> GetEnumerator()
+    {
+        return ((IEnumerable<IValue>)_values).GetEnumerator();
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
+    }
+
+    /// <inheritdoc/>
+    public Tensor[] AsTensors()
+    {
+        return _values.Cast<TensorValue>().Select(x => x.AsTensor()).ToArray();
+    }
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj)
+    {
+        return Equals(obj as TupleValue);
+    }
+
+    /// <inheritdoc/>
+    public bool Equals(TupleValue? other)
+    {
+        return other != null && _values.SequenceEqual(other._values);
+    }
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        return HashCode<IValue>.Combine(_values);
+    }
+
+    /// <inheritdoc/>
+    public override string ToString()
+    {
+        return "(" + string.Join(",", _values.Select(v => v.ToString())) + ")";
+    }
+
+    T IValue.AsObjectRef<T>() => throw new NotImplementedException();
+}
+
+public sealed class ReferenceValue : IValue, IEquatable<ReferenceValue?>
+{
+    private readonly object _value;
+
+    public ReferenceValue(object value)
+    {
+        _value = value;
+    }
+
+    /// <inheritdoc/>
+    public IRType Type => new ReferenceType(CompilerServices.DataTypeService.GetValueTypeFromType(_value.GetType()));
+
+    public int Count => 1;
+
+    public IValue this[int index] => throw new NotImplementedException();
+
+    public Tensor AsTensor() => throw new NotImplementedException();
+
+    public Tensor[] AsTensors() => throw new NotImplementedException();
+
+    public bool Equals(ReferenceValue? other) => other?._value.Equals(_value) ?? false;
+
+    public IEnumerator<IValue> GetEnumerator() => throw new NotImplementedException();
+
+    T IValue.AsObjectRef<T>() => (T)_value;
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    public override bool Equals(object? obj)
+    {
+        return Equals(obj as ReferenceValue);
+    }
+}
+
+/// <summary>
+/// Shape value.
+/// </summary>
+public sealed class ShapeValue : IValue, IEquatable<ShapeValue?>
+{
+    private readonly long[] _shape;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ShapeValue"/> class.
+    /// </summary>
+    /// <param name="shape">Shape.</param>
+    public ShapeValue(long[] shape)
+    {
+        _shape = shape;
+        Type = ShapeType.Fixed(shape.Length);
+    }
+
+    /// <inheritdoc/>
+    public int Count => 1;
+
+    /// <inheritdoc/>
+    public IRType Type { get; }
+
+    /// <inheritdoc/>
+    public IValue this[int index] => index == 0 ? this : throw new ArgumentOutOfRangeException(nameof(index));
+
+    /// <inheritdoc/>
+    public IEnumerator<IValue> GetEnumerator()
+    {
+        yield break;
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        yield break;
+    }
+
+    /// <inheritdoc/>
+    public Tensor AsTensor()
+    {
+        return _shape;
+    }
+
+    /// <inheritdoc/>
+    public Tensor[] AsTensors()
+    {
+        return new[] { AsTensor() };
+    }
+
+    T IValue.AsObjectRef<T>() => throw new NotImplementedException();
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj)
+    {
+        return Equals(obj as TensorValue);
+    }
+
+    /// <inheritdoc/>
+    public bool Equals(ShapeValue? other)
+    {
+        return other != null &&
+               _shape.SequenceEqual(other._shape);
+    }
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(_shape);
+    }
+
+    /// <inheritdoc/>
+    public override string ToString()
+    {
+        return string.Join(", ", _shape);
+    }
+}
+
+/// <summary>
+/// Padding value.
+/// </summary>
+public sealed class PaddingValue : IValue, IEquatable<PaddingValue?>
+{
+    private readonly long _before;
+    private readonly long _after;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PaddingValue"/> class.
+    /// </summary>
+    /// <param name="before">Padding before.</param>
+    /// <param name="after">Padding after.</param>
+    public PaddingValue(long before, long after)
+    {
+        _before = before;
+        _after = after;
+        Type = PaddingType.Fixed;
+    }
+
+    public long Before => _before;
+
+    public long After => _after;
+
+    /// <inheritdoc/>
+    public int Count => 1;
+
+    /// <inheritdoc/>
+    public IRType Type { get; }
+
+    /// <inheritdoc/>
+    public IValue this[int index] => index == 0 ? this : throw new ArgumentOutOfRangeException(nameof(index));
+
+    /// <inheritdoc/>
+    public IEnumerator<IValue> GetEnumerator()
+    {
+        yield break;
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        yield break;
+    }
+
+    /// <inheritdoc/>
+    public Tensor AsTensor()
+    {
+        return new[] { _before, _after };
+    }
+
+    /// <inheritdoc/>
+    public Tensor[] AsTensors()
+    {
+        return new[] { AsTensor() };
+    }
+
+    T IValue.AsObjectRef<T>() => throw new NotImplementedException();
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj)
+    {
+        return Equals(obj as TensorValue);
+    }
+
+    /// <inheritdoc/>
+    public bool Equals(PaddingValue? other)
+    {
+        return other != null &&
+                _before == other._before &&
+                _after == other._after;
+    }
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(_before, _after);
+    }
+
+    /// <inheritdoc/>
+    public override string ToString()
+    {
+        return $"({_before}, {_after})";
+    }
+}
+
+public sealed class PaddingsValue : IValue, IEquatable<PaddingsValue?>
+{
+    private readonly Tensor<long> _paddings;
+
+    public PaddingsValue(long[,] paddings)
+    {
+        if (paddings.GetLength(1) != 2)
+        {
+            throw new ArgumentException("Paddings must be 2D array with second dimension of size 2.");
+        }
+
+        _paddings = Tensor.From(paddings);
+        Type = PaddingsType.Fixed((int)_paddings.Dimensions[0]);
+    }
+
+    public PaddingsValue(Tensor<long> paddings)
+    {
+        if (paddings.Dimensions.Length != 2 || paddings.Dimensions[1] != 2)
+        {
+            throw new ArgumentException("Paddings must be 2D tensor with second dimension of size 2.");
+        }
+
+        _paddings = paddings;
+        Type = PaddingsType.Fixed((int)_paddings.Dimensions[0]);
+    }
+
+    public PaddingsValue(PaddingValue[] paddings)
+    {
+        _paddings = new Tensor<long>([paddings.Length, 2]);
+        Type = PaddingsType.Fixed(paddings.Length);
+        for (int i = 0; i < paddings.Length; i++)
+        {
+            _paddings[i, 0] = paddings[i].Before;
+            _paddings[i, 1] = paddings[i].After;
+        }
+    }
+
+    public Tensor<long> Paddings => _paddings;
+
+    /// <inheritdoc/>
+    public int Count => 1;
+
+    /// <inheritdoc/>
+    public IRType Type { get; }
+
+    /// <inheritdoc/>
+    public IValue this[int index] => index == 0 ? this : throw new ArgumentOutOfRangeException(nameof(index));
+
+    /// <inheritdoc/>
+    public IEnumerator<IValue> GetEnumerator()
+    {
+        yield break;
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        yield break;
+    }
+
+    /// <inheritdoc/>
+    public Tensor AsTensor()
+    {
+        return _paddings;
+    }
+
+    /// <inheritdoc/>
+    public Tensor[] AsTensors()
+    {
+        return new[] { AsTensor() };
+    }
+
+    T IValue.AsObjectRef<T>() => throw new NotImplementedException();
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj)
+    {
+        return Equals(obj as PaddingsValue);
+    }
+
+    /// <inheritdoc/>
+    public bool Equals(PaddingsValue? other)
+    {
+        return other != null &&
+               _paddings.SequenceEqual(other._paddings);
+    }
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(_paddings);
+    }
+
+    /// <inheritdoc/>
+    public override string ToString()
+    {
+        return _paddings.GetArrayString();
+    }
+}

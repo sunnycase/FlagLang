@@ -1,0 +1,39 @@
+# This file is generated automatically. DO NOT EDIT.
+set(GENERATED_UNARY_TEST_SOURCES
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_uint8_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_uint16_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_uint32_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_uint64_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_int8_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_int16_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_int32_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_int64_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float16_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float32_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float64_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_bfloat16_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float8e4m3_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float8e5m2_exp_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float16_cos_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float32_cos_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float64_cos_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_bfloat16_cos_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float8e4m3_cos_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float8e5m2_cos_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_int8_abs_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_int16_abs_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_int32_abs_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_int64_abs_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float16_abs_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float32_abs_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float64_abs_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_bfloat16_abs_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float8e4m3_abs_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float8e5m2_abs_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float16_sin_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float32_sin_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float64_sin_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_bfloat16_sin_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float8e4m3_sin_generated.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/test_ntt_unary_float8e5m2_sin_generated.cpp
+)

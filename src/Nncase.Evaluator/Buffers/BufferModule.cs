@@ -1,0 +1,29 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using DryIoc;
+using Nncase.Evaluator.Tensors;
+using Nncase.Hosting;
+
+namespace Nncase.Evaluator.Buffers;
+
+/// <summary>
+/// Buffer module.
+/// </summary>
+internal class BufferModule : IApplicationPart
+{
+    public void ConfigureServices(IRegistrator registrator)
+    {
+        registrator.RegisterManyInterface<AllocateEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<AllocateBufferViewEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<BufferSubviewEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<AddressOfEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<BufferIndexOfEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<BaseMentOfEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<StrideOfEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<UninitializedEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<BufferLoadEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<BufferStoreEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<MatchBufferEvaluator>(reuse: Reuse.Singleton);
+    }
+}

@@ -1,0 +1,6 @@
+from __future__ import annotations
+__all__: list[str] = ['initialize', 'uninitialize']
+def initialize(arg0: str) -> int:
+    ...
+def uninitialize() -> int:
+    ...

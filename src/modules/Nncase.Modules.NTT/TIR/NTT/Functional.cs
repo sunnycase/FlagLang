@@ -1,0 +1,270 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Nncase.IR;
+using Nncase.IR.Math;
+using Nncase.IR.Shapes;
+using Nncase.TIR;
+using Nncase.TIR.NTT;
+
+namespace Nncase.TIR.F;
+
+public partial class NTT
+{
+    /// <summary>
+    /// the ptr of can create the *PtrName in the c code.
+    /// </summary>
+    /// <param name="name">c pointer name.</param>
+    /// <param name="primType">type.</param>
+    /// <returns>call.</returns>
+    public static Call PtrOf(string name, DataType primType) => new Call(new PtrOf(name, primType));
+
+    public static Call SramPtr(Expr input, DataType primType) => new Call(new SramPtr(primType), input);
+
+    public static Call TensorLoad(Expr dest, Expr src, IRArray<SBP> ndsbp, Placement placement)
+    {
+        return new Call(new TensorLoad(ndsbp, placement), dest, src);
+    }
+
+    public static Call TensorStore(Expr src, Expr dest, IRArray<SBP> ndsbp, Placement placement)
+    {
+        return new Call(new TensorStore(ndsbp, placement), src, dest);
+    }
+
+    public static Call Unary(UnaryOp unaryOp, Expr input, Expr output)
+    {
+        return new Call(new TIR.NTT.Unary(unaryOp), input, output);
+    }
+
+    public static Call Matmul(Expr lhs, Expr rhs, Expr output, Expr loadC, Expr scale, Expr extra, IRArray<int> lhsVectorizedAxes, IRArray<int> rhsVectorizedAxes, bool transA = false, bool transB = false, bool fusedReduce = false, string cSourcePath = "", string funcName = "")
+    {
+        return new Call(new Matmul(lhsVectorizedAxes, rhsVectorizedAxes, transA, transB, fusedReduce, cSourcePath, funcName), lhs, rhs, output, loadC, scale, extra);
+    }
+
+    public static Call Matmul(Expr lhs, Expr rhs, Expr output, Expr loadC, Expr scale)
+    {
+        return new Call(new Matmul(new IRArray<int>(), new IRArray<int>(), false, false, false, null, null), lhs, rhs, output, loadC, scale, None.Default);
+    }
+
+    public static Call PackedMatMul(Expr lhs, Expr rhs, Expr output, Expr loadC, Expr scale, bool fusedReduce = false)
+    {
+        return new Call(new PackedMatMul(fusedReduce), lhs, rhs, output, loadC, scale);
+    }
+
+    public static Call SUMMA(Expr lhs, Expr rhs, Expr output, Expr loadC, Expr scale, IRArray<int> lhsVectorizedAxes, IRArray<int> rhsVectorizedAxes, bool transA = false, bool transB = false)
+    {
+        return new Call(new SUMMA(lhsVectorizedAxes, rhsVectorizedAxes, transA, transB), lhs, rhs, output, loadC, scale);
+    }
+
+    public static Call SUMMA(Expr lhs, Expr rhs, Expr output, Expr loadC, Expr scale)
+    {
+        return new Call(new SUMMA(new IRArray<int>(), new IRArray<int>(), false, false), lhs, rhs, output, loadC, scale);
+    }
+
+    public static Expr Pack(Expr input, Expr output, IRArray<int> lanes, IRArray<int> axes)
+    {
+        return new Call(new Pack(lanes, axes), input, output);
+    }
+
+    public static Call Conv2D(Expr input, Expr weights, Expr bias, Expr output, long[] stride, long[] padding, long[] dilation, long groups, PadMode padMode, DistributedType distributedType) => new Call(new Conv2D(stride, padding, dilation, groups, padMode, distributedType), input, weights, bias, output);
+
+    public static Expr Unpack(Expr input, Expr output, IRArray<int> lanes, IRArray<int> axes)
+    {
+        return new Call(new Unpack(lanes, axes), input, output);
+    }
+
+    public static Expr VectorizedSoftmax(Expr input, Expr output, int axis, IRArray<int> vectorizedAxes)
+    {
+        return new Call(new VectorizedSoftmax(axis, vectorizedAxes), input, output);
+    }
+
+    public static Expr VectorizedLayerNorm(Expr input, Expr scale, Expr bias, Expr output, int axis, float epsilon, bool usemean, IRArray<int> vectorizedAxes, IRArray<Dimension> padedNums, string cSourcePath = "", string funcName = "")
+    {
+        return new Call(new VectorizedLayerNorm(axis, epsilon, usemean, vectorizedAxes, padedNums, null!, cSourcePath, funcName), input, scale, bias, None.Default, output);
+    }
+
+    public static Expr VectorizedLayerNorm(Expr input, Expr scale, Expr bias, Expr output, int axis, float epsilon, bool usemean, IRArray<int> vectorizedAxes, IRArray<Dimension> padedNums, Expr postScale, string cSourcePath = "", string funcName = "")
+    {
+        return new Call(new VectorizedLayerNorm(axis, epsilon, usemean, vectorizedAxes, padedNums, null!, cSourcePath, funcName), input, scale, bias, postScale, output);
+    }
+
+    public static Expr InstanceNorm(Expr input, Expr scale, Expr bias, Expr output, float epsilon, IRArray<int> vectorizedAxes, IRArray<Dimension> padedNums, DistributedType distributedType)
+    {
+        return new Call(new InstanceNorm(epsilon, vectorizedAxes, padedNums, distributedType), input, scale, bias, output);
+    }
+
+    public static Expr VectorizedBinary(Expr lhs, Expr rhs, Expr output, BaseExpr postOps, BinaryOp binaryOp, IRArray<int>? lhsVectorizedAxes = null, IRArray<Dimension>? lhsPadedNums = null, IRArray<int>? rhsVectorizedAxes = null, IRArray<Dimension>? rhsPadedNums = null)
+    {
+        return new Call(new VectorizedBinary(binaryOp, lhsVectorizedAxes ?? Array.Empty<int>(), lhsPadedNums ?? Array.Empty<Dimension>(), rhsVectorizedAxes ?? Array.Empty<int>(), rhsPadedNums ?? Array.Empty<Dimension>()), lhs, rhs, output, postOps);
+    }
+
+    public static Call ResizeImage(Expr input, Expr output, int[] vectorizedAxes, Dimension[] padedNums, int[] newSize, ImageResizeMode resizeMode, ImageResizeTransformationMode transformationMode, ImageResizeNearestMode nearestMode)
+    {
+        return new Call(new ResizeImage(vectorizedAxes, padedNums, newSize, resizeMode, transformationMode, nearestMode), input, output);
+    }
+
+    public static Expr Slice(Expr input, RankedShape begins, RankedShape ends, Expr ret, int[] axes, int[] strides)
+    {
+        return new Call(new Slice(axes, strides), input, begins, ends, ret);
+    }
+
+    public static Expr Concat(Expr[] inputs, Expr ret, int axis)
+    {
+        return new Call(new Concat(axis), inputs.Concat(new[] { ret }).ToArray());
+    }
+
+    public static Expr Reshape(Expr input, Expr ret)
+    {
+        return new Call(new Reshape(), input, ret);
+    }
+
+    public static Expr PagedAttention(Expr q, Expr kvcache, Expr extra, Expr scale, int layerId, Expr ret, IRArray<IR.NN.AttentionDimKind> layout, int hiddenSize)
+    {
+        return new Call(new PagedAttention(layerId, layout, hiddenSize), q, kvcache, extra, scale, ret);
+    }
+
+    public static Expr UpdatePagedAttentionKVCache(Expr value, Expr kvcache, IR.NN.AttentionCacheKind kind, int layerId, IRArray<IR.NN.AttentionDimKind> layout)
+    {
+        return new Call(new UpdatePagedAttentionKVCache(kind, layerId, layout), value, kvcache);
+    }
+
+    public static Expr GatherPagedAttentionKVCache(Expr value, Expr kvcache, Expr output)
+    {
+        return new Call(new GatherPagedAttentionKVCache(), value, kvcache, output);
+    }
+
+    public static Expr CreatePagedAttentionKVCache(IR.NN.PagedAttentionConfig config, Expr numSeqs, Expr numTokens, Expr contextLens, Expr seqLens, Expr blockTable, Expr slotMapping, Expr numBlocks, Expr kvCaches, Expr output)
+    {
+        return new Call(new CreatePagedAttentionKVCache(config), numSeqs, numTokens, contextLens, seqLens, blockTable, slotMapping, numBlocks, kvCaches, output);
+    }
+
+    public static Expr IdentityPagedAttentionKVCache(Expr input, Expr numSeqs, Expr numTokens, Expr contextLens, Expr seqLens, Expr blockTable, Expr slotMapping, Expr numBlocks, Expr kvCaches)
+    {
+        return new Call(new IdentityPagedAttentionKVCache(), input, numSeqs, numTokens, contextLens, seqLens, blockTable, slotMapping, numBlocks, kvCaches);
+    }
+
+    public static Expr Swish(Expr buffer, Expr ret, float v)
+    {
+        return new Call(new Swish(v), buffer, ret);
+    }
+
+    public static Expr Gather(Expr input, Expr indcies, Expr ret, int axis)
+    {
+        return new Call(new Gather(axis), input, indcies, ret);
+    }
+
+    public static Expr GetItem(Expr input, BaseExpr index, Expr ret)
+    {
+        return new Call(new GetItem(), input, index, ret);
+    }
+
+    public static Expr Transpose(Expr buffer, Expr ret, int[] perm)
+    {
+        return new Call(new Transpose(perm), buffer, ret);
+    }
+
+    public static Expr Pad(Expr input, Expr ret, Paddings pads, float padValue, IRArray<int> actualPadAxes)
+    {
+        return new Call(new Pad(padValue, actualPadAxes), input, pads, ret);
+    }
+
+    public static Expr Im2col(Expr input, Expr output, IRArray<long> kernel, IRArray<int> stride, IRArray<int> padding, IRArray<int> vectorizedAxes, IRArray<int> padedNums)
+    {
+        return new Call(new Im2col(kernel, stride, padding, vectorizedAxes, padedNums), input, output);
+    }
+
+    public static Expr Reduce(Expr input, Expr ret, Expr loadPrevious, int[] vectorizedAxes, Dimension[] padedNums, IRArray<int> axis, bool keepDims, ReduceOp reduceOp)
+    {
+        return new Call(new TIR.NTT.Reduce(vectorizedAxes, padedNums, axis, keepDims, reduceOp), input, ret, loadPrevious);
+    }
+
+    public static Expr ReduceArg(Expr input, Expr ret, int axis, bool keepDims, bool selectLastIndex, ReduceArgOp reduceArgOp, DataType destType)
+    {
+        return new Call(new TIR.NTT.ReduceArg(axis, keepDims, selectLastIndex, reduceArgOp, destType), input, ret);
+    }
+
+    public static Call RoPE(Expr input, Expr cos, Expr sin, Expr output)
+    {
+        return new Call(new TIR.NTT.RoPE(), input, cos, sin, output);
+    }
+
+    public static Call GatherReduceScatter(Expr input, Expr output, DistributedType inType, DistributedType outType)
+    {
+        return new Call(new TIR.NTT.GatherReduceScatter(inType, outType), input, output);
+    }
+
+    public static Call Clamp(Expr input, Expr output, float min, float max)
+    {
+        return new Call(new TIR.NTT.Clamp(min, max), input, output);
+    }
+
+    public static Call Cast(Expr input, Expr output, DataType newType, CastMode castMode, IRArray<int> vectorizeAxes = default, Expr? postOps = null)
+    {
+        return new Call(new TIR.NTT.Cast(newType, castMode, vectorizeAxes.IsDefaultOrEmpty ? Array.Empty<int>() : vectorizeAxes), input, output, postOps ?? None.Default);
+    }
+
+    public static Call SynchronizeThreads()
+    {
+        return new Call(new TIR.NTT.SynchronizeThreads());
+    }
+
+    public static Call Where(Expr cond, Expr x, Expr y, Expr output)
+    {
+        return new Call(new TIR.NTT.Where(), cond, x, y, output);
+    }
+
+    public static Call Expand(Expr input, Expr output)
+    {
+        return new Call(new TIR.NTT.Expand(), input, output);
+    }
+
+    public static Call Erf(Expr input, Expr output)
+    {
+        return new Call(new TIR.NTT.Erf(), input, output);
+    }
+
+    public static Call Compare(CompareOp compareOp, Expr lhs, Expr rhs, Expr output)
+    {
+        return new Call(new TIR.NTT.Compare(compareOp), lhs, rhs, output);
+    }
+
+    public static Call ScatterND(Expr input, Expr indices, Expr updates, Expr output)
+    {
+        return new Call(new TIR.NTT.ScatterND(), input, indices, updates, output);
+    }
+
+    public static Expr Stack(Expr[] inputs, Expr ret, int axis)
+    {
+        return new Call(new Stack(axis), inputs.Concat(new[] { ret }).ToArray());
+    }
+
+    public static Expr ShapeOf(Expr inputs, Expr ret)
+    {
+        return new Call(new TIR.NTT.ShapeOf(), inputs, ret);
+    }
+
+    public static Expr ConstantOfShape(Shape shape, Expr value, Expr ret)
+    {
+        return new Call(new TIR.NTT.ConstantOfShape(), shape, value, ret);
+    }
+
+    public static Expr Range(Expr begin, Expr end, Expr step, Expr ret)
+    {
+        return new Call(new TIR.NTT.Range(), begin, end, step, ret);
+    }
+
+    public static Expr GetPositionIds(Expr kvCache, Expr ret, DistributedType distributedType)
+    {
+        return new Call(new TIR.NTT.GetPositionIds(distributedType), kvCache, ret);
+    }
+
+    public static Expr Qwen3MoE(Expr hiddenStates, Expr moeGateW, Expr moeExpertGateInputScale, Expr moeExpertGateProjW, Expr moeExpertGateProjScale, Expr moeExpertDownInputScale, Expr moeExpertDownProjW, Expr moeExpertDownProjScale, Expr moeExpertUpInputScale, Expr moeExpertUpProjW, Expr moeExpertUpProjScale, Expr ret, long layerId, long hiddenSize, long intermediateSize, long moeIntermediateSize, long numExpert, long numTopK, long isNormTopkProb)
+    {
+        return new Call(new TIR.NTT.Qwen3MoE(layerId, hiddenSize, intermediateSize, moeIntermediateSize, numExpert, numTopK, isNormTopkProb), hiddenStates, moeGateW, moeExpertGateInputScale, moeExpertGateProjW, moeExpertGateProjScale, moeExpertDownInputScale, moeExpertDownProjW, moeExpertDownProjScale, moeExpertUpInputScale, moeExpertUpProjW, moeExpertUpProjScale, ret);
+    }
+}

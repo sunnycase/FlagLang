@@ -1,0 +1,206 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json.Serialization;
+using System.Threading.Tasks;
+using Nncase.IO;
+using Nncase.IR;
+
+namespace Nncase;
+
+/// <summary>
+/// Attributes of <see cref="PrimType"/>.
+/// </summary>
+[Flags]
+public enum PrimTypeAttributes
+{
+    /// <summary>
+    /// None.
+    /// </summary>
+    None = 0,
+
+    /// <summary>
+    /// Is integer.
+    /// </summary>
+    IsInteger = 1,
+
+    /// <summary>
+    /// Is floating point.
+    /// </summary>
+    IsFloat = 2,
+}
+
+/// <summary>
+/// The storge data Type, for simd/npu/gpu.
+/// <example>
+/// float32*4
+/// int8*2
+/// </example>
+/// </summary>
+/// <param name="ElemType"> the type the pointer points to. </param>
+/// <param name="AddressSpace"> the address space of the pointer. </param>
+public sealed record PointerType(DataType ElemType, int AddressSpace = 0) : DataType
+{
+    /// <inheritdoc/>
+    public override Type CLRType { get; } = typeof(Pointer<>).MakeGenericType(ElemType.CLRType);
+
+    /// <inheritdoc/>
+    public override int SizeInBytes => sizeof(ulong);
+}
+
+/// <summary>
+/// the abstract datatype record.
+/// </summary>
+[JsonConverter(typeof(DataTypeJsonConverter))]
+public abstract partial record DataType : IRType
+{
+    internal DataType()
+    {
+    }
+
+    /// <summary>
+    /// Gets CLR type.
+    /// </summary>
+    public abstract Type CLRType { get; }
+
+    /// <summary>
+    /// Gets size in bytes.
+    /// </summary>
+    public abstract int SizeInBytes { get; }
+
+    /// <summary>
+    /// Get data type from CLR type.
+    /// </summary>
+    /// <param name="t">CLR type.</param>
+    /// <returns>Data type.</returns>
+    public static DataType FromType(Type t)
+    {
+        if (t.IsGenericType)
+        {
+            var generic = t.GetGenericTypeDefinition();
+            if (generic == typeof(Pointer<>))
+            {
+                return new PointerType(FromType(t.GenericTypeArguments[0]));
+            }
+            else if (generic == typeof(Reference<>))
+            {
+                return new ReferenceType(FromType(t.GenericTypeArguments[0]));
+            }
+            else if (generic == typeof(Memory<>))
+            {
+                return new MemoryType(FromType(t.GenericTypeArguments[0]));
+            }
+            else if (generic.Name.StartsWith("Vector"))
+            {
+                if (_clrTypeLanes.TryGetValue(generic, out var lanes))
+                {
+                    return new VectorType(FromType(t.GenericTypeArguments[0]), lanes);
+                }
+            }
+
+            throw new ArgumentException($"Unsupported CLR type: {t.FullName}.");
+        }
+
+        // Workaround for creating a shape.
+        if (t == typeof(long))
+        {
+            return new Int64Type();
+        }
+
+        return CompilerServices.DataTypeService.GetDataTypeFromType(t);
+    }
+
+    /// <summary>
+    /// Get data type from type code.
+    /// </summary>
+    /// <param name="typeCode">Type code.</param>
+    /// <returns>Data type.</returns>
+    public static PrimType FromTypeCode(Runtime.TypeCode typeCode)
+    {
+        return CompilerServices.DataTypeService.GetPrimTypeFromTypeCode(typeCode);
+    }
+
+    /// <summary>
+    /// Get data type from CLR type.
+    /// </summary>
+    /// <typeparam name="T">CLR type.</typeparam>
+    /// <returns>Data type.</returns>
+    public static DataType FromType<T>()
+        where T : struct, IEquatable<T>
+        => FromType(typeof(T));
+}
+
+/// <summary>
+/// Prim type.
+/// </summary>
+public abstract record PrimType : DataType
+{
+    /// <summary>
+    /// Gets attributes.
+    /// </summary>
+    public abstract PrimTypeAttributes Attributes { get; }
+
+    /// <summary>
+    /// Gets full name.
+    /// </summary>
+    public abstract string FullName { get; }
+
+    /// <summary>
+    /// Gets short name.
+    /// </summary>
+    public abstract string ShortName { get; }
+
+    /// <summary>
+    /// Gets typecode.
+    /// </summary>
+    public abstract Runtime.TypeCode TypeCode { get; }
+
+    /// <inheritdoc/>
+    public sealed override string ToString()
+    {
+        return ShortName;
+    }
+}
+
+/// <summary>
+/// Value type.
+/// </summary>
+public abstract record ValueType : DataType
+{
+    /// <summary>
+    /// Gets uuid.
+    /// </summary>
+    public abstract Guid Uuid { get; }
+}
+
+/// <summary>
+/// Vector type.
+/// </summary>
+public sealed partial record VectorType(DataType ElemType, IR.IRArray<int> Lanes) : DataType
+{
+    public VectorType(DataType elemType, params int[] lanes)
+        : this(elemType, new IR.IRArray<int>(lanes))
+    {
+        if (elemType == DataTypes.Boolean)
+        {
+            throw new ArgumentException("Boolean is not supported in vector type.");
+        }
+    }
+
+    public override int SizeInBytes => ElemType.SizeInBytes * (int)TensorUtilities.GetProduct(TensorUtilities.ToLongs(Lanes.ToArray()));
+}
+
+/// <summary>
+/// Vector type.
+/// </summary>
+public sealed partial record MaskVectorType(MaskVectorStyle Style, int ElementBits, int Lanes) : DataType
+{
+    public override int SizeInBytes => Lanes * ElementBits / 8;
+}

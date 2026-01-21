@@ -1,6 +1,7 @@
 from triton.backends.compiler import BaseBackend, GPUTarget, Language
-from triton._C.libtriton import ir, passes, llvm, nvidia
-from triton._C.libtriton import tle
+#from triton._C.libtriton import ir, passes, llvm, nvidia
+#from triton._C.libtriton import tle
+from triton._C.libtriton import ir, hosting
 from triton import knobs
 from triton.runtime.errors import PTXASError
 
@@ -169,6 +170,11 @@ class CUDABackend(BaseBackend):
     def __init__(self, target: GPUTarget) -> None:
         super().__init__(target)
         self.binary_ext = "cubin"
+        
+    def make_context(self, options: object):
+        target = ir.target("cuda")
+        options = ir.compile_options()
+        return ir.compile_session(target, options)
 
     def parse_options(self, opts) -> Any:
         args = {'arch': knobs.runtime.override_arch or f"sm{self.target.arch}"}
@@ -221,130 +227,131 @@ class CUDABackend(BaseBackend):
         from triton.language.extra.cuda import libdevice
         return {"triton.language.extra.libdevice": libdevice}
 
-    def load_dialects(self, ctx):
-        nvidia.load_dialects(ctx)
-        if CUDABackend.instrumentation:
-            CUDABackend.instrumentation.load_dialects(ctx)
+    def load_dialects(self, context):
+        context.add_plugin_by_name("FlagLang.Modules.Nvidia.dll")
+        # nvidia.load_dialects(context)
+        # if CUDABackend.instrumentation:
+        #     CUDABackend.instrumentation.load_dialects(context)
 
     @staticmethod
     def make_ttir(mod, metadata, opt, capability):
-        pm = ir.pass_manager(mod.context)
-        pm.enable_debug()
-        passes.common.add_inliner(pm)
-        passes.ttir.add_rewrite_tensor_pointer(pm)
-        if capability // 10 < 9:
-            passes.ttir.add_rewrite_tensor_descriptor_to_pointer(pm)
-        passes.common.add_canonicalizer(pm)
-        passes.ttir.add_combine(pm)
-        passes.ttir.add_reorder_broadcast(pm)
-        passes.common.add_cse(pm)
-        passes.common.add_symbol_dce(pm)
-        passes.ttir.add_loop_unroll(pm)
+        pm = ir.pass_manager(mod.context, "ttir")
+        pm.add_optimize_ttir(capability)
+        # passes.common.add_inliner(pm)
+        # passes.ttir.add_rewrite_tensor_pointer(pm)
+        # if capability // 10 < 9:
+        #     passes.ttir.add_rewrite_tensor_descriptor_to_pointer(pm)
+        # passes.common.add_canonicalizer(pm)
+        # passes.ttir.add_combine(pm)
+        # passes.ttir.add_reorder_broadcast(pm)
+        # passes.common.add_cse(pm)
+        # passes.common.add_symbol_dce(pm)
+        # passes.ttir.add_loop_unroll(pm)
         pm.run(mod)
         return mod
 
     @staticmethod
     def make_ttgir(mod, metadata, opt, capability):
         # Set maxnreg on all kernels, if it was provided.
-        if opt.maxnreg is not None:
-            mod.set_attr("ttg.maxnreg", ir.builder(mod.context).get_int32_attr(opt.maxnreg))
+        # if opt.maxnreg is not None:
+        #     mod.set_attr("ttg.maxnreg", ir.builder(mod.context).get_int32_attr(opt.maxnreg))
 
-        cluster_info = nvidia.ClusterInfo()
-        if opt.cluster_dims is not None:
-            cluster_info.clusterDimX = opt.cluster_dims[0]
-            cluster_info.clusterDimY = opt.cluster_dims[1]
-            cluster_info.clusterDimZ = opt.cluster_dims[2]
-        pm = ir.pass_manager(mod.context)
-        dump_enabled = pm.enable_debug()
-        passes.ttir.add_convert_to_ttgpuir(pm, f"cuda:{capability}", opt.num_warps, 32, opt.num_ctas)
-        # flagtree tle raw
-        tle.raw_passes.add_tle_convert_arg_to_memdesc(pm)
-        # optimize TTGIR
-        passes.ttgpuir.add_coalesce(pm)
-        passes.ttgpuir.add_process_shared_memory_hint(pm)  # flagtree hints
-        if capability // 10 >= 8:
-            passes.ttgpuir.add_f32_dot_tc(pm)
-        # TODO(Qingyi): Move PlanCTAPass to the front of CoalescePass
-        nvidia.passes.ttnvgpuir.add_plan_cta(pm, cluster_info)
-        passes.ttgpuir.add_remove_layout_conversions(pm)
-        passes.ttgpuir.add_optimize_thread_locality(pm)
-        tle.passes.add_early_assign_memory_space(pm)
-        passes.ttgpuir.add_accelerate_matmul(pm)
-        passes.ttgpuir.add_remove_layout_conversions(pm)
-        passes.ttgpuir.add_optimize_dot_operands(pm, capability >= 80)
-        nvidia.passes.ttnvgpuir.add_optimize_descriptor_encoding(pm)
-        passes.ttir.add_loop_aware_cse(pm)
-        if capability // 10 in [8, 9]:
-            passes.ttgpuir.add_fuse_nested_loops(pm)
-            passes.common.add_canonicalizer(pm)
-            passes.ttir.add_triton_licm(pm)
-            passes.common.add_canonicalizer(pm)
-            passes.ttgpuir.add_combine_tensor_select_and_if(pm)
-            nvidia.passes.hopper.add_hopper_warpspec(pm, opt.num_stages, dump_enabled)
-            passes.ttgpuir.add_assign_latencies(pm, opt.num_stages)
-            passes.ttgpuir.add_schedule_loops(pm)
-            passes.ttgpuir.add_pipeline(pm, opt.num_stages, dump_enabled)
-        elif capability // 10 >= 10:
-            passes.ttgpuir.add_fuse_nested_loops(pm)
-            passes.common.add_canonicalizer(pm)
-            passes.ttir.add_triton_licm(pm)
-            passes.ttgpuir.add_optimize_accumulator_init(pm)
-            passes.ttgpuir.add_hoist_tmem_alloc(pm, False)
-            nvidia.passes.ttnvgpuir.add_promote_lhs_to_tmem(pm)
-            passes.ttgpuir.add_assign_latencies(pm, opt.num_stages)
-            passes.ttgpuir.add_schedule_loops(pm)
-            passes.ttgpuir.add_warp_specialize(pm, opt.num_stages)
-            passes.ttgpuir.add_pipeline(pm, opt.num_stages, dump_enabled)
-            passes.ttgpuir.add_combine_tensor_select_and_if(pm)
-            # hoist again and allow hoisting out of if statements
-            passes.ttgpuir.add_hoist_tmem_alloc(pm, True)
-            nvidia.passes.ttnvgpuir.add_remove_tmem_tokens(pm)
-        else:
-            passes.ttir.add_triton_licm(pm)
-        passes.common.add_canonicalizer(pm)
-        passes.ttir.add_loop_aware_cse(pm)
-        passes.ttgpuir.add_prefetch(pm)
-        passes.ttgpuir.add_optimize_dot_operands(pm, capability >= 80)
-        passes.ttgpuir.add_coalesce_async_copy(pm)
-        nvidia.passes.ttnvgpuir.add_optimize_tmem_layouts(pm)
-        passes.ttgpuir.add_remove_layout_conversions(pm)
-        nvidia.passes.ttnvgpuir.add_interleave_tmem(pm)
-        passes.ttgpuir.add_reduce_data_duplication(pm)
-        passes.ttgpuir.add_reorder_instructions(pm)
-        # flagtree tle: Lowering load with tt.load.async attribute
-        tle.passes.add_lower_async_load(pm)
-        passes.ttir.add_loop_aware_cse(pm)
-        passes.common.add_symbol_dce(pm)
-        if capability // 10 >= 9:
-            # flagtree tle: Apply TLE TMA copy lowering before standard NVIDIA TMA lowering
-            tle.passes.add_lower_tma_copy(pm)
-            nvidia.passes.ttnvgpuir.add_tma_lowering(pm)
-        nvidia.passes.ttnvgpuir.add_fence_insertion(pm, capability)
-        nvidia.passes.ttnvgpuir.add_lower_mma(pm)
-        passes.common.add_sccp(pm)
-        passes.common.add_cse(pm)
-        passes.common.add_canonicalizer(pm)
+        # cluster_info = nvidia.ClusterInfo()
+        # if opt.cluster_dims is not None:
+        #     cluster_info.clusterDimX = opt.cluster_dims[0]
+        #     cluster_info.clusterDimY = opt.cluster_dims[1]
+        #     cluster_info.clusterDimZ = opt.cluster_dims[2]
+        # pm = ir.pass_manager(mod.context)
+        # dump_enabled = pm.enable_debug()
+        # passes.ttir.add_convert_to_ttgpuir(pm, f"cuda:{capability}", opt.num_warps, 32, opt.num_ctas)
+        # # flagtree tle raw
+        # tle.raw_passes.add_tle_convert_arg_to_memdesc(pm)
+        # # optimize TTGIR
+        # passes.ttgpuir.add_coalesce(pm)
+        # passes.ttgpuir.add_process_shared_memory_hint(pm)  # flagtree hints
+        # if capability // 10 >= 8:
+        #     passes.ttgpuir.add_f32_dot_tc(pm)
+        # # TODO(Qingyi): Move PlanCTAPass to the front of CoalescePass
+        # nvidia.passes.ttnvgpuir.add_plan_cta(pm, cluster_info)
+        # passes.ttgpuir.add_remove_layout_conversions(pm)
+        # passes.ttgpuir.add_optimize_thread_locality(pm)
+        # tle.passes.add_early_assign_memory_space(pm)
+        # passes.ttgpuir.add_accelerate_matmul(pm)
+        # passes.ttgpuir.add_remove_layout_conversions(pm)
+        # passes.ttgpuir.add_optimize_dot_operands(pm, capability >= 80)
+        # nvidia.passes.ttnvgpuir.add_optimize_descriptor_encoding(pm)
+        # passes.ttir.add_loop_aware_cse(pm)
+        # if capability // 10 in [8, 9]:
+        #     passes.ttgpuir.add_fuse_nested_loops(pm)
+        #     passes.common.add_canonicalizer(pm)
+        #     passes.ttir.add_triton_licm(pm)
+        #     passes.common.add_canonicalizer(pm)
+        #     passes.ttgpuir.add_combine_tensor_select_and_if(pm)
+        #     nvidia.passes.hopper.add_hopper_warpspec(pm, opt.num_stages, dump_enabled)
+        #     passes.ttgpuir.add_assign_latencies(pm, opt.num_stages)
+        #     passes.ttgpuir.add_schedule_loops(pm)
+        #     passes.ttgpuir.add_pipeline(pm, opt.num_stages, dump_enabled)
+        # elif capability // 10 >= 10:
+        #     passes.ttgpuir.add_fuse_nested_loops(pm)
+        #     passes.common.add_canonicalizer(pm)
+        #     passes.ttir.add_triton_licm(pm)
+        #     passes.ttgpuir.add_optimize_accumulator_init(pm)
+        #     passes.ttgpuir.add_hoist_tmem_alloc(pm, False)
+        #     nvidia.passes.ttnvgpuir.add_promote_lhs_to_tmem(pm)
+        #     passes.ttgpuir.add_assign_latencies(pm, opt.num_stages)
+        #     passes.ttgpuir.add_schedule_loops(pm)
+        #     passes.ttgpuir.add_warp_specialize(pm, opt.num_stages)
+        #     passes.ttgpuir.add_pipeline(pm, opt.num_stages, dump_enabled)
+        #     passes.ttgpuir.add_combine_tensor_select_and_if(pm)
+        #     # hoist again and allow hoisting out of if statements
+        #     passes.ttgpuir.add_hoist_tmem_alloc(pm, True)
+        #     nvidia.passes.ttnvgpuir.add_remove_tmem_tokens(pm)
+        # else:
+        #     passes.ttir.add_triton_licm(pm)
+        # passes.common.add_canonicalizer(pm)
+        # passes.ttir.add_loop_aware_cse(pm)
+        # passes.ttgpuir.add_prefetch(pm)
+        # passes.ttgpuir.add_optimize_dot_operands(pm, capability >= 80)
+        # passes.ttgpuir.add_coalesce_async_copy(pm)
+        # nvidia.passes.ttnvgpuir.add_optimize_tmem_layouts(pm)
+        # passes.ttgpuir.add_remove_layout_conversions(pm)
+        # nvidia.passes.ttnvgpuir.add_interleave_tmem(pm)
+        # passes.ttgpuir.add_reduce_data_duplication(pm)
+        # passes.ttgpuir.add_reorder_instructions(pm)
+        # # flagtree tle: Lowering load with tt.load.async attribute
+        # tle.passes.add_lower_async_load(pm)
+        # passes.ttir.add_loop_aware_cse(pm)
+        # passes.common.add_symbol_dce(pm)
+        # if capability // 10 >= 9:
+        #     # flagtree tle: Apply TLE TMA copy lowering before standard NVIDIA TMA lowering
+        #     tle.passes.add_lower_tma_copy(pm)
+        #     nvidia.passes.ttnvgpuir.add_tma_lowering(pm)
+        # nvidia.passes.ttnvgpuir.add_fence_insertion(pm, capability)
+        # nvidia.passes.ttnvgpuir.add_lower_mma(pm)
+        # passes.common.add_sccp(pm)
+        # passes.common.add_cse(pm)
+        # passes.common.add_canonicalizer(pm)
 
-        pm.run(mod)
-        metadata["cluster_dims"] = (cluster_info.clusterDimX, cluster_info.clusterDimY, cluster_info.clusterDimZ)
-        tensordesc_meta = mod.get_tensordesc_metadata()
-        metadata["tensordesc_meta"] = tensordesc_meta
+        # pm.run(mod)
+        # metadata["cluster_dims"] = (cluster_info.clusterDimX, cluster_info.clusterDimY, cluster_info.clusterDimZ)
+        # tensordesc_meta = mod.get_tensordesc_metadata()
+        # metadata["tensordesc_meta"] = tensordesc_meta
         return mod
 
     def gluon_to_ttgir(self, src, metadata, options, capability):
         mod = src
-        pm = ir.pass_manager(mod.context)
-        pm.enable_debug()
+        pm = ir.pass_manager(mod.context, "ttgir")
+        # pm.enable_debug()
 
-        passes.gluon.add_inliner(pm)
-        passes.gluon.add_resolve_auto_encodings(pm)
-        passes.common.add_sccp(pm)
-        passes.ttir.add_loop_aware_cse(pm)
-        passes.gluon.add_canonicalizer(pm)
-        passes.ttgpuir.add_combine_tensor_select_and_if(pm)
+        # passes.gluon.add_inliner(pm)
+        # passes.gluon.add_resolve_auto_encodings(pm)
+        # passes.common.add_sccp(pm)
+        # passes.ttir.add_loop_aware_cse(pm)
+        # passes.gluon.add_canonicalizer(pm)
+        # passes.ttgpuir.add_combine_tensor_select_and_if(pm)
 
-        pm.run(mod)
-        metadata["tensordesc_meta"] = mod.get_tensordesc_metadata()
+        # pm.run(mod)
+        # metadata["tensordesc_meta"] = mod.get_tensordesc_metadata()
         return mod
 
     def make_llir(self, src, metadata, options, capability):
@@ -352,96 +359,98 @@ class CUDABackend(BaseBackend):
 
         mod = src
         # TritonGPU -> LLVM-IR (MLIR)
-        pm = ir.pass_manager(mod.context)
-        pm.enable_debug()
+        pm = ir.pass_manager(mod.context, "llir")
+        return mod
+        # pm.enable_debug()
 
-        passes.ttgpuir.add_combine_tensor_select_and_if(pm)
-        passes.ttgpuir.add_allocate_warp_groups(pm)
-        passes.convert.add_scf_to_cf(pm)
-        nvidia.passes.ttgpuir.add_allocate_shared_memory_nv(pm, capability, ptx_version)
-        nvidia.passes.ttnvgpuir.add_allocate_tensor_memory(pm)
-        if knobs.compilation.enable_experimental_consan:
-            # Call ConcurrencySanitizerPass here, before allocating global scratch memory but after allocating tensor and shared
-            passes.ttgpuir.add_concurrency_sanitizer(pm)
-        passes.ttgpuir.add_allocate_global_scratch_memory(pm)
-        nvidia.passes.ttnvgpuir.add_proxy_fence_insertion(pm, capability)
-        # instrumentation point here so we can override IRs above (e.g., ttir and ttgir)
-        if CUDABackend.instrumentation:
-            CUDABackend.instrumentation.patch("ttgpuir_to_llvmir", pm, mod.context)
-        nvidia.passes.ttgpuir.add_to_llvmir(pm, capability, ptx_version)
-        passes.common.add_canonicalizer(pm)
-        passes.common.add_cse(pm)
-        nvidia.passes.ttnvgpuir.add_nvgpu_to_llvm(pm)
-        nvidia.passes.ttnvgpuir.add_warp_specialize_to_llvm(pm)
-        passes.common.add_canonicalizer(pm)
-        passes.common.add_cse(pm)
-        passes.common.add_symbol_dce(pm)
-        passes.convert.add_nvvm_to_llvm(pm)
-        if not knobs.compilation.disable_line_info:
-            passes.llvmir.add_di_scope(pm)
-        if CUDABackend.instrumentation:
-            CUDABackend.instrumentation.patch("llvmir_to_llvm", pm, mod.context)
-        # flagtree tle raw
-        tle.raw_passes.add_tle_dsl_region_inline(pm)
+        # passes.ttgpuir.add_combine_tensor_select_and_if(pm)
+        # passes.ttgpuir.add_allocate_warp_groups(pm)
+        # passes.convert.add_scf_to_cf(pm)
+        # nvidia.passes.ttgpuir.add_allocate_shared_memory_nv(pm, capability, ptx_version)
+        # nvidia.passes.ttnvgpuir.add_allocate_tensor_memory(pm)
+        # if knobs.compilation.enable_experimental_consan:
+        #     # Call ConcurrencySanitizerPass here, before allocating global scratch memory but after allocating tensor and shared
+        #     passes.ttgpuir.add_concurrency_sanitizer(pm)
+        # passes.ttgpuir.add_allocate_global_scratch_memory(pm)
+        # nvidia.passes.ttnvgpuir.add_proxy_fence_insertion(pm, capability)
+        # # instrumentation point here so we can override IRs above (e.g., ttir and ttgir)
+        # if CUDABackend.instrumentation:
+        #     CUDABackend.instrumentation.patch("ttgpuir_to_llvmir", pm, mod.context)
+        # nvidia.passes.ttgpuir.add_to_llvmir(pm, capability, ptx_version)
+        # passes.common.add_canonicalizer(pm)
+        # passes.common.add_cse(pm)
+        # nvidia.passes.ttnvgpuir.add_nvgpu_to_llvm(pm)
+        # nvidia.passes.ttnvgpuir.add_warp_specialize_to_llvm(pm)
+        # passes.common.add_canonicalizer(pm)
+        # passes.common.add_cse(pm)
+        # passes.common.add_symbol_dce(pm)
+        # passes.convert.add_nvvm_to_llvm(pm)
+        # if not knobs.compilation.disable_line_info:
+        #     passes.llvmir.add_di_scope(pm)
+        # if CUDABackend.instrumentation:
+        #     CUDABackend.instrumentation.patch("llvmir_to_llvm", pm, mod.context)
+        # # flagtree tle raw
+        # tle.raw_passes.add_tle_dsl_region_inline(pm)
 
-        pm.run(mod)
-        # LLVM-IR (MLIR) -> LLVM-IR (LLVM)
-        llvm.init_targets()
-        context = llvm.context()
-        if knobs.compilation.enable_asan:
-            raise RuntimeError(
-                "Address Sanitizer Error: Address sanitizer is currently only supported on the AMD backend")
-        llvm_mod = llvm.to_module(mod, context)
-        proc = sm_arch_from_capability(capability)
-        features = get_features(options, self.target.arch)
-        triple = 'nvptx64-nvidia-cuda'
-        nvidia.set_short_ptr()
-        llvm.attach_datalayout(llvm_mod, triple, proc, features)
-        nvidia.set_nvvm_reflect_ftz(llvm_mod)
+        # pm.run(mod)
+        # # LLVM-IR (MLIR) -> LLVM-IR (LLVM)
+        # llvm.init_targets()
+        # context = llvm.context()
+        # if knobs.compilation.enable_asan:
+        #     raise RuntimeError(
+        #         "Address Sanitizer Error: Address sanitizer is currently only supported on the AMD backend")
+        # llvm_mod = llvm.to_module(mod, context)
+        # proc = sm_arch_from_capability(capability)
+        # features = get_features(options, self.target.arch)
+        # triple = 'nvptx64-nvidia-cuda'
+        # nvidia.set_short_ptr()
+        # llvm.attach_datalayout(llvm_mod, triple, proc, features)
+        # nvidia.set_nvvm_reflect_ftz(llvm_mod)
 
-        if options.extern_libs and nvidia.has_extern_deps(llvm_mod):
-            paths = [path for (name, path) in options.extern_libs]
-            llvm.link_extern_libs(llvm_mod, paths)
+        # if options.extern_libs and nvidia.has_extern_deps(llvm_mod):
+        #     paths = [path for (name, path) in options.extern_libs]
+        #     llvm.link_extern_libs(llvm_mod, paths)
 
-        llvm.optimize_module(llvm_mod, llvm.OPTIMIZE_O3)
+        # llvm.optimize_module(llvm_mod, llvm.OPTIMIZE_O3)
 
-        # Get some metadata
-        # warp-specialization mutates num_warps
-        total_num_warps = src.get_int_attr("ttg.total-num-warps")
-        if total_num_warps is not None:
-            metadata["num_warps"] = total_num_warps
-        metadata["shared"] = src.get_int_attr("ttg.shared")
-        metadata["tmem_size"] = src.get_int_attr("ttg.tensor_memory_size")
-        metadata["global_scratch_size"] = src.get_int_attr("ttg.global_scratch_memory_size")
-        metadata["global_scratch_align"] = src.get_int_attr("ttg.global_scratch_memory_alignment")
-        metadata["profile_scratch_size"] = src.get_int_attr("ttg.profile_scratch_memory_size") or 0
-        metadata["profile_scratch_align"] = src.get_int_attr("ttg.profile_scratch_memory_alignment") or 1
-        ret = str(llvm_mod)
-        del llvm_mod
-        del context
-        return ret
+        # # Get some metadata
+        # # warp-specialization mutates num_warps
+        # total_num_warps = src.get_int_attr("ttg.total-num-warps")
+        # if total_num_warps is not None:
+        #     metadata["num_warps"] = total_num_warps
+        # metadata["shared"] = src.get_int_attr("ttg.shared")
+        # metadata["tmem_size"] = src.get_int_attr("ttg.tensor_memory_size")
+        # metadata["global_scratch_size"] = src.get_int_attr("ttg.global_scratch_memory_size")
+        # metadata["global_scratch_align"] = src.get_int_attr("ttg.global_scratch_memory_alignment")
+        # metadata["profile_scratch_size"] = src.get_int_attr("ttg.profile_scratch_memory_size") or 0
+        # metadata["profile_scratch_align"] = src.get_int_attr("ttg.profile_scratch_memory_alignment") or 1
+        # ret = str(llvm_mod)
+        # del llvm_mod
+        # del context
+        # return ret
 
     def make_ptx(self, src, metadata, opt, capability):
         ptx_version = get_ptx_version_from_options(opt, self.target.arch)
+        return src
 
-        triple = 'nvptx64-nvidia-cuda'
-        proc = sm_arch_from_capability(capability)
-        features = get_features(opt, self.target.arch)
-        ret = llvm.translate_to_asm(src, triple, proc, features, [], opt.enable_fp_fusion, False)
-        # Find kernel names (there should only be one)
-        names = re.findall(r".visible .entry ([a-zA-Z_][a-zA-Z0-9_]*)", ret)
-        assert len(names) == 1
-        metadata["name"] = names[0]
-        # post-process
-        ptx_version = f'{ptx_version//10}.{ptx_version%10}'
-        ret = re.sub(r'\.version \d+\.\d+', f'.version {ptx_version}', ret, flags=re.MULTILINE)
-        ret = re.sub(r'\.target sm_\d+', f'.target sm_{capability}', ret, flags=re.MULTILINE)
-        # Remove the debug flag that prevents ptxas from optimizing the code
-        ret = re.sub(r",\s*debug|debug,\s*", "", ret)
-        if knobs.nvidia.dump_nvptx:
-            print("// -----// NVPTX Dump //----- //")
-            print(ret)
-        return ret
+        # triple = 'nvptx64-nvidia-cuda'
+        # proc = sm_arch_from_capability(capability)
+        # features = get_features(opt, self.target.arch)
+        # ret = llvm.translate_to_asm(src, triple, proc, features, [], opt.enable_fp_fusion, False)
+        # # Find kernel names (there should only be one)
+        # names = re.findall(r".visible .entry ([a-zA-Z_][a-zA-Z0-9_]*)", ret)
+        # assert len(names) == 1
+        # metadata["name"] = names[0]
+        # # post-process
+        # ptx_version = f'{ptx_version//10}.{ptx_version%10}'
+        # ret = re.sub(r'\.version \d+\.\d+', f'.version {ptx_version}', ret, flags=re.MULTILINE)
+        # ret = re.sub(r'\.target sm_\d+', f'.target sm_{capability}', ret, flags=re.MULTILINE)
+        # # Remove the debug flag that prevents ptxas from optimizing the code
+        # ret = re.sub(r",\s*debug|debug,\s*", "", ret)
+        # if knobs.nvidia.dump_nvptx:
+        #     print("// -----// NVPTX Dump //----- //")
+        #     print(ret)
+        # return ret
 
     def make_cubin(self, src, metadata, opt, capability):
         ptxas = get_ptxas().path

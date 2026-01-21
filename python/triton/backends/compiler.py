@@ -62,6 +62,13 @@ class BaseBackend(metaclass=ABCMeta):
         Load additional MLIR dialects into the provided `context`
         """
         raise NotImplementedError
+    
+    @abstractmethod
+    def make_context(self, options: object):
+        """
+        Create and return a CompileSession object for this backend
+        """
+        raise NotImplementedError
 
     @abstractmethod
     def get_module_map(self) -> Dict[str, ModuleType]:

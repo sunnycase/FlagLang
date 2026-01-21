@@ -1,0 +1,25 @@
+@model Nncase.CodeGen.NTT.TypedKernelTemplateModel<Nncase.TIR.NTT.Matmul>
+@{
+  string scale = Model.Arguments[4].Symbol.Name;
+}
+
+@(Model.Indent){
+@if (Model.Arguments[3].Symbol.Name != "nullptr")
+{
+@:@(Model.Indent)if (@Html.Raw(Model.Arguments[3].Symbol.Name)) {
+// @:@(Model.Indent)  constexpr std::string_view function_name = "matmul";
+// @:@(Model.Indent)  profile_scope profiler(function_name, profile_level::device);
+@:@(Model.Indent)  matmul<true, @(Model.Target.TransposeA.ToString().ToLowerInvariant()), @(Model.Target.TransposeB.ToString().ToLowerInvariant())>(@Html.Raw(Model.Arguments[0].Symbol.Name), @Html.Raw(Model.Arguments[1].Symbol.Name), @Html.Raw(Model.Arguments[2].Symbol.Name), @scale, fixed_shape_v<@string.Join(",", Model.Target.LhsVectorizedAxes)>,  fixed_shape_v<>, fixed_shape_v<@string.Join(",", Model.Target.RhsVectorizedAxes)>, fixed_shape_v<>);
+@:@(Model.Indent)} else {
+// @:@(Model.Indent)  constexpr std::string_view function_name = "matmul";
+// @:@(Model.Indent)  profile_scope profiler(function_name, profile_level::device);
+@:@(Model.Indent)  matmul<false, @(Model.Target.TransposeA.ToString().ToLowerInvariant()), @(Model.Target.TransposeB.ToString().ToLowerInvariant())>(@Html.Raw(Model.Arguments[0].Symbol.Name), @Html.Raw(Model.Arguments[1].Symbol.Name), @Html.Raw(Model.Arguments[2].Symbol.Name), @scale, fixed_shape_v<@string.Join(",", Model.Target.LhsVectorizedAxes)>,  fixed_shape_v<>, fixed_shape_v<@string.Join(",", Model.Target.RhsVectorizedAxes)>, fixed_shape_v<>);
+@:@(Model.Indent)}
+}
+else
+{
+// @:@(Model.Indent)  constexpr std::string_view function_name = "matmul";
+// @:@(Model.Indent)  profile_scope profiler(function_name, profile_level::device);
+@:@(Model.Indent)  matmul<false, @(Model.Target.TransposeA.ToString().ToLowerInvariant()), @(Model.Target.TransposeB.ToString().ToLowerInvariant())>(@Html.Raw(Model.Arguments[0].Symbol.Name), @Html.Raw(Model.Arguments[1].Symbol.Name), @Html.Raw(Model.Arguments[2].Symbol.Name), @scale, fixed_shape_v<@string.Join(",", Model.Target.LhsVectorizedAxes)>,  fixed_shape_v<>, fixed_shape_v<@string.Join(",", Model.Target.RhsVectorizedAxes)>, fixed_shape_v<>);
+}
+@(Model.Indent)}

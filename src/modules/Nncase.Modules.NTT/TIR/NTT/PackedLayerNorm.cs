@@ -1,0 +1,47 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using Nncase.IR;
+using Nncase.PatternMatch;
+
+namespace Nncase.TIR.NTT;
+
+public sealed partial class VectorizedLayerNorm : NTTKernelOp
+{
+    /// <summary>
+    /// Gets input.
+    /// </summary>
+    public static readonly ParameterInfo Input = new(typeof(VectorizedLayerNorm), 0, "input", ParameterKind.Input);
+
+    /// <summary>
+    /// Gets scale.
+    /// </summary>
+    public static readonly ParameterInfo Scale = new(typeof(VectorizedLayerNorm), 1, "scale", ParameterKind.Input);
+
+    /// <summary>
+    /// Gets bias.
+    /// </summary>
+    public static readonly ParameterInfo Bias = new(typeof(VectorizedLayerNorm), 2, "bias", ParameterKind.Input);
+
+    public static readonly ParameterInfo PostScale = new(typeof(VectorizedLayerNorm), 3, "postScale", ParameterKind.Attribute);
+
+    public static readonly ParameterInfo Output = new(typeof(VectorizedLayerNorm), 4, "output", ParameterKind.Input);
+
+    public int Axis { get; }
+
+    public float Epsilon { get; }
+
+    public bool UseMean { get; }
+
+    public IRArray<int> VectorizedAxes { get; }
+
+    public IRArray<Dimension> PadedNums { get; }
+
+    public DistributedType DistType { get; }
+
+    public string CSourcePath { get; }
+
+    public string FuncName { get; }
+
+    public override string DisplayProperty() => $"Axis: {Axis}, Epsilon: {Epsilon}, UseMean: {UseMean}, VectorizedAxes: {VectorizedAxes}, PadedNums: {PadedNums}";
+}

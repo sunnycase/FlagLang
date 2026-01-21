@@ -1,0 +1,128 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using DryIoc.ImTools;
+using NetFabric.Hyperlinq;
+using Nncase.IR;
+using Nncase.IR.Math;
+using Nncase.IR.Tensors;
+using Nncase.PatternMatch;
+using Nncase.Utilities;
+using static Nncase.IR.F.Math;
+using static Nncase.IR.F.Tensors;
+using static Nncase.IR.TypePatternUtility;
+using static Nncase.PatternMatch.F.Math;
+using static Nncase.PatternMatch.F.Tensors;
+using static Nncase.PatternMatch.Utility;
+
+namespace Nncase.Passes.Rules.Neutral;
+
+/// <summary>
+/// Fold nop <see cref="IR.Tensors.Reshape"/>.
+/// </summary>
+[RuleGenerator]
+public sealed partial class FoldNopReshape : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsReshape(
+        IsWildcard("input") with { TypePattern = HasFixedShape() },
+        IsFixedShape("newShape"));
+
+    private Expr? GetReplace(Expr input, long[] newShape)
+    {
+        if ((newShape.Count(x => x == -1) == 1 && newShape.Length == input.CheckedShape.Rank
+             && input.CheckedShape.Zip(newShape).Count(t => t.Second != -1 && t.First.FixedValue == t.Second) == newShape.Length - 1)
+            || input.CheckedShape.ToValueArray().SequenceEqual(newShape))
+        {
+            return input;
+        }
+
+        return null;
+    }
+}
+
+/// <summary>
+/// Fold two <see cref="IR.Tensors.Reshape"/>.
+/// </summary>
+[RuleGenerator]
+public sealed partial class FoldTwoReshapes : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsReshape(
+        MaybeMarker(IsReshape(IsWildcard("input"), IsWildcard())), IsShape("newShape"));
+
+    private Expr? GetReplace(Expr input, Shape newShape)
+    {
+        return Reshape(input, newShape);
+    }
+}
+
+/// <summary>
+/// Fold sequeeze reshape(binary(unsequeeze reshape(x), const)).
+/// </summary>
+[RuleGenerator]
+public sealed partial class FoldReshapeBinaryConstReshape : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } =
+        IsReshape(IsSwappableBinary("binary", null, b => b.BinaryOp is BinaryOp.Add or BinaryOp.Mul, IsReshape(IsWildcard("input") with { TypePattern = HasFixedShape() }, IsFixedShape("unsqShape")), IsTensorConst("binaryConst")), IsFixedShape("sqShape"));
+
+    private Expr? GetReplace(Expr input, Binary binary, long[] unsqShape, TensorConst binaryConst, long[] sqShape)
+    {
+        var inShape = input.CheckedShape.ToValueArray();
+        if (!(sqShape.SequenceEqual(inShape) && RulesUtility.FindSqueezeAxis(unsqShape, sqShape) is int axis && axis != -1 && (
+            (binaryConst.Value.Shape.Rank == unsqShape.Length && binaryConst.Value.Shape[axis].FixedValue == 1) || (Evaluator.TypeInference.BroadcastType((TensorType)input.CheckedType, (TensorType)binaryConst.CheckedType) is TensorType outType && outType.Shape.ToValueArray().SequenceEqual(inShape)))))
+        {
+            return null;
+        }
+
+        return IR.F.Math.Binary(binary.BinaryOp, input, (binaryConst.Value.Shape.Rank == unsqShape.Length && binaryConst.Value.Shape[axis].FixedValue == 1) ? IR.F.Tensors.Squeeze(binaryConst, new[] { axis }) : binaryConst);
+    }
+}
+
+/// <summary>
+/// Fold nop <see cref="IR.Tensors.Reshape"/>.
+/// </summary>
+[RuleGenerator]
+public sealed partial class ReshapeToTranspose : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsReshape(
+        "reshape",
+        "call",
+        _ => true,
+        IsWildcard("input") with { TypePattern = HasFixedShape() },
+        IsFixedShape("newShape"));
+
+    private Expr? GetReplace(Expr input, Call call)
+    {
+        if (input.CheckedShape.Rank <= 1)
+        {
+            return null;
+        }
+
+        var newShape = call.CheckedShape.ToValueArray();
+        var inShape = input.CheckedShape.ToValueArray();
+        var sigNewShape = newShape.Where(x => x != 1).ToArray();
+        var sigInShape = inShape.Where(x => x != 1).ToArray();
+        if (newShape.Length == inShape.Length && sigInShape.SequenceEqual(sigNewShape))
+        {
+            var inShapeList = inShape.Zip(Enumerable.Range(0, inShape.Length)).ToList();
+            var perm = new List<int>();
+            for (var o = 0; o < newShape.Length; o++)
+            {
+                var inShapeZip = inShapeList.FindFirst((i) => i.First == newShape[o]);
+                perm.Add(inShapeZip.Second);
+                inShapeList.Remove(inShapeZip);
+            }
+
+            return Transpose(input, perm.ToArray()).InheritMetaData(call);
+        }
+
+        return null;
+    }
+}

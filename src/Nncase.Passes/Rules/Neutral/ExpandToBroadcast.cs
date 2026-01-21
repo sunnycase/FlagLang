@@ -1,0 +1,48 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using NetFabric.Hyperlinq;
+using Nncase.IR;
+using Nncase.IR.Tensors;
+using Nncase.PatternMatch;
+using static Nncase.IR.F.Math;
+using static Nncase.PatternMatch.Utility;
+using Math = Nncase.IR.F.Math;
+
+namespace Nncase.Passes.Rules.Neutral;
+
+/// <summary>
+/// Fold nop <see cref="IR.Math.Binary"/>.
+/// </summary>
+[RuleGenerator]
+public sealed partial class ExpandToBroadcast : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = PatternMatch.F.Tensors.IsExpand(
+        "expand",
+        "call",
+        IsWildcard("input") with { TypePattern = TypePatternUtility.HasFixedShape() },
+        IsFixedShape("shape"));
+
+    private Expr? GetReplace(Expr input, RankedShape shape)
+    {
+        var inputRank = input.CheckedShape.Rank;
+        var shapeSize = shape.Rank;
+        var outputShape = Enumerable.Repeat((Dimension)1L, System.Math.Max(inputRank, shapeSize)).ToArray();
+        for (var i = 0; i < shapeSize; i++)
+        {
+            outputShape[i + outputShape.Length - shapeSize] = shape[i];
+        }
+
+        for (int i = 0; i < inputRank; i++)
+        {
+            outputShape[i + outputShape.Length - inputRank] = Dimension.Max(input.CheckedShape[i], outputShape[i + outputShape.Length - inputRank]);
+        }
+
+        return IR.F.Tensors.Broadcast(input, new RankedShape(outputShape));
+    }
+}

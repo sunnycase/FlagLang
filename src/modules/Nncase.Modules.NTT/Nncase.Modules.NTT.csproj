@@ -1,0 +1,52 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <RootNamespace>Nncase</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Razor.Templating.Core" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <ProjectReference Include="..\..\Nncase.Diagnostics\Nncase.Diagnostics.csproj" />
+    <ProjectReference Include="..\..\Nncase.Passes\Nncase.Passes.csproj" />
+    <ProjectReference Include="..\..\Nncase.CodeGen\Nncase.CodeGen.csproj" />
+    <ProjectReference Include="..\..\Nncase.Targets\Nncase.Targets.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\tools/Nncase.SourceGenerator/Nncase.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\Nncase.Evaluator\Nncase.Evaluator.csproj" />
+    <ProjectReference Include="..\..\Nncase.Schedule\Nncase.Schedule.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Runtime\include\" />
+    <Folder Include="Runtime\cmake\" />
+    <Folder Include="Runtime\src\" />
+  </ItemGroup>
+    
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Scripting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\..\ntt\include\nncase\**\*" Link="Runtime\include\nncase\%(RecursiveDir)\%(FileName)%(Extension)">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\ntt\cmake\**\*" Link="Runtime\cmake\%(RecursiveDir)\%(FileName)%(Extension)">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\ntt\src\**\*" Link="Runtime\src\%(RecursiveDir)\%(FileName)%(Extension)">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

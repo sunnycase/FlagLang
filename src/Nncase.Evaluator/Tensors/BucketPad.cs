@@ -1,0 +1,83 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Linq;
+using DryIoc.ImTools;
+using Nncase.CostModel;
+using Nncase.IR;
+using Nncase.IR.NN;
+using Nncase.IR.Shapes;
+using Nncase.IR.Tensors;
+using OrtKISharp;
+using static Nncase.IR.F.Tensors;
+using Tuple = Nncase.IR.Tuple;
+
+namespace Nncase.Evaluator.Tensors;
+
+/// <summary>
+/// Evaluator for <see cref="BucketPad"/>.
+/// </summary>
+public class BucketPadEvaluator : IEvaluator<BucketPad>, ITypeInferencer<BucketPad>, ICostEvaluator<BucketPad>, IMetricEvaluator<BucketPad>
+{
+    /// <inheritdoc/>
+    public IValue Visit(IEvaluateContext context, BucketPad bucketPad)
+    {
+        var input = context.GetArgumentValueAsTensor(bucketPad, BucketPad.Input);
+        if (input.Shape.IsScalar)
+        {
+            return Value.FromTensor(input);
+        }
+
+        var shape = context.GetArgumentValueAsArray<int>(bucketPad, BucketPad.Shape);
+        if (input.Shape.Size > shape.Aggregate((x, sum) => x * sum))
+        {
+            throw new InvalidOperationException();
+        }
+
+        var pads = shape - input.Shape;
+        var paddings = new Paddings(Enumerable.Range(0, shape.Rank).Select(i => new Padding(0, pads[i])).ToArray());
+        var fixedInput = IR.F.NN.Pad(input, paddings, PadMode.Constant, Cast(0, input.ElementType)).Evaluate();
+        return fixedInput;
+    }
+
+    /// <inheritdoc/>
+    public IRType Visit(ITypeInferenceContext context, BucketPad target)
+    {
+        var input = context.CheckArgumentType<TensorType>(target, BucketPad.Input);
+        return Visit(context, target, input);
+    }
+
+    public Cost Visit(ICostEvaluateContext context, BucketPad target)
+    {
+        var inputType = context.GetArgumentType<TensorType>(target, BucketPad.Input);
+        var outputType = context.GetReturnType<TensorType>();
+        return new Cost()
+        {
+            [CostFactorNames.MemoryLoad] = CostUtility.GetMemoryAccess(inputType),
+            [CostFactorNames.MemoryStore] = CostUtility.GetMemoryAccess(outputType),
+            [CostFactorNames.CPUCycles] = CostUtility.GetCPUCycles(inputType, CostUtility.GetCPUCyclesOfBinary(BinaryOp.Mul)),
+        };
+    }
+
+    public Metric Visit(IMetricEvaluateContext context, BucketPad target)
+    {
+        var inputType = context.GetArgumentType<TensorType>(target, BucketPad.Input);
+        var outputType = context.GetReturnType<TensorType>();
+        return new()
+        {
+            [MetricFactorNames.OffChipMemoryTraffic] = CostUtility.GetMemoryAccess(inputType) + CostUtility.GetMemoryAccess(outputType),
+        };
+    }
+
+    private IRType Visit(ITypeInferenceContext context, BucketPad target, TensorType input)
+    {
+        var shape = context.GetArgument(target, BucketPad.Shape);
+        if (shape is TensorConst shapeConst)
+        {
+            return new TensorType(input.DType, shapeConst.Value.ToArray<int>());
+        }
+
+        return new InvalidType("BucketPad Shape need const");
+    }
+}

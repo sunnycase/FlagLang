@@ -418,8 +418,8 @@ class CMakeBuild(build_ext):
         try:
             out = subprocess.check_output(["cmake", "--version"])
         except OSError:
-            raise RuntimeError("CMake must be installed to build the following extensions: " +
-                               ", ".join(e.name for e in self.extensions))
+            raise RuntimeError("CMake must be installed to build the following extensions: "
+                               + ", ".join(e.name for e in self.extensions))
 
         match = re.search(r"version\s*(?P<major>\d+)\.(?P<minor>\d+)([\d.]+)?", out.decode())
         cmake_major, cmake_minor = int(match.group("major")), int(match.group("minor"))
@@ -454,92 +454,50 @@ class CMakeBuild(build_ext):
         lit_dir = shutil.which('lit')
         ninja_dir = shutil.which('ninja')
         # lit is used by the test suite
-        thirdparty_cmake_args = get_thirdparty_packages([get_llvm_package_info()])
-        thirdparty_cmake_args += self.get_pybind11_cmake_args()
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.path)))
         wheeldir = os.path.dirname(extdir)
 
+        toolchain_arch = ""
+        if platform.machine() == "AMD64" or platform.machine() == "x86_64":
+            toolchain_arch = "x86_64"
+        elif platform.machine() == "arm64":
+            toolchain_arch = "aarch64"
+        elif platform.machine() == "riscv64":
+            toolchain_arch = "aarch64"
+
+        toolchain_os = ""
+        if platform.system() == "Windows":
+            toolchain_os = "windows"
+        elif platform.system() == "Linux":
+            toolchain_os = "linux"
+        elif platform.system() == "Darwin":
+            toolchain_os = "macos"
+            
         # create build directories
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
         # python directories
         python_include_dir = sysconfig.get_path("platinclude")
-        cmake_args = [
-            "-G", "Ninja",  # Ninja is much faster than make
-            "-DCMAKE_MAKE_PROGRAM=" +
-            ninja_dir,  # Pass explicit path to ninja otherwise cmake may cache a temporary path
-            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", "-DLLVM_ENABLE_WERROR=ON",
-            "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir, "-DTRITON_BUILD_PYTHON_MODULE=ON",
-            "-DPython3_EXECUTABLE:FILEPATH=" + sys.executable, "-DPython3_INCLUDE_DIR=" + python_include_dir,
-            "-DTRITON_CODEGEN_BACKENDS=" + ';'.join([b.name for b in backends if not b.is_external]),
-            "-DTRITON_PLUGIN_DIRS=" + ';'.join([b.src_dir for b in backends if b.is_external]),
-            "-DTRITON_WHEEL_DIR=" + wheeldir
-        ]
-        cmake_args += helper.get_backend_cmake_args(build_ext=self)
-        if lit_dir is not None:
-            cmake_args.append("-DLLVM_EXTERNAL_LIT=" + lit_dir)
-        cmake_args.extend(thirdparty_cmake_args)
-
+        host_toolchain_path = os.path.join(self.base_dir, "toolchains", f"{toolchain_arch}-{toolchain_os}.profile.jinja")
+        
         # configuration
         cfg = get_build_type()
-        build_args = ["--config", cfg]
 
-        cmake_args += [f"-DCMAKE_BUILD_TYPE={cfg}"]
-        if platform.system() == "Windows":
-            cmake_args += [f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_{cfg.upper()}={extdir}"]
-        else:
-            max_jobs = os.getenv("MAX_JOBS", str(2 * os.cpu_count()))
-            build_args += ['-j' + max_jobs]
+        python_root = os.path.dirname(sys.executable).replace("\\", "/")
+        conan_build_type = 'Debug' # if self.debug else 'Release'
 
-        if check_env_flag("TRITON_BUILD_WITH_CLANG_LLD"):
-            cmake_args += [
-                "-DCMAKE_C_COMPILER=clang",
-                "-DCMAKE_CXX_COMPILER=clang++",
-                "-DCMAKE_LINKER=lld",
-                "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld",
-                "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld",
-                "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld",
-            ]
-
-        # Note that asan doesn't work with binaries that use the GPU, so this is
-        # only useful for tools like triton-opt that don't run code on the GPU.
-        #
-        # I tried and gave up getting msan to work.  It seems that libstdc++'s
-        # std::string does not play nicely with clang's msan (I didn't try
-        # gcc's).  I was unable to configure clang to ignore the error, and I
-        # also wasn't able to get libc++ to work, but that doesn't mean it's
-        # impossible. :)
-        if check_env_flag("TRITON_BUILD_WITH_ASAN"):
-            cmake_args += [
-                "-DCMAKE_C_FLAGS=-fsanitize=address",
-                "-DCMAKE_CXX_FLAGS=-fsanitize=address",
-            ]
-
-        # environment variables we will pass through to cmake
-        passthrough_args = [
-            "TRITON_BUILD_PROTON",
-            "TRITON_BUILD_WITH_CCACHE",
-            "TRITON_PARALLEL_LINK_JOBS",
-        ]
-        cmake_args += [f"-D{option}={os.getenv(option)}" for option in passthrough_args if option in os.environ]
-
-        if check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
-            cmake_args += self.get_proton_cmake_args()
-
-        if is_offline_build():
-            # unit test builds fetch googletests from GitHub
-            cmake_args += ["-DTRITON_BUILD_UT=OFF"]
-
-        cmake_args_append = os.getenv("TRITON_APPEND_CMAKE_ARGS")
-        if cmake_args_append is not None:
-            cmake_args += shlex.split(cmake_args_append)
-
-        env = os.environ.copy()
         cmake_dir = get_cmake_dir()
-        subprocess.check_call(["cmake", self.base_dir] + cmake_args, cwd=cmake_dir, env=env)
-        update_symlink(Path(self.base_dir) / "compile_commands.json", cmake_dir / "compile_commands.json")
-        subprocess.check_call(["cmake", "--build", "."] + build_args, cwd=cmake_dir)
-        subprocess.check_call(["cmake", "--build", ".", "--target", "mlir-doc"], cwd=cmake_dir)
+        build_dir = cmake_dir / conan_build_type
+        subprocess.check_call(["conan", "install", self.base_dir, "--build=missing", "-s",
+                               "build_type=" + conan_build_type, f"-pr:a={host_toolchain_path}",
+                               "-o", "&:python=True", "-o", "&:tests=False", "-o", f"&:python_root={python_root}",
+                               "-c", f"tools.cmake.cmake_layout:build_folder={cmake_dir}"])
+        subprocess.check_call(["cmake", "-B", ".", "-S", self.base_dir, "--preset", "conan-" + conan_build_type.lower(),
+                               # Pass explicit path to ninja otherwise cmake may cache a temporary path
+                               f"-DCMAKE_MAKE_PROGRAM={ninja_dir}"], cwd=build_dir)
+        update_symlink(Path(self.base_dir) / "compile_commands.json", build_dir / "compile_commands.json")
+        subprocess.check_call(["cmake", "--build", "."], cwd=build_dir)
+        subprocess.check_call(["cmake", "--install", ".", "--component", "flaglang-python", "--prefix", wheeldir], cwd=build_dir)
         helper.install_extension(build_ext=self)
 
 
@@ -627,9 +585,10 @@ if helper.flagtree_backend:
         backends = [*BackendInstaller.copy(helper.extend_backends), *BackendInstaller.copy_externals()]
 else:
     print(helper.default_backends)
-    backends = [*BackendInstaller.copy(["nvidia", "amd"]), *BackendInstaller.copy_externals()]
+    #backends = [*BackendInstaller.copy(["nvidia", "amd"]), *BackendInstaller.copy_externals()]
+    backends= [*BackendInstaller.copy(["nvidia"]), *BackendInstaller.copy_externals()]
 
-#backends = [*BackendInstaller.copy(["nvidia", "amd"]), *BackendInstaller.copy_externals()]
+# backends = [*BackendInstaller.copy(["nvidia", "amd"]), *BackendInstaller.copy_externals()]
 
 
 def get_package_dirs():
@@ -844,8 +803,7 @@ setup(
     version="0.3.0" + os.environ.get("FLAGTREE_WHEEL_VERSION_SUFFIX", ""),
     author="FlagOS",
     author_email="contact@flagos.io",
-    description=
-    "A unified compiler supporting multiple AI chip backends for custom Deep Learning operations, which is forked from triton-lang/triton.",
+    description="A unified compiler supporting multiple AI chip backends for custom Deep Learning operations, which is forked from triton-lang/triton.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     install_requires=[

@@ -1,0 +1,56 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace Nncase.CodeGen.NTT;
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct ModuleDescHeader
+{
+    [MarshalAs(UnmanagedType.U4)]
+    public uint ThreadDim;
+
+    [MarshalAs(UnmanagedType.U4)]
+    public uint WarpDim;
+
+    [MarshalAs(UnmanagedType.U4)]
+    public uint BlockDim;
+
+    [MarshalAs(UnmanagedType.U4)]
+    public uint ChipDim;
+}
+
+internal sealed class LinkedModule : ILinkedModule
+{
+    public const string ModuleHeaderSectionName = ".desc";
+
+    public unsafe LinkedModule(string moduleKind, IReadOnlyList<ILinkedFunction> functions, Stream desc, Stream text, Stream rdata, IReadOnlyList<Stream> threadLocalRdatas, IReadOnlyList<Stream> threadLocalCaches, IReadOnlyList<Stream> warpLocalRdatas, IReadOnlyList<Stream> blockLocalRdatas, ulong rdataAlign)
+    {
+        ModuleKind = moduleKind;
+        Functions = functions;
+        Sections =
+        [
+            new LinkedSection(desc, ModuleHeaderSectionName, 0, 8, (ulong)desc.Length),
+            new LinkedSection(text, WellknownSectionNames.Text, 0, 8, (ulong)text.Length),
+            new LinkedSection(rdata, WellknownSectionNames.Rdata, 0, (uint)rdataAlign, (ulong)rdata.Length),
+            new LinkedMultipleContentsSection(threadLocalRdatas, WellknownSectionNames.ThreadLocalRdata, 0, (uint)rdataAlign),
+            new LinkedMultipleContentsSection(threadLocalCaches, WellknownSectionNames.ThreadLocalCache, 0, (uint)rdataAlign),
+            new LinkedMultipleContentsSection(warpLocalRdatas, WellknownSectionNames.WarpLocalRdata, 0, (uint)rdataAlign),
+            new LinkedMultipleContentsSection(blockLocalRdatas, WellknownSectionNames.BlockLocalRdata, 0, (uint)rdataAlign),
+        ];
+    }
+
+    public string ModuleKind { get; }
+
+    public uint Version => 0;
+
+    public IReadOnlyList<ILinkedFunction> Functions { get; }
+
+    public IReadOnlyList<ILinkedSection> Sections { get; }
+}

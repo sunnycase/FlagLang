@@ -1,0 +1,144 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using System.Reactive;
+using NetFabric.Hyperlinq;
+using Nncase.IR;
+using Nncase.Passes;
+using Nncase.PatternMatch;
+using static Nncase.IR.F.NN;
+using static Nncase.IR.F.Tensors;
+using static Nncase.IR.TypePatternUtility;
+using static Nncase.PatternMatch.F.Math;
+using static Nncase.PatternMatch.Utility;
+
+namespace Nncase.Passes.Rules.Neutral;
+
+[RuleGenerator]
+public sealed partial class RemoveUnusedVarsByCall : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsCall(
+        "call",
+        IsFunction("function", IsIRBlock("body", IsVArgsRepeat("vparams", IsWildcard))),
+        IsVArgsRepeat("vargs", IsWildcard));
+
+    private Expr? GetReplace(Call call, Function function, IRBlock body)
+    {
+        int unusedVars = 0;
+        var usedVars = new List<int>();
+        for (int i = 0; i < function.Parameters.Length; i++)
+        {
+            var var = (Expr)function.Parameters[i];
+            if (var.Users.Count() == 1)
+            {
+                unusedVars++;
+            }
+            else
+            {
+                usedVars.Add(i);
+            }
+        }
+
+        if (unusedVars != 0)
+        {
+            var newVarsMap = new Dictionary<IVar, IVar>(ReferenceEqualityComparer.Instance);
+            var newVars = new List<IVar>();
+            var newArgs = new List<BaseExpr>();
+            foreach (var i in usedVars)
+            {
+                var var = function.Parameters[i];
+                var callArg = call.Arguments[i];
+                var newVar = var.With();
+                newVars.Add(newVar);
+                newVarsMap.Add(var, newVar);
+                newArgs.Add(callArg);
+            }
+
+            var cloner = new VarReplacer(newVarsMap);
+            var newBody = cloner.Clone(body, default);
+            var newFunc = function.With(body: newBody);
+            return call.With(newFunc, newArgs.ToArray());
+        }
+
+        return null;
+    }
+}
+
+[RuleGenerator]
+public sealed partial class RemoveUnusedVarsByIf : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsIf(
+        "call",
+        IsIRBlock("thenBody", IsVArgsRepeat("thenParams", IsWildcard)),
+        IsIRBlock("elseBody", IsVArgsRepeat("elseParams", IsWildcard)),
+        IsVArgsRepeat("vargs", IsWildcard));
+
+    private Expr? GetReplace(If call, IRBlock thenBody, IRBlock elseBody)
+    {
+        int unusedVars = 0;
+        var usedVars = new List<int>();
+        for (int i = 0; i < thenBody.Parameters.Length; i++)
+        {
+            var thenVar = (Expr)thenBody.Parameters[i];
+            var elseVar = (Expr)elseBody.Parameters[i];
+            if (thenVar.Users.Count() == 1
+                && elseVar.Users.Count() == 1)
+            {
+                unusedVars++;
+            }
+            else
+            {
+                usedVars.Add(i);
+            }
+        }
+
+        if (unusedVars != 0)
+        {
+            var newVarsMap = new Dictionary<IVar, IVar>(ReferenceEqualityComparer.Instance);
+            var newThenVars = new List<IVar>();
+            var newElseVars = new List<IVar>();
+            var newArgs = new List<BaseExpr>();
+            foreach (var i in usedVars)
+            {
+                var thenVar = thenBody.Parameters[i];
+                var elseVar = elseBody.Parameters[i];
+                var callArg = call.Arguments[i];
+                var newThenVar = thenVar.With();
+                var newElseVar = elseVar.With();
+                newThenVars.Add(newThenVar);
+                newElseVars.Add(newElseVar);
+                newVarsMap.Add(thenVar, newThenVar);
+                newVarsMap.Add(elseVar, newElseVar);
+                newArgs.Add(callArg);
+            }
+
+            var cloner = new VarReplacer(newVarsMap);
+            var newThen = cloner.Clone(thenBody, default);
+            var newElse = cloner.Clone(elseBody, default);
+            return call.With(then: newThen, @else: newElse, arguments: newArgs.ToArray());
+        }
+
+        return null;
+    }
+}
+
+internal sealed class VarReplacer : ExprCloner<Unit>
+{
+    private readonly Dictionary<IVar, IVar> _newVars;
+
+    public VarReplacer(Dictionary<IVar, IVar> newVars)
+    {
+        _newVars = newVars;
+    }
+
+    protected override Expr VisitVar(Var var, Unit state)
+    {
+        return (Expr)_newVars[var];
+    }
+}

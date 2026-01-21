@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Nncase</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NetFabric.Hyperlinq" />
+    <PackageReference Include="GiGraph.Dot" />
+    <PackageReference Include="Google.OrTools" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nncase.Core\Nncase.Core.csproj" />
+    <ProjectReference Include="..\Nncase.Graph\Nncase.Graph.csproj" />
+    <ProjectReference Include="..\Nncase.Evaluator\Nncase.Evaluator.csproj" />
+  </ItemGroup>
+</Project>

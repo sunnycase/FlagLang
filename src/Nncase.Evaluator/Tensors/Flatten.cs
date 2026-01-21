@@ -1,0 +1,57 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Linq;
+using Nncase.CostModel;
+using Nncase.IR;
+using Nncase.IR.Tensors;
+using OrtKISharp;
+
+namespace Nncase.Evaluator.Tensors;
+
+/// <summary>
+/// Evaluator for <see cref="Flatten"/>.
+/// </summary>
+public class FlattenEvaluator : IEvaluator<Flatten>, ITypeInferencer<Flatten>, ICostEvaluator<Flatten>
+{
+    /// <inheritdoc/>
+    public IValue Visit(IEvaluateContext context, Flatten flatten)
+    {
+        var input = context.GetOrtArgumentValue(flatten, Flatten.Input);
+        var dim = context.GetArgumentValueAsScalar<int>(flatten, Flatten.Axis);
+        return OrtKI.Flatten(input, dim).ToValue();
+    }
+
+    /// <inheritdoc/>
+    public IRType Visit(ITypeInferenceContext context, Flatten target)
+    {
+        var input = context.CheckArgumentType<TensorType>(target, Flatten.Input);
+        return Visit(context, target, input);
+    }
+
+    /// <inheritdoc/>
+    public Cost Visit(ICostEvaluateContext context, Flatten target)
+    {
+        return new()
+        {
+            // set cost to 2 to convert to reshape
+            [CostFactorNames.CPUCycles] = 2,
+        };
+    }
+
+    private IRType Visit(ITypeInferenceContext context, Flatten target, TensorType input)
+    {
+        if (context.GetArgument(target, Flatten.Axis) is DimConst axisV)
+        {
+            var inShape = (RankedShape)input.Shape;
+            var axisValue = (int)Util.PositiveIndex(axisV.Value, input);
+            var first = inShape.Take(axisValue).Aggregate((Dimension)1, (x, y) => x * y);
+            var second = inShape.Take(axisValue..input.Shape.Rank).Aggregate((Dimension)1, (x, y) => x * y);
+            return input with { Shape = new[] { first, second } };
+        }
+
+        // return input with { Shape = Shape.Unknown(2) };
+        throw new NotImplementedException();
+    }
+}

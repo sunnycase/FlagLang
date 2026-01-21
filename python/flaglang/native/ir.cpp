@@ -1,0 +1,562 @@
+/* Copyright SunnyCase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+#include "ffi_modules.h"
+#include <nncase/compiler.h>
+#include <optional>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
+using namespace nncase;
+
+namespace {
+struct inserion_point {
+    clr::sequential block;
+    size_t index;
+};
+
+class triton_op_builder {
+  public:
+    triton_op_builder(clr::compile_session session) : session_(session) {}
+
+    const clr::location &last_location() const { return last_location_; }
+    void set_last_location(clr::location loc) {
+        last_location_ = std::move(loc);
+    }
+
+    clr::ir_module create_module() { return clr::ir_module(); }
+
+    clr::sequential get_insertion_block() { return insertion_point_.block; }
+    void set_insertion_point_to_start(clr::sequential block) {
+        insertion_point_.block = std::move(block);
+        insertion_point_.index = 0;
+    }
+
+    void set_insertion_point_to_end(clr::sequential block) {
+        insertion_point_.index =
+            insertion_point_.block.fields_count(); // after last
+        insertion_point_.block = std::move(block);
+    }
+
+    clr::expr insert_expr(clr::expr expr) {
+        insertion_point_.block.insert_at(insertion_point_.index++, expr);
+        return expr;
+    }
+
+  private:
+    clr::compile_session session_;
+    clr::location last_location_;
+    inserion_point insertion_point_;
+};
+} // namespace
+
+void nncase::init_triton_ir(py::module &&m) {
+    using ret = py::return_value_policy;
+    using namespace pybind11::literals;
+
+    py::enum_<nncase_padding_option_t>(m, "PADDING_OPTION", py::module_local())
+        .value("PAD_ZERO", nncase_padding_option_pad_zero)
+        .value("PAD_NAN", nncase_padding_option_pad_nan)
+        .export_values();
+
+    py::enum_<nncase_cache_modifier_t>(m, "CACHE_MODIFIER", py::module_local())
+        .value("NONE", nncase_cache_modifier_none)
+        .value("CA", nncase_cache_modifier_ca)
+        .value("CG", nncase_cache_modifier_cg)
+        .value("WB", nncase_cache_modifier_wb)
+        .value("CS", nncase_cache_modifier_cs)
+        .value("WT", nncase_cache_modifier_wt)
+        .export_values();
+
+    py::enum_<nncase_mem_semantic_t>(m, "MEM_SEMANTIC", py::module_local())
+        .value("ACQUIRE_RELEASE", nncase_mem_semantic_acquire_release)
+        .value("ACQUIRE", nncase_mem_semantic_acquire)
+        .value("RELEASE", nncase_mem_semantic_release)
+        .value("RELAXED", nncase_mem_semantic_relaxed)
+        .export_values();
+
+    py::enum_<nncase_mem_sync_scope_t>(m, "MEM_SYNC_SCOPE", py::module_local())
+        .value("GPU", nncase_mem_sync_scope_gpu)
+        .value("CTA", nncase_mem_sync_scope_cta)
+        .value("SYSTEM", nncase_mem_sync_scope_system)
+        .export_values();
+
+    py::enum_<nncase_eviction_policy_t>(m, "EVICTION_POLICY",
+                                        py::module_local())
+        .value("NORMAL", nncase_eviction_policy_normal)
+        .value("EVICT_FIRST", nncase_eviction_policy_evict_first)
+        .value("EVICT_LAST", nncase_eviction_policy_evict_last)
+        .export_values();
+
+    py::enum_<nncase_atomic_op_t>(m, "ATOMIC_OP", py::module_local())
+        .value("ADD", nncase_atomic_op_add)
+        .value("FADD", nncase_atomic_op_fadd)
+        .value("AND", nncase_atomic_op_and)
+        .value("OR", nncase_atomic_op_or)
+        .value("XOR", nncase_atomic_op_xor)
+        .value("XCHG", nncase_atomic_op_xchg)
+        .value("MAX", nncase_atomic_op_max)
+        .value("MIN", nncase_atomic_op_min)
+        .value("UMIN", nncase_atomic_op_umin)
+        .value("UMAX", nncase_atomic_op_umax);
+
+    py::enum_<nncase_rounding_mode_t>(m, "ROUNDING_MODE", py::module_local())
+        .value("RTZ", nncase_rounding_mode_rtz)
+        .value("RTNE", nncase_rounding_mode_rtne);
+
+    py::enum_<nncase_propagate_nan_t>(m, "PROPAGATE_NAN", py::module_local())
+        .value("NONE", nncase_propagate_nan_none)
+        .value("ALL", nncase_propagate_nan_all);
+
+    py::enum_<nncase_input_precision_t>(m, "INPUT_PRECISION",
+                                        py::module_local())
+        .value("TF32", nncase_input_precision_tf32)
+        .value("TF32x3", nncase_input_precision_tf32x3)
+        .value("IEEE", nncase_input_precision_ieee)
+        .export_values();
+
+    py::class_<clr::target>(m, "target").def(py::init<std::string_view>());
+    py::class_<clr::compile_options>(m, "compile_options").def(py::init<>());
+    py::class_<clr::compile_session>(m, "compile_session")
+        .def(py::init<const clr::target &, const clr::compile_options &>());
+
+    // Diagnostics
+    py::class_<clr::location>(m, "location");
+    py::class_<clr::file_location, clr::location>(m, "file_location")
+        .def(py::init<std::string_view, int, int, int, int>(), "file_path"_a,
+             "line"_a, "column"_a, "end_line"_a, "end_column"_a)
+        .def(py::init<std::string_view, int, int>(), "file_path"_a, "line"_a,
+             "column"_a);
+    py::class_<clr::name_location, clr::location>(m, "name_location");
+
+    // Types
+    py::class_<clr::ir_type>(m, "type");
+    py::class_<clr::datatype, clr::ir_type>(m, "datatype");
+    py::class_<clr::pointer_type, clr::datatype>(m, "pointer_type")
+        .def(py::init<clr::datatype, int>(), "elem_type"_a,
+             "address_space"_a = 0);
+    py::class_<clr::callable_type, clr::ir_type>(m, "callable_type");
+    py::class_<clr::tuple_type, clr::ir_type>(m, "tuple_type");
+    py::class_<clr::tensor_type, clr::ir_type>(m, "tensor_type");
+
+    // Exprs
+    py::class_<clr::expr>(m, "expr")
+        .def("get_loc", &clr::expr::get_location)
+        .def("set_loc", &clr::expr::set_location);
+
+    py::class_<clr::dimension, clr::expr>(m, "dimension");
+    py::class_<clr::program_id_dim, clr::dimension>(m, "program_id_dim");
+
+    py::class_<clr::shape, clr::expr>(m, "shape");
+
+    py::class_<clr::var, clr::expr>(m, "var");
+    py::class_<clr::tensor_const, clr::expr>(m, "tensor_const");
+
+    py::class_<clr::base_function, clr::expr>(m, "base_function");
+
+    py::class_<clr::ir_module, clr::expr>(m, "module", py::dynamic_attr())
+        .def("push_back",
+             [](clr::ir_module &self, clr::base_function func) {
+                 self.add(std::move(func));
+             })
+        .def("verify_with_diagnostics", [](clr::ir_module &self) {
+            return clr::compiler_services::inference_type(self);
+        });
+
+    py::class_<clr::sequential, clr::expr>(m, "sequential")
+        .def("has_terminator", &clr::sequential::has_terminator);
+
+    py::class_<clr::prim_function, clr::base_function>(m, "prim_function")
+        .def("add_entry_block", &clr::prim_function::add_body)
+        .def("get_num_args",
+             [](clr::prim_function &self) {
+                 auto body = self.get_body();
+                 return body.parameters_count();
+             })
+        .def("args",
+             [](clr::prim_function &self, unsigned idx) {
+                 auto body = self.get_body();
+                 if (idx >= body.parameters_count())
+                     throw pybind11::index_error(
+                         "Function argument index out of range");
+                 return body.get_parameter(idx);
+             })
+        .def("set_arg_attr",
+             [](clr::prim_function &self, unsigned idx, std::string_view name,
+                int value) {
+                 auto body = self.get_body();
+                 if (idx >= body.parameters_count())
+                     throw pybind11::index_error(
+                         "Function argument index out of range");
+                 auto param = body.get_parameter(idx);
+                 param.set_int32_attribute(name, value);
+             })
+        .def("finalize", [](clr::prim_function &self) {
+            auto body = self.get_body();
+            if (!body.has_terminator()) {
+                throw std::runtime_error(
+                    "Function body must have a terminator before finalize.");
+            }
+        });
+
+    py::class_<triton_op_builder>(m, "builder", py::dynamic_attr())
+        .def(py::init<clr::compile_session>())
+
+        // locations
+        .def("create_loc",
+             [](triton_op_builder &, std::string_view fileName, int line,
+                int column) {
+                 return clr::file_location(fileName, line, column);
+             })
+        .def("create_name_loc",
+             [](triton_op_builder &, std::string_view name,
+                std::optional<clr::location> childLoc) {
+                 return clr::name_location(name, childLoc);
+             })
+        .def("get_loc", &triton_op_builder::last_location)
+        .def("set_loc",
+             [](triton_op_builder &self, clr::location loc) {
+                 self.set_last_location(std::move(loc));
+             })
+        .def("set_loc",
+             [](triton_op_builder &self, std::string_view fileName, int line,
+                int column) {
+                 self.set_last_location(
+                     clr::file_location(fileName, line, column));
+             })
+
+        // insertion point
+        .def("get_insertion_block", &triton_op_builder::get_insertion_block)
+        .def("set_insertion_point_to_start",
+             &triton_op_builder::set_insertion_point_to_start)
+        .def("set_insertion_point_to_end",
+             &triton_op_builder::set_insertion_point_to_end)
+
+        // module
+        .def("create_module", &triton_op_builder::create_module)
+
+        // types
+        .def("get_int8_ty",
+             [](triton_op_builder &) { return clr::datatype::int8(); })
+        .def("get_int16_ty",
+             [](triton_op_builder &) { return clr::datatype::int16(); })
+        .def("get_int32_ty",
+             [](triton_op_builder &) { return clr::datatype::int32(); })
+        .def("get_int64_ty",
+             [](triton_op_builder &) { return clr::datatype::int64(); })
+        .def("get_half_ty",
+             [](triton_op_builder &) { return clr::datatype::float16(); })
+        .def("get_bf16_ty",
+             [](triton_op_builder &) { return clr::datatype::bfloat16(); })
+        .def("get_float_ty",
+             [](triton_op_builder &) { return clr::datatype::float32(); })
+        .def("get_double_ty",
+             [](triton_op_builder &) { return clr::datatype::float64(); })
+        .def(
+            "get_ptr_ty",
+            [](triton_op_builder &, clr::datatype elem_type,
+               int address_space) {
+                return clr::pointer_type(elem_type, address_space);
+            },
+            "elem_type"_a, "address_space"_a = 0)
+        .def("get_block_ty",
+             [](triton_op_builder &, clr::datatype &elementType,
+                std::vector<int64_t> &shape) {
+                 auto shape_expr = clr::shape::fixed(shape);
+                 return clr::tensor_type(elementType, shape_expr);
+             })
+        .def("get_function_ty",
+             [](triton_op_builder &, std::vector<clr::ir_type> inTypes,
+                std::vector<clr::ir_type> outTypes) {
+                 clr::ir_type retType;
+                 if (outTypes.size() == 0) {
+                     retType = clr::tuple_type::void_type();
+                 } else if (outTypes.size() == 1) {
+                     retType = outTypes[0];
+                 } else {
+                     retType = clr::tuple_type(outTypes);
+                 }
+                 return clr::callable_type(retType, std::move(inTypes));
+             })
+
+        // Constants
+        .def("get_int32",
+             [](triton_op_builder &, int value) {
+                 return clr::tensor_const::scalar(value);
+             })
+        .def("get_int64",
+             [](triton_op_builder &, long value) {
+                 return clr::tensor_const::scalar(value);
+             })
+
+        // Ops
+        .def("get_or_insert_function",
+             [](triton_op_builder &, clr::ir_module &module,
+                std::string_view funcName, clr::callable_type funcType,
+                [[maybe_unused]] std::string_view visibility,
+                [[maybe_unused]] bool noinline) {
+                 auto func = module.get_function_by_name(funcName);
+                 if (func.empty()) {
+                     func = clr::prim_function(funcName, funcType);
+                 }
+                 return func;
+             })
+        // Function
+        .def("ret",
+             [](triton_op_builder &self, std::vector<clr::expr> &vals) {
+                 return self.insert_expr(
+                     clr::ir_builder::tir::return_(std::span(vals)));
+             })
+        // miscellaneous
+        .def("create_make_range",
+             [](triton_op_builder &self, [[maybe_unused]] clr::ir_type retTy,
+                int start, int end) {
+                 return self.insert_expr(clr::ir_builder::tensors::range(
+                     clr::tensor_const::scalar(start),
+                     clr::tensor_const::scalar(end),
+                     clr::tensor_const::scalar(1)));
+             })
+
+        // Built-in instruction
+        .def("create_get_program_id",
+             [](triton_op_builder &self, int axis) {
+                 if (axis < 0 || axis > 3)
+                     throw pybind11::index_error("program_id must be in [0,3]");
+                 return self.insert_expr(
+                     clr::ir_builder::cast(clr::ir_builder::shapes::as_tensor(
+                                               clr::program_id_dim(axis)),
+                                           clr::datatype::int32()));
+             })
+
+        // Conversions
+        .def("create_int_cast",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type, [[maybe_unused]] bool isSigned) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_default));
+             })
+        .def("create_fmul",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(
+                     clr::ir_builder::math::binary(nncase_binary_mul, a, b));
+             })
+        .def("create_fdiv",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(
+                     clr::ir_builder::math::binary(nncase_binary_div, a, b));
+             })
+        .def("create_add",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(
+                     clr::ir_builder::math::binary(nncase_binary_add, a, b));
+             })
+        .def("create_frem",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(
+                     clr::ir_builder::math::binary(nncase_binary_mod, a, b));
+             })
+        .def("create_fadd",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(
+                     clr::ir_builder::math::binary(nncase_binary_add, a, b));
+             })
+        .def("create_fsub",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(
+                     clr::ir_builder::math::binary(nncase_binary_sub, a, b));
+             })
+        // AddPtr (similar to GEP)
+        .def("create_addptr",
+             [](triton_op_builder &self, clr::expr ptr, clr::expr offset) {
+                 return self.insert_expr(clr::ir_builder::math::binary(
+                     nncase_binary_add, ptr, offset));
+             })
+
+        // Comparison (int)
+        .def("create_icmpSLE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_lower_or_equal, a, b));
+             })
+        .def("create_icmpSLT",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_lower_than, a, b));
+             })
+        .def("create_icmpSGE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_greater_or_equal, a, b));
+             })
+        .def("create_icmpSGT",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_greater_than, a, b));
+             })
+        .def("create_icmpULE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_lower_or_equal, a, b));
+             })
+        .def("create_icmpULT",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_lower_than, a, b));
+             })
+        .def("create_icmpUGE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_greater_or_equal, a, b));
+             })
+        .def("create_icmpUGT",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_greater_than, a, b));
+             })
+        .def("create_icmpEQ",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_equal, a, b));
+             })
+        .def("create_icmpNE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_not_equal, a, b));
+             })
+        // Comparison (float)
+        .def("create_fcmpOLT",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_lower_than, a, b));
+             })
+        .def("create_fcmpOGT",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_greater_than, a, b));
+             })
+        .def("create_fcmpOLE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_lower_or_equal, a, b));
+             })
+        .def("create_fcmpOGE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_greater_or_equal, a, b));
+             })
+        .def("create_fcmpOEQ",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_equal, a, b));
+             })
+        .def("create_fcmpONE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_not_equal, a, b));
+             })
+        .def("create_fcmpULT",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_lower_than, a, b));
+             })
+        .def("create_fcmpUGT",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_greater_than, a, b));
+             })
+        .def("create_fcmpULE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_lower_or_equal, a, b));
+             })
+        .def("create_fcmpUGE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_greater_or_equal, a, b));
+             })
+        .def("create_fcmpUEQ",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_equal, a, b));
+             })
+        .def("create_fcmpUNE",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::compare(
+                     nncase_compare_not_equal, a, b));
+             })
+        // Logical
+        .def("create_and",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::binary(
+                     nncase_binary_logical_and, a, b));
+             })
+        .def("create_or",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::binary(
+                     nncase_binary_logical_or, a, b));
+             })
+        .def("create_xor",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(clr::ir_builder::math::binary(
+                     nncase_binary_logical_xor, a, b));
+             })
+        // Input/Output
+        .def("create_load",
+             [](triton_op_builder &self, clr::expr ptr,
+                nncase_cache_modifier_t cache_modifier,
+                nncase_eviction_policy_t eviction_policy,
+                [[maybe_unused]] bool isVolatile,
+                [[maybe_unused]] std::optional<std::string> flagtree_hints) {
+                 return self.insert_expr(clr::ir_builder::triton::load(
+                     ptr, std::nullopt, std::nullopt, cache_modifier,
+                     eviction_policy));
+             })
+        .def("create_masked_load",
+             [](triton_op_builder &self, clr::expr ptr, clr::expr mask,
+                std::optional<clr::expr> other,
+                nncase_cache_modifier_t cache_modifier,
+                nncase_eviction_policy_t eviction_policy,
+                [[maybe_unused]] bool isVolatile,
+                [[maybe_unused]] std::optional<std::string> flagtree_hints) {
+                 return self.insert_expr(clr::ir_builder::triton::load(
+                     ptr, mask, other, cache_modifier, eviction_policy));
+             })
+        .def("create_masked_store",
+             [](triton_op_builder &self, clr::expr ptr, clr::expr value,
+                clr::expr mask, nncase_cache_modifier_t cache_modifier,
+                nncase_eviction_policy_t eviction_policy) {
+                 return self.insert_expr(clr::ir_builder::triton::store(
+                     ptr, value, mask, cache_modifier, eviction_policy));
+             })
+        .def("create_mul",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(
+                     clr::ir_builder::math::binary(nncase_binary_mul, a, b));
+             })
+
+        // Implements tl.trans and tl.permute.
+        .def("create_splat",
+             [](triton_op_builder &self, clr::tensor_type type, clr::expr arg) {
+                 return self.insert_expr(
+                     clr::ir_builder::tensors::broadcast(arg, type.shape()));
+             });
+
+    py::class_<clr::pass_manager>(m, "pass_manager")
+        .def(py::init<clr::compile_session &, std::string_view>())
+        .def("add_optimize_ttir",
+             [](clr::pass_manager &self, int capability) {
+                 self.add_optimize_ttir(capability);
+             })
+        .def("run", &clr::pass_manager::run);
+}

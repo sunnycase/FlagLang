@@ -1,0 +1,25 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System.Runtime.CompilerServices;
+using DryIoc;
+using Nncase.Hosting;
+
+[assembly: InternalsVisibleTo("Nncase.Tests")]
+
+namespace Nncase.Evaluator;
+
+/// <summary>
+/// Evaluator module.
+/// </summary>
+internal class EvaluatorModule : IApplicationPart
+{
+    public void ConfigureServices(IRegistrator registrator)
+    {
+        registrator.Register<ITypeInferenceProvider, TypeInferenceProvider>(reuse: Reuse.Singleton);
+        registrator.Register<IEvaluateProvider, EvaluateProvider>(reuse: Reuse.Singleton);
+        registrator.Register<ICostEvaluateProvider, CostEvaluateProvider>(reuse: Reuse.Singleton);
+        registrator.Register<IMetricEvaluateProvider, MetricEvaluateProvider>(reuse: Reuse.Singleton);
+        registrator.Register<Schedule.IMicroKernelInfoProvider, MicroKernelInfoProvider>(reuse: Reuse.Singleton);
+    }
+}

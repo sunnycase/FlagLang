@@ -1,0 +1,313 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Nncase.IR;
+using OrtKISharp;
+
+namespace Nncase.Evaluator;
+
+/// <summary>
+/// OrtKI extensions.
+/// </summary>
+public static class OrtKIExtensions
+{
+    private static readonly MethodInfo _initializeMaskOrtTensorFunc = typeof(OrtKIExtensions)
+        .GetMethod(nameof(InitializeMaskOrtTensor), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    private static readonly Dictionary<DataType, OrtDataType> _dataTypesToOrtType = new()
+    {
+        { DataTypes.Boolean, OrtDataType.Bool },
+        { DataTypes.Int8, OrtDataType.Int8 },
+        { DataTypes.Int16, OrtDataType.Int16 },
+        { DataTypes.Int32, OrtDataType.Int32 },
+        { DataTypes.Int64, OrtDataType.Int64 },
+        { DataTypes.UInt8, OrtDataType.UInt8 },
+        { DataTypes.UInt16, OrtDataType.UInt16 },
+        { DataTypes.UInt32, OrtDataType.UInt32 },
+        { DataTypes.UInt64, OrtDataType.UInt64 },
+        { DataTypes.BFloat16, OrtDataType.BFloat16 },
+        { DataTypes.Float16, OrtDataType.Float16 },
+        { DataTypes.Float32, OrtDataType.Float },
+        { DataTypes.Float64, OrtDataType.Double },
+    };
+
+    private static readonly Dictionary<OrtDataType, DataType> _ortTypeTodataTypes = new()
+    {
+        { OrtDataType.Bool, DataTypes.Boolean },
+        { OrtDataType.Int8, DataTypes.Int8 },
+        { OrtDataType.Int16, DataTypes.Int16 },
+        { OrtDataType.Int32, DataTypes.Int32 },
+        { OrtDataType.Int64, DataTypes.Int64 },
+        { OrtDataType.UInt8, DataTypes.UInt8 },
+        { OrtDataType.UInt16, DataTypes.UInt16 },
+        { OrtDataType.UInt32, DataTypes.UInt32 },
+        { OrtDataType.UInt64, DataTypes.UInt64 },
+        { OrtDataType.BFloat16, DataTypes.BFloat16 },
+        { OrtDataType.Float16, DataTypes.Float16 },
+        { OrtDataType.Float, DataTypes.Float32 },
+        { OrtDataType.Double, DataTypes.Float64 },
+    };
+
+    public static Tensor ToTensor(this OrtKISharp.Tensor tensor)
+    {
+        return Tensor.From(tensor.DataType.ToDataType(), new TensorInitializerWithOrt(tensor), tensor.Shape);
+    }
+
+    public static Tensor ToTensor(this OrtKISharp.Tensor tensor, DataType dataType) => dataType switch
+    {
+        MaskVectorType maskVectorType => Tensor.From(
+            maskVectorType,
+            new TensorInitializerWithOrt(tensor),
+            tensor.Shape.Take(tensor.Shape.Length - 1).ToArray()),
+        VectorType vectorType => Tensor.From(
+            vectorType with
+            {
+                ElemType = tensor.DataType.ToDataType() switch
+                {
+                    var ortDtype when ortDtype == vectorType.ElemType => vectorType.ElemType,
+                    var ortDtype when ortDtype != vectorType.ElemType && ortDtype.SizeInBytes == vectorType.ElemType.SizeInBytes => vectorType.ElemType,
+                    _ => throw new InvalidOperationException($"Cannot convert OrtKI tensor with data type {tensor.DataType.ToDataType()} to vector type with element type {vectorType.ElemType}."),
+                },
+            },
+            new TensorInitializerWithOrt(tensor),
+            tensor.Shape.Take(tensor.Shape.Length - vectorType.Lanes.Count).ToArray()).CastTo(vectorType),
+        PrimType primType => Tensor.From(
+            tensor.DataType.ToDataType() switch
+            {
+                var ortDtype when ortDtype == primType => primType,
+                var ortDtype when ortDtype != primType && ortDtype.SizeInBytes == primType.SizeInBytes => primType,
+                _ => throw new InvalidOperationException($"Cannot convert OrtKI tensor with data type {tensor.DataType.ToDataType()} to vector type with element type {primType}."),
+            },
+            new TensorInitializerWithOrt(tensor),
+            tensor.Shape),
+        _ => throw new NotSupportedException(),
+    };
+
+    public static Tensor ToTensor(this OrtKISharp.Tensor tensor, IRType? type) => type switch
+    {
+        DistributedType dt => ToTensor(tensor, dt.TensorType.DType),
+        TensorType t => ToTensor(tensor, t.DType),
+        null => tensor.ToTensor(),
+        _ => throw new ArgumentOutOfRangeException(nameof(type), "Unsupported IRType"),
+    };
+
+    public static TensorValue ToValue(this OrtKISharp.Tensor tensor) => new(tensor.ToTensor());
+
+    public static TensorValue ToValue(this OrtKISharp.Tensor tensor, IRType type) => new(tensor.ToTensor(type));
+
+    public static TensorValue ToValue(this OrtKISharp.Tensor tensor, DataType dataType) => new(tensor.ToTensor(dataType));
+
+    public static OrtKISharp.Tensor ToOrtTensor(this Tensor tensor, DataType? dataType = null) => (dataType ?? tensor.ElementType) switch
+    {
+        MaskVectorType vectorType => ToOrtTensor(tensor, OrtDataType.Bool, tensor.Dimensions.ToArray().Append(vectorType.Lanes).ToArray()),
+        VectorType vectorType => ToOrtTensor(tensor, vectorType.ElemType.ToOrtType(), tensor.Dimensions.ToArray().Concat(vectorType.Lanes.Select(x => (long)x)).ToArray()),
+        PrimType primType => ToOrtTensor(tensor, primType.ToOrtType(), tensor.Dimensions.ToArray()),
+        _ => throw new NotSupportedException(),
+    };
+
+    public static OrtKISharp.Tensor ScalarToOrtTensor(this Tensor tensor)
+    {
+        if (!tensor.Shape.IsScalar)
+        {
+            throw new InvalidOperationException("Tensor is not a scala in ScalarToOrtTensor");
+        }
+
+        return ToOrtTensor(tensor, tensor.ElementType.ToOrtType(), [1]);
+    }
+
+    public static OrtDataType ToOrtType(this DataType dt)
+    {
+        if (_dataTypesToOrtType.TryGetValue(dt, out var type))
+        {
+            return type;
+        }
+
+        throw new ArgumentOutOfRangeException("Unsupported DataType: " + dt);
+    }
+
+    public static DataType ToDataType(this OrtDataType dt)
+    {
+        if (_ortTypeTodataTypes.TryGetValue(dt, out var type))
+        {
+            return type;
+        }
+
+        throw new ArgumentOutOfRangeException("Unsupported OrtDataType: " + dt);
+    }
+
+    public static DataType Legalize(this DataType from, params (PrimType, PrimType)[] pairs) => Legalize(from, pairs.ToDictionary(t => t.Item1, t => t.Item2));
+
+    public static DataType Legalize(this DataType from, Dictionary<PrimType, PrimType> dict) => from switch
+    {
+        VectorType vt => vt with { ElemType = vt.ElemType.Legalize(dict) },
+        PrimType pt => dict.TryGetValue(pt, out var newPt) ? newPt : pt,
+        MaskVectorType mv => mv,
+        _ => throw new InvalidOperationException($"Cannot convert data type {from}."),
+    };
+
+    public static OrtKISharp.Tensor BroadcastTo(this OrtKISharp.Tensor tensor, long[] shape, OrtDataType dtype = OrtDataType.Float) => tensor + OrtKISharp.Tensor.Empty(shape, dtype);
+
+    public static OrtKISharp.Tensor Pack(this OrtKISharp.Tensor tensor, int oldLanesCount, int lanes, int axis)
+    {
+        if (axis < 0)
+        {
+            return tensor;
+        }
+
+        var shape = tensor.Shape;
+        var dividedShape = shape.Take(axis).Concat(new[] { shape[axis] / lanes, lanes }).Concat(shape.Skip(axis + 1)).ToArray();
+        var perm = Enumerable.Range(0, axis + 1)
+            .Concat(Enumerable.Range(axis + 2, dividedShape.Length - (axis + oldLanesCount + 2)))
+            .Append(axis + 1)
+            .Concat(Enumerable.Range(dividedShape.Length - oldLanesCount, oldLanesCount))
+            .Select(i => (long)i).ToArray();
+        return OrtKI.Transpose(OrtKI.Reshape(tensor, dividedShape, 0), perm);
+    }
+
+    public static OrtKISharp.Tensor Pack(this OrtKISharp.Tensor tensor, int oldLanesCount, ReadOnlySpan<int> lanes, ReadOnlySpan<int> axes)
+    {
+        for (int i = axes.Length - 1; i >= 0; i--)
+        {
+            tensor = tensor.Pack(oldLanesCount++, lanes[i], axes[i]);
+        }
+
+        return tensor;
+    }
+
+    public static OrtKISharp.Tensor Unpack(this OrtKISharp.Tensor tensor, int oldLanesCount, int axis)
+    {
+        if (oldLanesCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(oldLanesCount), "Unpack lanes count must be greater than 0.");
+        }
+
+        var lanes = tensor.Shape[^oldLanesCount];
+        var perm = Enumerable.Range(0, tensor.Shape.Length).ToArray();
+        perm = [.. perm[..(axis + 1)], perm[^oldLanesCount], .. perm[(axis + 1)..^oldLanesCount], .. perm[^(oldLanesCount - 1)..]];
+        var devectorized = OrtKI.Transpose(tensor, perm.Select(i => (long)i).ToArray());
+        var shape = devectorized.Shape.ToList();
+        shape[axis] *= lanes;
+        shape.RemoveAt(axis + 1);
+        return OrtKI.Reshape(devectorized, shape.ToArray(), 0);
+    }
+
+    public static OrtKISharp.Tensor Unpack(this OrtKISharp.Tensor tensor, int oldLanesCount, ReadOnlySpan<int> axes)
+    {
+        for (int i = 0; i < axes.Length; i++)
+        {
+            tensor = tensor.Unpack(oldLanesCount--, axes[i]);
+        }
+
+        return tensor;
+    }
+
+    private static OrtKISharp.Tensor ToOrtTensor(Tensor tensor, OrtDataType ortDataType, long[] shape)
+    {
+        if (tensor.ElementType is MaskVectorType)
+        {
+            var ortTensor = OrtKISharp.Tensor.Empty(shape, OrtDataType.Bool);
+            _initializeMaskOrtTensorFunc.MakeGenericMethod(tensor.ElementType.CLRType).Invoke(null, [tensor, ortTensor]);
+            return ortTensor;
+        }
+        else
+        {
+            return OrtKISharp.Tensor.MakeTensor(tensor.PinBuffer(), ortDataType, shape);
+        }
+    }
+
+    private static void InitializeMaskOrtTensor<T>(Tensor<T> tensor, OrtKISharp.Tensor ortTensor)
+        where T : unmanaged, IEquatable<T>, IMaskVector
+    {
+        var src = tensor.Buffer.Span;
+        var dest = ortTensor.GetBuffer<bool>();
+        if (src.Length * T.Count != dest.Length)
+        {
+            throw new InvalidOperationException($"Source length {src.Length * T.Count} does not match destination length {dest.Length}.");
+        }
+
+        for (int i = 0; i < src.Length; i++)
+        {
+            var span = dest.Slice(i * T.Count, T.Count);
+            src[i].CopyTo(span);
+        }
+    }
+
+    private sealed class TensorInitializerWithOrt : ITensorInitializer
+    {
+        private static readonly MethodInfo _initializeUnmanagedFunc = typeof(TensorInitializerWithOrt)
+            .GetMethod(nameof(InitializeUnmanaged), BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        private static readonly MethodInfo _initializeMaskUnmanagedFunc = typeof(TensorInitializerWithOrt)
+            .GetMethod(nameof(InitializeMaskUnmanaged), BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        private readonly OrtKISharp.Tensor _tensor;
+
+        public TensorInitializerWithOrt(OrtKISharp.Tensor tensor)
+        {
+            _tensor = tensor;
+        }
+
+        public void Initialize<T>(Tensor<T> tensor)
+            where T : struct, IEquatable<T>
+        {
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                throw new NotSupportedException("Tensor<T> with reference type is not supported.");
+            }
+
+            if (typeof(T).GetInterfaces().Contains(typeof(IMaskVector)))
+            {
+                _initializeMaskUnmanagedFunc.MakeGenericMethod(typeof(T)).Invoke(this, [tensor]);
+            }
+            else
+            {
+                _initializeUnmanagedFunc.MakeGenericMethod(typeof(T)).Invoke(this, [tensor]);
+            }
+        }
+
+        private void InitializeUnmanaged<T>(Tensor<T> tensor)
+            where T : unmanaged, IEquatable<T>
+        {
+            var src = _tensor.GetBuffer<T>();
+            var dest = tensor.Buffer.Span;
+
+            // Add length check to prevent buffer overflow
+            if (src.Length > dest.Length)
+            {
+                var srcShapeStr = string.Join(", ", _tensor.Shape.Select(x => x.ToString()));
+                var destShapeStr = string.Join(", ", tensor.Dimensions.ToArray().Select(x => x.ToString()));
+                throw new ArgumentException(
+                    $"Source buffer length ({src.Length}) exceeds destination buffer length ({dest.Length}). " +
+                    $"Source shape: [{srcShapeStr}], Destination shape: [{destShapeStr}]",
+                    nameof(tensor));
+            }
+
+            src.CopyTo(dest);
+        }
+
+        private void InitializeMaskUnmanaged<T>(Tensor<T> tensor)
+            where T : unmanaged, IEquatable<T>, IMaskVector
+        {
+            var src = _tensor.GetBuffer<bool>();
+            var dest = tensor.Buffer.Span;
+            if (src.Length != dest.Length * T.Count)
+            {
+                throw new InvalidOperationException($"Source length {src.Length} does not match destination length {dest.Length * T.Count}.");
+            }
+
+            for (int i = 0; i < dest.Length; i++)
+            {
+                var span = src.Slice(i * T.Count, T.Count);
+                dest[i].CopyFrom(span);
+            }
+        }
+    }
+}

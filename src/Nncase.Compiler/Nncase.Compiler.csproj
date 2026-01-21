@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="DryIoc.dll" />
+        <PackageReference Include="DryIoc.Microsoft.DependencyInjection" />
+        <PackageReference Include="Microsoft.Extensions.Hosting" />
+        <PackageReference Include="Razor.Templating.Core" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Nncase.Core\Nncase.Core.csproj" />
+        <ProjectReference Include="..\Nncase.CodeGen\Nncase.CodeGen.csproj" />
+        <ProjectReference Include="..\Nncase.Evaluator\Nncase.Evaluator.csproj" />
+        <ProjectReference Include="..\Nncase.Diagnostics\Nncase.Diagnostics.csproj" />
+        <ProjectReference Include="..\Nncase.Graph\Nncase.Graph.csproj" />
+        <ProjectReference Include="..\Nncase.EGraph\Nncase.EGraph.csproj" />
+        <ProjectReference Include="..\Nncase.Schedule\Nncase.Schedule.csproj" />
+        <ProjectReference Include="..\Nncase.Simulator\Nncase.Simulator.csproj" />
+        <ProjectReference Include="..\Nncase.Passes\Nncase.Passes.csproj" />
+        <ProjectReference Include="..\modules\Nncase.Modules.NTT\Nncase.Modules.NTT.csproj" />
+        <!-- 
+        <ProjectReference Include="..\Nncase.Importer\Nncase.Importer.csproj" />
+        <ProjectReference Include="..\Nncase.Quantization\Nncase.Quantization.csproj" /> -->
+    </ItemGroup>
+</Project>

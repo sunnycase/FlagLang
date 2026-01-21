@@ -9,6 +9,7 @@ llvm-project-*/
 # Triton Python module builds
 python/build/
 python/dist/
+python/flagtree*.egg-info/
 python/triton*.egg-info/
 python/triton_kernels/triton*.egg-info/
 
@@ -89,3 +90,8 @@ docs/sg_execution_times.rst
 
 # macOS
 .DS_Store
+
+*.o
+bin/
+obj/
+dump/

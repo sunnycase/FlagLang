@@ -1,0 +1,20 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using DryIoc;
+using Nncase.Hosting;
+using Nncase.Targets;
+
+namespace Nncase;
+
+/// <summary>
+/// CPU module.
+/// </summary>
+internal class NTTModule : IApplicationPart
+{
+    public void ConfigureServices(IRegistrator registrator)
+    {
+        registrator.Register<ITarget, CPUTarget>(reuse: Reuse.Singleton);
+        registrator.Register<ITarget, CUDATarget>(reuse: Reuse.Singleton);
+    }
+}

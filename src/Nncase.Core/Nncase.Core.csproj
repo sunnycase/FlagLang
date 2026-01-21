@@ -1,0 +1,123 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Nncase</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+	  <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="TIR\Range.Conversions.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Range.Conversions.tt</DependentUpon>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DryIoc.dll" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="CommunityToolkit.HighPerformance" />
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="NetFabric.Hyperlinq" />
+    <PackageReference Include="System.Reactive" />
+    <PackageReference Include="GiGraph.Dot" />
+    <PackageReference Include="Google.OrTools" />
+    <PackageReference Include="ISLSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+      <ProjectReference Include="../../tools/Nncase.SourceGenerator/Nncase.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="IR\ExprRewriter.g.tt">
+      <LastGenOutput>ExprRewriter.g.cs</LastGenOutput>
+      <Generator>TextTemplatingFileGenerator</Generator>
+    </None>
+    <None Update="IR\ExprFunctor.g.tt">
+      <LastGenOutput>ExprFunctor.g.cs</LastGenOutput>
+      <Generator>TextTemplatingFileGenerator</Generator>
+    </None>
+    <None Update="IR\ExprCloner.g.tt">
+      <LastGenOutput>ExprCloner.g.cs</LastGenOutput>
+      <Generator>TextTemplatingFileGenerator</Generator>
+    </None>
+    <None Update="IR\ExprVisitor.g.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>ExprVisitor.g.cs</LastGenOutput>
+    </None>
+    <None Update="IR\IRListParser.tt">
+      <Generator></Generator>
+    </None>
+    <None Update="IR\Affine\AffineExprListParser.tt">
+      <Generator></Generator>
+    </None>
+    <None Update="IR\Affine\AffineExprVisitor.g.tt">
+      <LastGenOutput>AffineExprVisitor.g.cs</LastGenOutput>
+      <Generator>TextTemplatingFileGenerator</Generator>
+    </None>
+    <None Update="TIR\Range.Conversions.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>Range.Conversions.cs</LastGenOutput>
+    </None>
+    <None Update="VectorTypes\Vectors.g.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>Vectors.g.cs</LastGenOutput>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="IR\Affine\AffineExprVisitor.g.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>AffineExprVisitor.g.tt</DependentUpon>
+    </Compile>
+    <Compile Update="IR\ExprCloner.g.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>ExprCloner.g.tt</DependentUpon>
+    </Compile>
+    <Compile Update="IR\ExprFunctor.g.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>ExprFunctor.g.tt</DependentUpon>
+    </Compile>
+    <Compile Update="IR\ExprRewriter.g.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>ExprRewriter.g.tt</DependentUpon>
+    </Compile>
+    <Compile Update="IR\ExprVisitor.g.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>ExprVisitor.g.tt</DependentUpon>
+    </Compile>
+    <Compile Update="TIR\Range.Conversions.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Range.Conversions.tt</DependentUpon>
+    </Compile>
+    <Compile Update="VectorTypes\Vectors.g.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Vectors.g.tt</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Tiling\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Tiling\" />
+  </ItemGroup>
+
+</Project>

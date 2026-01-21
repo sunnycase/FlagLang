@@ -4,6 +4,20 @@ __version__ = '3.5.1'
 # ---------------------------------------
 # Note: import order is significant here.
 
+# initialize dotnet
+import os
+
+def _initialize_dotnet():
+    import triton._C.libtriton as libtriton
+    compiler_path = os.getenv("NNCASE_COMPILER")
+    if not compiler_path:
+        compiler_path = os.path.join(os.path.dirname(libtriton.__file__),
+                                     "nncase", "Nncase.Compiler.dll")
+    libtriton.hosting.initialize(compiler_path)
+
+
+_initialize_dotnet()
+
 # submodules
 from .runtime import (
     autotune,

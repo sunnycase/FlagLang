@@ -1,0 +1,138 @@
+/* Copyright 2019-2021 Canaan Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+#include "nncase/runtime/model.h"
+#ifdef WIN32
+#include <Windows.h>
+#elif defined(__unix__) || defined(__APPLE__)
+#include <dlfcn.h>
+#endif
+
+#include <cstring>
+#include <nncase/runtime/cpu/runtime_module.h>
+#include <nncase/runtime/cuda/runtime_module.h>
+#include <nncase/runtime/runtime_loader.h>
+#include <nncase/runtime/runtime_module.h>
+
+using namespace nncase;
+using namespace nncase::runtime;
+
+#define STR_(x) #x
+#define STR(x) STR_(x)
+
+#include <fmt/format.h>
+
+namespace {
+#ifdef WIN32
+#define TRY_WIN32_IF_NOT(x)                                                    \
+    if (!(x)) {                                                                \
+        return err(                                                            \
+            std::error_condition(GetLastError(), std::system_category()));     \
+    }
+#define FindRuntimeMethod(snake_name, upper_name)                              \
+    result<rt_module_##snake_name##_t> find_runtime_##snake_name(              \
+        const module_kind_t &kind) {                                           \
+        auto module_name =                                                     \
+            fmt::format("nncase.simulator.{}.dll", kind.data());               \
+        auto mod = LoadLibraryExA(module_name.c_str(), nullptr,                \
+                                  LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);           \
+        if (!mod)                                                              \
+            mod = LoadLibraryA(module_name.c_str());                           \
+        TRY_WIN32_IF_NOT(mod);                                                 \
+        auto proc =                                                            \
+            GetProcAddress(mod, STR(RUNTIME_MODULE_##upper_name##_NAME));      \
+        TRY_WIN32_IF_NOT(proc);                                                \
+        return ok(reinterpret_cast<rt_module_##snake_name##_t>(proc));         \
+    }
+
+// clang-format off
+FindRuntimeMethod(activator, ACTIVATOR)
+// clang-format on
+
+#undef FindRuntimeMethod
+
+#elif defined(__unix__) || defined(__APPLE__)
+#ifdef __unix__
+#define DYNLIB_EXT ".so"
+#else
+#define DYNLIB_EXT ".dylib"
+#endif
+
+#define FindRuntimeMethod(snake_name, upper_name)                              \
+    result<rt_module_##snake_name##_t> find_runtime_##snake_name(              \
+        const module_kind_t &kind) {                                           \
+        auto module_name =                                                     \
+            fmt::format("libnncase.simulator.{}" DYNLIB_EXT, kind.data());     \
+        auto mod = dlopen(module_name.c_str(), RTLD_LAZY);                     \
+        if (!(mod))                                                            \
+            return err(nncase_errc::runtime_not_found);                        \
+        auto proc = dlsym(mod, STR(RUNTIME_MODULE_##upper_name##_NAME));       \
+        if (!(proc))                                                           \
+            return err(nncase_errc::runtime_register_not_found);               \
+        return ok(reinterpret_cast<rt_module_##snake_name##_t>(proc));         \
+    }
+// clang-format off
+FindRuntimeMethod(activator, ACTIVATOR)
+// clang-format on
+
+#undef FindRuntimeMethod
+
+#else
+#define NNCASE_NO_LOADABLE_RUNTIME
+#endif
+} // namespace
+
+namespace {
+std::pair<module_kind_t, rt_module_activator_t> builtin_activators[] = {
+    {cpu::cpu_module_kind,
+     [](result<std::unique_ptr<runtime_module>> &out) {
+         out = cpu::create_cpu_runtime_module();
+     }},
+    {cuda::cuda_module_kind,
+     [](result<std::unique_ptr<runtime_module>> &out) {
+         out = cuda::create_cuda_runtime_module();
+     }},
+};
+
+result<rt_module_activator_t>
+create_builtin_activator(const module_kind_t &kind) {
+    for (auto &activator : builtin_activators) {
+        if (!strncmp(kind.data(), activator.first.data(),
+                     MAX_MODULE_KIND_LENGTH)) {
+            return ok(activator.second);
+        }
+    }
+    return err(nncase_errc::runtime_not_found);
+}
+} // namespace
+
+result<std::unique_ptr<runtime_module>>
+runtime_module::create(const module_kind_t &kind) {
+    auto activator = create_builtin_activator(kind);
+    if (activator.is_err()) {
+        activator = find_runtime_activator(kind);
+    }
+
+    if (activator.is_err())
+        return err(activator.unwrap_err());
+
+    result<std::unique_ptr<runtime_module>> rt_module(
+        nncase_errc::runtime_not_found);
+    activator.unwrap()(rt_module);
+    return rt_module;
+}
+
+#ifdef NNCASE_DEFAULT_BUILTIN_RUNTIMES
+runtime_registration nncase::runtime::builtin_runtimes[] = {{}};
+#endif

@@ -1,0 +1,234 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using NetFabric.Hyperlinq;
+using Nncase.CostModel;
+using Nncase.IR;
+using Nncase.IR.NN;
+using Nncase.IR.Shapes;
+using Nncase.IR.Tensors;
+using Nncase.Utilities;
+using OrtKISharp;
+using static Nncase.IR.F.Tensors;
+using Range = System.Range;
+
+namespace Nncase.Evaluator.NN;
+
+/// <summary>
+/// Evaluator for <see cref="SpaceToBatch"/>.
+/// </summary>
+public class SpaceToBatchEvaluator : IEvaluator<SpaceToBatch>, ITypeInferencer<SpaceToBatch>, ICostEvaluator<SpaceToBatch>, IMetricEvaluator<SpaceToBatch>
+{
+    /// <inheritdoc/>
+    public Cost Visit(ICostEvaluateContext context, SpaceToBatch target)
+    {
+        var ret = context.GetReturnType<TensorType>();
+        return new()
+        {
+            [CostFactorNames.MemoryLoad] = CostUtility.GetMemoryAccess(ret),
+            [CostFactorNames.MemoryStore] = CostUtility.GetMemoryAccess(ret),
+        };
+    }
+
+    public Metric Visit(IMetricEvaluateContext context, SpaceToBatch target)
+    {
+        var ret = context.GetReturnType<TensorType>();
+        return new()
+        {
+            [MetricFactorNames.OffChipMemoryTraffic] = CostUtility.GetMemoryAccess(ret) * 2,
+        };
+    }
+
+    /// <inheritdoc/>
+    public IValue Visit(IEvaluateContext context, SpaceToBatch s)
+    {
+        var input = context.GetOrtArgumentValue(s, SpaceToBatch.Input);
+        input = NCHWToNHWC(input.ToTensor()).Evaluate().AsTensor().ToOrtTensor();
+        var blockShape = context.GetArgumentValueAsTensor<long>(s, SpaceToBatch.BlockShape);
+        var paddings = context.GetArgumentValueAsArray<long>(s, SpaceToBatch.Paddings);
+        var spatialSize = blockShape.Length;
+        var remainShapeSize = input.Rank - spatialSize - 1;
+        var newPaddings = new long[(1 + spatialSize + remainShapeSize) * 2];
+        for (int i = 0; i < spatialSize; i++)
+        {
+            newPaddings[1 + i] = paddings[2 * i];
+            newPaddings[1 + (newPaddings.Length / 2) + i] = paddings[(2 * i) + 1];
+        }
+
+        var newPaddingsTensor = (OrtKISharp.Tensor)newPaddings;
+        var p = OrtKI.Pad(input, newPaddingsTensor, OrtKISharp.Tensor.FromScalar(0f), "constant");
+
+        var batchShape1 = new long[] { p.Shape[0] };
+        var spatialShape1 = RangeExec(
+            spatialSize,
+            i => new[] { p.Shape[i + 1] / blockShape[i], blockShape[i] })
+            .Aggregate(Array.Empty<long>(), (x, y) => x.Concat(y).ToArray());
+        var remainShape1 = RangeExec(remainShapeSize, i => (long)p.Shape[1 + spatialSize + i]);
+        var reshappedShape1 = batchShape1.Concat(spatialShape1.Concat(remainShape1)).ToArray();
+
+        var perm = RangeExec(spatialSize, i => (i * 2) + 2)
+            .Concat(new[] { 0 })
+            .Concat(RangeExec(spatialSize, i => (i * 2) + 1))
+            .Concat(RangeExec(remainShapeSize, i => i + ((int)spatialSize * 2) + 1))
+            .Select(x => (long)x)
+            .ToArray();
+
+        var reshappedShape2 = new[] { p.Shape[0] * blockShape.Aggregate(1L, (x, y) => x * y) }
+            .Concat(RangeExec(spatialSize, i => p.Shape[i + 1] / blockShape[i]))
+            .Concat(RangeExec(remainShapeSize, i => (long)p.Shape[1 + spatialSize + i]))
+            .ToArray();
+
+        var reshape1 = OrtKI.Reshape(p, (OrtKISharp.Tensor)reshappedShape1, 0);
+        var rt = OrtKI.Transpose(reshape1, perm);
+        var reshape2 = OrtKI.Reshape(rt, (OrtKISharp.Tensor)reshappedShape2, 0);
+
+        return NHWCToNCHW(reshape2.ToTensor()).Evaluate();
+    }
+
+    /// <inheritdoc/>
+    public IRType Visit(ITypeInferenceContext context, SpaceToBatch target)
+    {
+        var input = context.CheckArgumentType<TensorType>(target, SpaceToBatch.Input);
+        var blockShape = context.CheckArgumentType<ShapeType>(target, SpaceToBatch.BlockShape);
+        var paddings = context.CheckArgumentType<PaddingsType>(target, SpaceToBatch.Paddings);
+        return Visit(context, target, input, blockShape, paddings);
+    }
+
+    private static Call ShapeValueNHWCToNCHW(Expr inputExpr, Call outShape)
+    {
+        if (inputExpr.CheckedShape.Rank == 4)
+        {
+            outShape = Stack(new IR.Tuple(new[] { outShape[0], outShape[3], outShape[1], outShape[2] }), 0);
+        }
+        else if (inputExpr.CheckedShape.Rank == 3)
+        {
+            outShape = Stack(new IR.Tuple(new[] { outShape[0], outShape[2], outShape[1] }), 0);
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+
+        return outShape;
+    }
+
+    private static Expr ShapeValueNCHWToNHWC(Expr inputExpr, Expr inShape)
+    {
+        if (inputExpr.CheckedShape.Rank == 4)
+        {
+            inShape = Stack(new IR.Tuple(new[] { inShape[0], inShape[2], inShape[3], inShape[1] }), 0);
+        }
+        else if (inputExpr.CheckedShape.Rank == 3)
+        {
+            inShape = Stack(new IR.Tuple(new[] { inShape[0], inShape[2], inShape[1] }), 0);
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+
+        return inShape;
+    }
+
+    private static Dimension[] ShapeNHWCToNCHW(List<Dimension> inShape, List<Dimension> outshape)
+    {
+        Dimension[] outputShape;
+
+        // nhwc to nchw
+        if (inShape.Count == 4)
+        {
+            outputShape = new[] { outshape[0], outshape[3], outshape[1], outshape[2] };
+        }
+        else
+        {
+            outputShape = new[] { inShape[0], inShape[2], inShape[1] };
+        }
+
+        return outputShape;
+    }
+
+    private static Dimension[] ShapeNCHWToNHWC(List<Dimension> inShape)
+    {
+        Dimension[] padded_shape;
+
+        // nchw to nhwc
+        if (inShape.Count == 4)
+        {
+            padded_shape = new[] { inShape[0], inShape[2], inShape[3], inShape[1] };
+        }
+        else if (inShape.Count == 3)
+        {
+            padded_shape = new[] { inShape[0], inShape[2], inShape[1] };
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+
+        return padded_shape;
+    }
+
+    private T[] RangeExec<T>(long end, Func<int, T> f)
+    {
+        return EndRange(0, (int)end).Select(f).ToArray();
+    }
+
+    private IEnumerable<int> EndRange(int begin, int end)
+    {
+        return Enumerable.Range(begin, end - begin);
+    }
+
+    private IRType Visit(ITypeInferenceContext context, SpaceToBatch target, TensorType input, ShapeType blockShape, PaddingsType paddings)
+    {
+        var blockShapeValue = (Shape)context.GetArgument(target, SpaceToBatch.BlockShape);
+        var paddingsValue = (Paddings)context.GetArgument(target, SpaceToBatch.Paddings);
+        if (blockShapeValue is RankedShape rankedBlockShape)
+        {
+            int m = blockShapeValue.Rank;
+
+            // var padded_shape = input.Shape.ToList();
+            var inShape = ((RankedShape)input.Shape).ToList();
+            var padded_shape = ShapeNCHWToNHWC(inShape);
+
+            for (int i = 0; i < m; i++)
+            {
+                if (!padded_shape[1 + i].IsUnknown)
+                {
+                    padded_shape[1 + i] += paddingsValue[i].Sum();
+                }
+            }
+
+            var outshape = new List<Dimension> { padded_shape[0] };
+            foreach (var i in Enumerable.Range(1, m))
+            {
+                if (!Dimension.TryDivExactly(padded_shape[i], blockShapeValue[i - 1], out var divided))
+                {
+                    throw new TypeInferenceInterruptException(
+                                        new InvalidType($"The Padded Shape Must Divides BlockShape!"));
+                }
+
+                outshape.Add(divided);
+            }
+
+            foreach (var i in Enumerable.Range(m + 1, padded_shape.Length - (m + 1)))
+            {
+                outshape.Add(padded_shape[i]);
+            }
+
+            foreach (var block in rankedBlockShape)
+            {
+                outshape[0] *= block;
+            }
+
+            var outputShape = ShapeNHWCToNCHW(inShape, outshape);
+
+            return input with { Shape = new RankedShape(outputShape) };
+        }
+
+        // return new TensorType(input.DType, Enumerable.Repeat(Dimension.Unknown, input.Shape.Count).ToArray());
+        throw new NotImplementedException();
+    }
+}

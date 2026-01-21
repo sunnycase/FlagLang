@@ -1,0 +1,636 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using Nncase.Evaluator;
+using Nncase.IR;
+using Nncase.IR.Math;
+using Nncase.IR.NN;
+using Nncase.IR.Shapes;
+using Nncase.IR.Tensors;
+using Nncase.PatternMatch;
+using Nncase.Utilities;
+using static Nncase.IR.F.Math;
+using static Nncase.IR.F.NN;
+using static Nncase.IR.F.Tensors;
+using static Nncase.IR.TypePatternUtility;
+using static Nncase.PatternMatch.F.Math;
+using static Nncase.PatternMatch.F.NN;
+using static Nncase.PatternMatch.F.Tensors;
+using static Nncase.PatternMatch.Utility;
+using static Nncase.Utilities.MetadataUtility;
+using Tuple = System.Tuple;
+
+namespace Nncase.Passes.Rules.Neutral;
+
+/// <summary>
+/// Combine Transpose with Binary
+/// binary(transpose(a,p),transpose(b,p)) => transpose(binary(a,b),p).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineBinaryTranspose : IRewriteRule
+{
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CombineBinaryTranspose"/> class.
+    /// </summary>
+    public CombineBinaryTranspose()
+    {
+        var perm = IsShape("perm");
+        Pattern = IsBinary("binary", "binaryCall", x => true, IsTranspose(IsWildcard("x"), perm), IsTranspose(IsWildcard("y"), perm));
+    }
+
+    /// <inheritdoc/>
+    public IPattern Pattern { get; init; }
+
+    private Expr? GetReplace(Binary binary, Call binaryCall, Expr x, Expr y, Shape perm)
+    {
+        return Transpose(Binary(binary.BinaryOp, x, y).InheritMetaData(binaryCall), perm);
+    }
+}
+
+/// <summary>
+/// Combine Transpose with Binary left
+/// binary(transpose(a,p),b) => transpose(binary(a, transpose(b,invP)),p).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineBinaryLeftTranspose : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsBinary("binary", "binaryCall", x => true, IsTranspose(IsWildcard("x"), IsTensorConst("perm")), IsWildcard("y"));
+
+    private Expr? GetReplace(Binary binary, Call binaryCall, Expr x, Expr y, int[] perm)
+    {
+        if (x.CheckedShape.Rank == y.CheckedShape.Rank)
+        {
+            var invPerm = perm.Select((p, i) => (p, i)).OrderBy(tp => tp.p).Select(p => p.i).ToArray();
+            return Transpose(Binary(binary.BinaryOp, x, Transpose(y, invPerm)).InheritMetaData(binaryCall), perm);
+        }
+
+        return null;
+    }
+}
+
+/// <summary>
+/// Combine Transpose with Binary right
+/// binary(a,transpose(b,p)) => transpose(binary(transpose(a,invP),b),p).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineBinaryRightTranspose : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsBinary("binary", "binaryCall", x => true, IsWildcard("x"), IsTranspose(IsWildcard("y"), IsTensorConst("perm")));
+
+    private Expr? GetReplace(Binary binary, Call binaryCall, Expr x, Expr y, int[] perm)
+    {
+        if (x.CheckedShape.Rank == y.CheckedShape.Rank)
+        {
+            var invPerm = perm.Select((p, i) => (p, i)).OrderBy(tp => tp.p).Select(p => p.i).ToArray();
+            return Transpose(Binary(binary.BinaryOp, Transpose(x, invPerm), y).InheritMetaData(binaryCall), perm);
+        }
+
+        return null;
+    }
+}
+
+/// <summary>
+/// Combine Transpose with Const Binary, if Const has rank 1.
+/// binary(transpose(a,p),const(b)) => transpose(binary(a,const(b)),p) or binary(const(a),transpose(b,p)) => transpose(binary(const(a),b),p).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineConstBinaryTranspose : IRewriteRule
+{
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CombineConstBinaryTranspose"/> class.
+    /// </summary>
+    public CombineConstBinaryTranspose()
+    {
+        var perm = IsFixedShape("perm");
+        Pattern = IsAlt(
+            IsBinary(
+                "binary",
+                "binaryCall",
+                _ => true,
+                IsTranspose(IsWildcard("x"), perm),
+                IsConst("y") with { TypePattern = HasRank(1) | HasRank(0) }),
+            IsBinary(
+                "binary",
+                "binaryCall",
+                _ => true,
+                IsConst("x") with { TypePattern = HasRank(1) | HasRank(0) },
+                IsTranspose(IsWildcard("y"), perm)));
+    }
+
+    /// <inheritdoc/>
+    public IPattern Pattern { get; init; }
+
+    private Expr? GetReplace(Binary binary, Call binaryCall, Expr x, Expr y, int[] perm)
+    {
+        if (perm.Length == 0)
+        {
+            return null;
+        }
+
+        var expandDim = perm.Length - perm[perm.Length - 1] - 1;
+
+        if (x is Const)
+        {
+            if (x.CheckedShape.Rank == 0)
+            {
+                return Transpose(Binary(binary.BinaryOp, x, y).InheritMetaData(binaryCall), perm);
+            }
+
+            var newShape = new List<long>() { x.CheckedShape[0].FixedValue };
+            if (x.CheckedShape[0].FixedValue != 1)
+            {
+                for (int i = 0; i < expandDim; i++)
+                {
+                    newShape.Add(1);
+                }
+            }
+
+            var newConst = Reshape(x, newShape.ToArray()).InheritMetaData(x);
+            return Transpose(Binary(binary.BinaryOp, newConst, y).InheritMetaData(binaryCall), perm);
+        }
+
+        if (y is Const)
+        {
+            if (y.CheckedShape.Rank == 0)
+            {
+                return Transpose(Binary(binary.BinaryOp, x, y).InheritMetaData(binaryCall), perm);
+            }
+
+            var newShape = new List<long>() { y.CheckedShape[0].FixedValue };
+            if (y.CheckedShape[0].FixedValue != 1)
+            {
+                for (int i = 0; i < expandDim; i++)
+                {
+                    newShape.Add(1);
+                }
+            }
+
+            var newConst = Reshape(y, newShape.ToArray()).InheritMetaData(y);
+            return Transpose(Binary(binary.BinaryOp, x, newConst).InheritMetaData(binaryCall), perm);
+        }
+
+        return null;
+    }
+}
+
+/// <summary>
+/// transpose(binary(x,const),p) => binary(transpose(x,p),new_const).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineTransposeConstBinary : RewriteRule<CallPattern>
+{
+    public override CallPattern Pattern { get; } =
+      IsTranspose(
+        IsAlt(
+          IsBinary("binary", "binaryCall", _ => true, IsWildcard("x", x => x is not Const), IsTensorConst("y")),
+          IsBinary("binary", "binaryCall", _ => true, IsTensorConst("x"), IsWildcard("y", x => x is not Const))),
+        IsFixedShape("perm"));
+
+    private Const GetNewConst(TensorConst oldConst, Expr input, Shape perm)
+    {
+        long[] newConstShape;
+        if (oldConst.Value.Shape.Rank < input.CheckedShape.Rank)
+        {
+            newConstShape = Enumerable.Repeat(1L, input.CheckedShape.Rank - oldConst.Value.Shape.Rank).Concat(oldConst.Value.Shape.ToValueArray()).ToArray();
+        }
+        else
+        {
+            newConstShape = oldConst.Value.Shape.ToValueArray();
+        }
+
+        return (Const)Const.FromValue(Transpose(Tensor.FromBytes(oldConst.Value.ElementType, oldConst.Value.BytesBuffer.ToArray(), newConstShape), perm).Evaluate()).InheritMetaData(oldConst);
+    }
+
+    private Expr? GetReplace(Binary binary, Call binaryCall, Expr x, Expr y, Shape perm)
+    {
+        if (x is TensorConst && y.CheckedShape.Rank != binaryCall.CheckedShape.Rank)
+        {
+            return null;
+        }
+
+        if (y is TensorConst && x.CheckedShape.Rank != binaryCall.CheckedShape.Rank)
+        {
+            return null;
+        }
+
+        if (x is TensorConst constX)
+        {
+            return Binary(binary.BinaryOp, GetNewConst(constX, y, perm), Transpose(y, perm)).InheritMetaData(binaryCall);
+        }
+
+        var constY = (TensorConst)y;
+        return Binary(binary.BinaryOp, Transpose(x, perm), GetNewConst(constY, x, perm)).InheritMetaData(binaryCall);
+    }
+}
+
+/// <summary>
+/// transpose(binary(x,y),p) => binary(transpose(x,p),transpose(y,p)).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineTransposeBinary : RewriteRule<CallPattern>
+{
+    public override CallPattern Pattern { get; } =
+        IsTranspose(
+            IsBinary("binary", "binaryCall", _ => true, IsWildcard("x"), IsWildcard("y")),
+            IsFixedShape("perm"));
+
+    private Expr? GetReplace(Binary binary, Call binaryCall, Expr x, Expr y, Shape perm)
+    {
+        if (x.CheckedShape.Rank != y.CheckedShape.Rank)
+        {
+            return null;
+        }
+
+        return Binary(binary.BinaryOp, Transpose(x, perm), Transpose(y, perm)).InheritMetaData(binaryCall);
+    }
+}
+
+/// <summary>
+/// Combine Transpose with Concat
+/// concat((transpose(x,p),...), a) => transpose(concat((x,...), p[a]), p).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineTransposeConcat : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsConcat(
+               "concat",
+               "concatCall",
+               _ => true,
+               PatternMatch.Utility.IsTuple(null, IsVArgsRepeat("tupleInputs", exprs =>
+               {
+                   var patterns = new Pattern[exprs.Length];
+                   for (var i = 0; i < patterns.Length; i++)
+                   {
+                       patterns[i] = IsTranspose(IsWildcard($"input_{i}"), IsFixedShape($"perm_{i}"));
+                   }
+
+                   return patterns;
+               })));
+
+    private Expr? GetReplace(IR.Tensors.Concat concat, Call concatCall, IReadOnlyList<BaseExpr> tupleInputs, IMatchResult matchResult)
+    {
+        int axis = concat.Axis;
+        var inputs = Enumerable.Range(0, tupleInputs.Count).Select(i => (Expr)matchResult[$"input_{i}"]);
+        var perms = new HashSet<Tensor<long>>(Enumerable.Range(0, tupleInputs.Count).Select(i => Tensor.From(((Shape)matchResult[$"perm_{i}"]).ToValueArray())));
+
+        Tensor<long> perm;
+        if (perms.Count == 1)
+        {
+            perm = perms.Single();
+        }
+        else
+        {
+            return null;
+        }
+
+        return Transpose(Concat(new IR.Tuple(inputs.ToArray()), (int)perm[axis]).InheritMetaData(concatCall), perm);
+    }
+}
+
+/// <summary>
+/// Combine Transpose with Pad
+/// pad(transpose(x,p), pp) => transpose(pad(x, invtranspose(pp, p)), p).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineTransposePad : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsPad(
+        "pad",
+        "padCall",
+        x => true,
+        IsTranspose(IsWildcard("input"), IsFixedShape("perm")),
+        IsPaddings("pads"),
+        IsWildcard("padValue"));
+
+    private Expr GetReplace(Pad pad, Call padCall, Expr input, int[] perm, Paddings pads, Expr padValue)
+    {
+        var inv_perm = perm.Select((p, i) => (p, i)).OrderBy(tp => tp.p).ToArray();
+        var newPads = new List<Padding>();
+        for (var i = 0; i < inv_perm.Length; i++)
+        {
+            newPads.Add(pads[inv_perm[i].i]);
+
+            // newPads[i] = pads[perm[i]];
+        }
+
+        var p = Pad(input, newPads.ToArray(), pad.PadMode, padValue).InheritMetaData(padCall);
+        return Transpose(p, perm);
+    }
+}
+
+/// <summary>
+/// Combine Pad with Transpose
+/// transpose(pad(x, pp),p) => pad(transpose(x),new_pp).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombinePadTranspose : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsTranspose(
+        "transpose",
+        x => true,
+        IsPad(
+            "pad",
+            "padCall",
+            y => true,
+            IsWildcard("input"),
+            IsPaddings("pads"),
+            IsTensorConst("padValue")),
+        IsFixedShape("perm"));
+
+    private Expr GetReplace(Pad pad, Call padCall, Expr input, int[] perm, Paddings pads, Expr padValue)
+    {
+        var newPads = new List<Padding>();
+        for (int i = 0; i < perm.Length; i++)
+        {
+            newPads.Add(pads[perm[i]]);
+        }
+
+        return Pad(Transpose(input, perm), newPads.ToArray(), pad.PadMode, padValue).InheritMetaData(padCall);
+    }
+}
+
+/// <summary>
+/// Combine Transpose with Reduce
+/// reduce(transpose(x,p), a) => transpose(reduce(x, gather(p, a)), p).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineTransposeReduce : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsReduce(
+        "reduce",
+        "reduceCall",
+        x => true,
+        IsTranspose("tp", "tpCall", _ => true, IsWildcard("input"), IsFixedShape("perm")),
+        IsFixedShape("axis"),
+        IsWildcard("initValue"),
+        IsTensorConst("keepDims", IsBoolScalar()));
+
+    private Expr? GetReplace(Reduce reduce, Call reduceCall, Expr input, Call tpCall, int[] perm, int[] axis, Expr initValue, bool keepDims)
+    {
+        // var newAxis = Gather(perm, 0, axis);
+        // var tp = Transpose(Reduce(reduce.ReduceOp, input, newAxis, initValue, true), perm);
+        // return keepDims ? tp : Squeeze(tp, axis);
+        var newAxis = new List<int>();
+        for (int i = 0; i < axis.Length; i++)
+        {
+            newAxis.Add(perm[axis[i] >= 0 ? axis[i] : axis[i] + tpCall.CheckedShape.Rank]);
+        }
+
+        var newPerm = new List<int>();
+        for (int i = 0; i < perm.Length; i++)
+        {
+            newPerm.Add(perm[i]);
+        }
+
+        if (!keepDims)
+        {
+            var sortedNewAxis = new List<int>(newAxis);
+            sortedNewAxis.Sort((a, b) => b.CompareTo(a));
+            for (int i = 0; i < sortedNewAxis.Count; i++)
+            {
+                var it = newPerm.Find(x => x == sortedNewAxis[i]);
+                newPerm.Remove(it);
+                for (int j = 0; j < newPerm.Count; j++)
+                {
+                    newPerm[j] = newPerm[j] > sortedNewAxis[i] ? newPerm[j] - 1 : newPerm[j];
+                }
+            }
+        }
+
+        return Transpose(Reduce(reduce.ReduceOp, input, newAxis.ToArray(), initValue, keepDims).InheritMetaData(reduceCall), newPerm.ToArray());
+    }
+}
+
+/// <summary>
+/// x // [12, 77, 64]
+/// transpose(reshape(x, [1, 12, 77, 64]), [0, 2, 1, 3]) => reshape(transpose(x, [1, 0, 2]), [1, 77, 12, 64]).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineTransposeReshape : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsTranspose(
+        null,
+        "trans",
+        IsReshape(
+            IsWildcard("input"),
+            IsRankedShape("newShape")),
+        IsFixedShape("perm"));
+
+    private Expr? GetReplace(Call trans, Expr input, RankedShape newShape, int[] perm)
+    {
+        var inShape = (RankedShape)input.CheckedShape;
+        var outShape = (RankedShape)trans.CheckedShape;
+
+        if (TryProcessSqueezeUnsqueeze(input, inShape, newShape, perm, out var result))
+        {
+            return result;
+        }
+
+        var maxInputShape = CompilerServices.GetMaxShape(inShape);
+        var maxNewShape = CompilerServices.GetMaxShape(newShape);
+        if (!IRUtility.TryGetShapeMapMatrix(maxInputShape, maxNewShape, out var mat))
+        {
+            return null;
+        }
+
+        var (forwardDict, backwardDict) = IRUtility.ShapeMapMatrixAsDict(mat);
+        if (forwardDict.Any(f => f.Value.Count > 1
+            && (f.Value.Any(b => backwardDict[b].Count > 1)
+                || !Enumerable.Range(0, perm.Length - f.Value.Count).Any(i => perm.Skip(i).Take(f.Value.Count).SequenceEqual(f.Value)))))
+        {
+            return null;
+        }
+
+        var newPerm = perm.Select(p => backwardDict[p]).SelectMany(a => a).Distinct().ToArray();
+
+        return Reshape(Transpose(input, newPerm), outShape);
+    }
+
+    private bool TryProcessSqueezeUnsqueeze(Expr input, RankedShape inShape, RankedShape newShape, int[] perm, [MaybeNullWhen(false)] out Expr result)
+    {
+        if (!(newShape.Rank == inShape.Rank + 1))
+        {
+            result = null;
+            return false;
+        }
+
+        // check reshape is sequeeze
+        var axis = RulesUtility.FindSqueezeAxis(newShape, inShape);
+        if (axis == -1)
+        {
+            result = null;
+            return false;
+        }
+
+        var newPerm = perm.ToList();
+        newPerm.Remove(axis);
+        newPerm = newPerm.Select(i => i > axis ? i - 1 : i).ToList();
+
+        var inv = perm.Select((p, i) => (p, i)).OrderBy(tp => tp.p).ToArray();
+        var invNewShape = newPerm.Select(i => inShape[i]).ToList();
+        invNewShape.Insert(perm.ToList().IndexOf(axis), 1);
+        result = Reshape(Transpose(input, newPerm.ToArray()), invNewShape.ToArray());
+        return true;
+    }
+}
+
+/// <summary>
+/// Combine Transpose with Unary
+/// transpose(unary(x), p) => unary(transpose(x,p)).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineUnaryTranspose : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsTranspose("transpose", "transposeCall", _ => true, IsUnary("unary", "unaryCall", _ => true, IsWildcard("input")), IsShape("perm"));
+
+    private Expr? GetReplace(Unary unary, Call transposeCall, Expr input, Shape perm)
+    {
+        return Unary(unary.UnaryOp, Transpose(input, perm)).InheritMetaData(transposeCall);
+    }
+}
+
+/// <summary>
+/// transpose(activation(x),perm) => activation(transpose(x,perm)).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineTransposeActivations : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } =
+        IsTranspose(
+            IsCall("actCall", IsOp<ActivationOp>("activation", op => true), IsVArgsRepeat("arguments", () => IsWildcard() with { TypePattern = HasFixedShape() })),
+            IsFixedShape("perm"));
+
+    private Expr? GetReplace(Call actCall, ActivationOp activation, IReadOnlyList<BaseExpr> arguments, int[] perm)
+    {
+        var newArgs = new List<BaseExpr>();
+        foreach (var arg in arguments)
+        {
+            if (arg.CheckedShape.IsScalar)
+            {
+                newArgs.Add(arg);
+                continue;
+            }
+            else if (arg.CheckedShape.Rank <= perm.Length)
+            {
+                newArgs.Add(Transpose((Expr)arg, perm.Select(p => p - (perm.Length - arg.CheckedShape.Rank)).Where(p => p >= 0).ToArray()));
+                continue;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        var newcall = new Call(activation, newArgs.ToArray());
+        newcall.InheritMetaData(actCall);
+        return newcall;
+    }
+}
+
+/// <summary>
+/// activations(transpose(input,p),args...) => transpose(activations(input,args...),p).
+/// </summary>
+[RuleGenerator]
+public sealed partial class CombineActivationsTranspose : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } =
+      IsCall("actCall", IsOp<ActivationOp>("activation", op => true), IsVArgsRepeat("parameters", (inputs) =>
+      {
+          var patterns = new Pattern[inputs.Length];
+          patterns[0] = IsTranspose(IsWildcard("input"), IsShape("perm"));
+          for (int i = 1; i < inputs.Length; i++)
+          {
+              patterns[i] = IsWildcard();
+          }
+
+          return patterns;
+      }));
+
+    private Expr? GetReplace(Call actCall, ActivationOp activation, Expr input, IReadOnlyList<BaseExpr> parameters, Shape perm)
+    {
+        // note the prelu scope can be broadcast with inputs.
+        if (activation is PRelu && parameters[1].CheckedShape.Rank > 1)
+        {
+            if (!perm.IsFixed || parameters[1] is not TensorConst slope)
+            {
+                return null;
+            }
+
+            // eg. transpose(input,perm) shape = [1,32,32,8], scope = [1,1,8]
+            Expr new_slope;
+            var perms = perm.ToValueArray();
+            if (slope.Value.Shape.Rank == input.CheckedShape.Rank - 1)
+            {
+                if (perms[0] != 0)
+                {
+                    return null;
+                }
+
+                var inv_perm = perms.Skip(1).Select((p, i) => (p - 1, i)).OrderBy(tp => tp.Item1).Select(tp => tp.i).ToArray();
+                new_slope = Const.FromValue(Transpose(slope, inv_perm).Evaluate());
+                return Transpose(new Call(activation, input, new_slope), perm);
+            }
+            else if (slope.Value.Shape.Rank == input.CheckedShape.Rank)
+            {
+                var inv_perm = perms.Select((p, i) => (p, i)).OrderBy(tp => tp.p).Select(tp => tp.i).ToArray();
+                new_slope = Const.FromValue(Transpose(slope, inv_perm).Evaluate());
+            }
+            else
+            {
+                return null;
+            }
+
+            return Transpose(new Call(activation, input, new_slope), perm);
+        }
+
+        var newCall = new Call(activation, new Expr[] { input }.Concat(parameters.Skip(1)).ToArray());
+        newCall.InheritMetaData(actCall);
+        return Transpose(
+          newCall,
+          perm);
+    }
+}
+
+[RuleGenerator]
+public sealed partial class CombineSliceTranspose : IRewriteRule
+{
+    /// <inheritdoc/>
+    public IPattern Pattern { get; } = IsTranspose(
+        "transpose",
+        _ => true,
+        IsSlice(
+            "slice",
+            "sliceCall",
+            _ => true,
+            IsWildcard("input"),
+            IsRankedShape("begins"),
+            IsRankedShape("ends"),
+            IsFixedShape("axes"),
+            IsFixedShape("strides")),
+        IsFixedShape("perm"));
+
+    private Expr GetReplace(Slice slice, Call sliceCall, Expr input, long[] perm, RankedShape begins, RankedShape ends, long[] axes, long[] strides)
+    {
+        var newAxes = axes.Select(a => perm.IndexOf(a)).Order().ToArray();
+        var newBegins = newAxes.Select(a => begins[axes.IndexOf(perm[a])]).ToArray();
+        var newEnds = newAxes.Select(a => ends[axes.IndexOf(perm[a])]).ToArray();
+        var newStrides = newAxes.Select(a => strides[axes.IndexOf(perm[a])]).ToArray();
+
+        return Slice(Transpose(input, perm), newBegins, newEnds, newAxes, newStrides).InheritMetaData(sliceCall);
+    }
+}

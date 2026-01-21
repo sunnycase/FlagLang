@@ -1,0 +1,316 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+using CommunityToolkit.HighPerformance;
+using Nncase.IR;
+
+namespace Nncase.IR.Affine;
+
+public enum AffineDivBinaryOp
+{
+    FloorDiv,
+    CeilDiv,
+    Mod,
+}
+
+public abstract class AffineExpr : BaseExpr
+{
+    internal AffineExpr(BaseExpr[] operands)
+        : base(operands)
+    {
+    }
+
+    public override BaseExpr this[Dimension index] => throw new NotSupportedException();
+
+    public static implicit operator AffineExpr(long value) => new AffineConstant(value);
+
+    public static AffineExpr operator -(AffineExpr value) => -1 * value;
+
+    public static AffineExpr operator +(AffineExpr lhs, AffineExpr rhs) => new AffineAddBinary(lhs, rhs);
+
+    public static AffineExpr operator -(AffineExpr lhs, AffineExpr rhs) => lhs + -rhs;
+
+    public static AffineExpr operator *(AffineExpr lhs, AffineConstantOrSymbol rhs) => new AffineMulBinary(lhs, rhs);
+
+    public static AffineExpr operator *(AffineConstantOrSymbol lhs, AffineExpr rhs) => new AffineMulBinary(lhs, rhs);
+
+    public static AffineExpr operator *(AffineExpr lhs, AffineConstant rhs) => new AffineMulBinary(lhs, rhs);
+
+    public static AffineExpr operator *(AffineConstant lhs, AffineExpr rhs) => new AffineMulBinary(lhs, rhs);
+
+    public static AffineExpr operator %(AffineExpr lhs, AffineConstantOrSymbol rhs) => new AffineDivBinary(AffineDivBinaryOp.Mod, lhs, rhs);
+
+    public static AffineExpr operator %(AffineExpr lhs, AffineConstant rhs) => new AffineDivBinary(AffineDivBinaryOp.Mod, lhs, rhs);
+
+    /// <summary>
+    /// Accept a <see cref="AffineExprVisitor{TExprResult, TContext}"/>.
+    /// </summary>
+    /// <typeparam name="TExprResult">Result type of visiting expressions.</typeparam>
+    /// <typeparam name="TContext">Visit context.</typeparam>
+    /// <param name="functor">Expression functor.</param>
+    /// <param name="context">Context.</param>
+    /// <returns>Visit result.</returns>
+    public abstract TExprResult Accept<TExprResult, TContext>(AffineExprVisitor<TExprResult, TContext> functor, TContext context);
+
+    public string GetDisplayString(ReadOnlySpan<AffineSymbol> symbols)
+    {
+        return this switch
+        {
+            AffineConstant e => e.Value.ToString(),
+            AffineExtent e => $"t{e.Position}",
+            AffineDim e => $"d{e.Position}",
+            AffineSymbol e => e.ToString(),
+            AffineAddBinary e => $"({e.Lhs.GetDisplayString(symbols)} + {e.Rhs.GetDisplayString(symbols)})",
+            AffineMulBinary e => $"({e.Lhs.GetDisplayString(symbols)} * {e.Rhs.GetDisplayString(symbols)})",
+            AffineDivBinary e => F.Affine.GetDisplayString(e.BinaryOp, e.Lhs, e.Rhs, symbols),
+            _ => throw new UnreachableException(),
+        };
+    }
+
+    internal AffineExpr ReplaceDomainsAndSymbols(ReadOnlySpan<AffineRange> newDomains, ReadOnlySpan<AffineSymbol> newSymbols)
+    {
+        return this switch
+        {
+            AffineDim e when e.Position < newDomains.Length => newDomains[e.Position].Offset,
+            AffineExtent e when e.Position < newDomains.Length => newDomains[e.Position].Extent,
+            AffineSymbol e when e.Position < newSymbols.Length => newSymbols[e.Position],
+            AffineAddBinary e => (e.Lhs.ReplaceDomainsAndSymbols(newDomains, newSymbols), e.Rhs.ReplaceDomainsAndSymbols(newDomains, newSymbols)) switch
+            {
+                (AffineConstant lhs, AffineConstant rhs) => lhs.Value + rhs.Value,
+                (AffineExpr lhs, AffineExpr rhs) => new AffineAddBinary(lhs, rhs),
+            },
+            AffineMulBinary e => (e.Lhs.ReplaceDomainsAndSymbols(newDomains, newSymbols), e.Rhs.ReplaceDomainsAndSymbols(newDomains, newSymbols)) switch
+            {
+                (AffineConstant lhs, AffineConstant rhs) => lhs.Value * rhs.Value,
+                (AffineExpr lhs, AffineExpr rhs) => new AffineMulBinary(lhs, rhs),
+            },
+            AffineDivBinary e => (e.Lhs.ReplaceDomainsAndSymbols(newDomains, newSymbols), e.Rhs.ReplaceDomainsAndSymbols(newDomains, newSymbols)) switch
+            {
+                (AffineConstant lhs, AffineConstant rhs) => e.BinaryOp switch
+                {
+                    AffineDivBinaryOp.FloorDiv => lhs.Value / rhs.Value,
+                    AffineDivBinaryOp.CeilDiv => (lhs.Value + rhs.Value - 1) / rhs.Value,
+                    AffineDivBinaryOp.Mod => lhs.Value % rhs.Value,
+                    _ => throw new UnreachableException(),
+                },
+                (AffineExpr lhs, AffineExpr rhs) => new AffineDivBinary(e.BinaryOp, lhs, rhs),
+            },
+            _ => this,
+        };
+    }
+
+    internal Dimension Apply(ReadOnlySpan<Dimension> dims, ReadOnlySpan<Dimension> extents, IReadOnlyDictionary<AffineSymbol, Dimension>? symbols = null)
+    {
+        static Dimension ApplyDivBinary(AffineDivBinaryOp binaryOp, Dimension lhs, Dimension rhs) =>
+            binaryOp switch
+            {
+                AffineDivBinaryOp.FloorDiv => lhs / rhs,
+                AffineDivBinaryOp.CeilDiv => Dimension.CeilDiv(lhs, rhs),
+                AffineDivBinaryOp.Mod => lhs % rhs,
+                _ => throw new UnreachableException(),
+            };
+
+        return this switch
+        {
+            AffineConstant e => e.Value,
+            AffineExtent e => extents[e.Position],
+            AffineDim e => dims[e.Position],
+            AffineSymbol e => (symbols ?? throw new ArgumentNullException(nameof(symbols)))[e],
+            AffineAddBinary e => e.Lhs.Apply(dims, extents, symbols) + e.Rhs.Apply(dims, extents, symbols),
+            AffineMulBinary e => e.Lhs.Apply(dims, extents, symbols) * e.Rhs.Apply(dims, extents, symbols),
+            AffineDivBinary e => ApplyDivBinary(e.BinaryOp, e.Lhs.Apply(dims, extents, symbols), e.Rhs.Apply(dims, extents, symbols)),
+            _ => throw new UnreachableException(),
+        };
+    }
+
+    internal long Apply(ReadOnlySpan<long> dims, ReadOnlySpan<long> extents, IReadOnlyDictionary<AffineSymbol, long>? symbols = null)
+    {
+        static long ApplyDivBinary(AffineDivBinaryOp binaryOp, long lhs, long rhs) =>
+            binaryOp switch
+            {
+                AffineDivBinaryOp.FloorDiv => lhs / rhs,
+                AffineDivBinaryOp.CeilDiv => (lhs + rhs - 1) / rhs,
+                AffineDivBinaryOp.Mod => lhs % rhs,
+                _ => throw new UnreachableException(),
+            };
+
+        return this switch
+        {
+            AffineConstant e => e.Value,
+            AffineExtent e => extents[e.Position],
+            AffineDim e => dims[e.Position],
+            AffineSymbol e => (symbols ?? throw new ArgumentNullException(nameof(symbols)))[e],
+            AffineAddBinary e => e.Lhs.Apply(dims, extents, symbols) + e.Rhs.Apply(dims, extents, symbols),
+            AffineMulBinary e => e.Lhs.Apply(dims, extents, symbols) * e.Rhs.Apply(dims, extents, symbols),
+            AffineDivBinary e => ApplyDivBinary(e.BinaryOp, e.Lhs.Apply(dims, extents, symbols), e.Rhs.Apply(dims, extents, symbols)),
+            _ => throw new UnreachableException(),
+        };
+    }
+}
+
+public sealed class AffineDim : AffineExpr
+{
+    public AffineDim(int position)
+        : base(Array.Empty<BaseExpr>())
+    {
+        Position = position;
+    }
+
+    public int Position { get; }
+
+    /// <inheritdoc/>
+    public override TExprResult Accept<TExprResult, TContext>(AffineExprVisitor<TExprResult, TContext> functor, TContext context) => functor.VisitAffineDim(this, context);
+
+    public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context) => functor.VisitAffineDim(this, context);
+
+    public AffineDim With(int? position = null) => new AffineDim(position ?? Position);
+
+    public override string ToString() => $"d{Position}";
+
+    protected override int GetHashCodeCore() => HashCode.Combine(Position);
+}
+
+public sealed class AffineExtent : AffineExpr
+{
+    public AffineExtent(int position)
+        : base(Array.Empty<BaseExpr>())
+    {
+        Position = position;
+    }
+
+    public int Position { get; }
+
+    /// <inheritdoc/>
+    public override TExprResult Accept<TExprResult, TContext>(AffineExprVisitor<TExprResult, TContext> functor, TContext context) => functor.VisitAffineExtent(this, context);
+
+    public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context) => functor.VisitAffineExtent(this, context);
+
+    public AffineExtent With(int? position = null) => new AffineExtent(position ?? Position);
+
+    public override string ToString() => $"t{Position}";
+
+    protected override int GetHashCodeCore() => HashCode.Combine(Position);
+}
+
+public abstract class AffineConstantOrSymbol : AffineExpr
+{
+    internal AffineConstantOrSymbol(BaseExpr[] operands)
+        : base(operands)
+    {
+    }
+}
+
+public sealed class AffineSymbol : AffineConstantOrSymbol
+{
+    public AffineSymbol(int position)
+        : base(Array.Empty<BaseExpr>())
+    {
+        Position = position;
+    }
+
+    public int Position { get; }
+
+    /// <inheritdoc/>
+    public override TExprResult Accept<TExprResult, TContext>(AffineExprVisitor<TExprResult, TContext> functor, TContext context) => functor.VisitAffineSymbol(this, context);
+
+    public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context) => functor.VisitAffineSymbol(this, context);
+
+    public AffineSymbol With(int? position = null) => new AffineSymbol(position ?? Position);
+
+    public override string ToString() => $"s{Position}";
+}
+
+public sealed class AffineConstant : AffineConstantOrSymbol
+{
+    public AffineConstant(long value)
+        : base(Array.Empty<BaseExpr>())
+    {
+        Value = value;
+    }
+
+    public long Value { get; }
+
+    public static implicit operator AffineConstant(long value) => new AffineConstant(value);
+
+    /// <inheritdoc/>
+    public override TExprResult Accept<TExprResult, TContext>(AffineExprVisitor<TExprResult, TContext> functor, TContext context) => functor.VisitAffineConstant(this, context);
+
+    public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context) => functor.VisitAffineConstant(this, context);
+
+    public AffineConstant With(long? value = null) => new AffineConstant(value ?? Value);
+
+    public override string ToString() => Value.ToString();
+}
+
+public sealed class AffineAddBinary : AffineExpr
+{
+    public AffineAddBinary(AffineExpr lhs, AffineExpr rhs)
+        : base(new BaseExpr[] { lhs, rhs })
+    {
+    }
+
+    public AffineExpr Lhs => (AffineExpr)Operands[0];
+
+    public AffineExpr Rhs => (AffineExpr)Operands[1];
+
+    /// <inheritdoc/>
+    public override TExprResult Accept<TExprResult, TContext>(AffineExprVisitor<TExprResult, TContext> functor, TContext context) => functor.VisitAffineAddBinary(this, context);
+
+    public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context) => functor.VisitAffineAddBinary(this, context);
+
+    public AffineAddBinary With(AffineExpr? lhs = null, AffineExpr? rhs = null) => new AffineAddBinary(lhs ?? Lhs, rhs ?? Rhs);
+
+    public override string ToString() => $"({Lhs} + {Rhs})";
+}
+
+public sealed class AffineMulBinary : AffineExpr
+{
+    public AffineMulBinary(AffineExpr lhs, AffineExpr rhs)
+        : base(new BaseExpr[] { lhs, rhs })
+    {
+    }
+
+    public AffineExpr Lhs => (AffineExpr)Operands[0];
+
+    public AffineExpr Rhs => (AffineExpr)Operands[1];
+
+    /// <inheritdoc/>
+    public override TExprResult Accept<TExprResult, TContext>(AffineExprVisitor<TExprResult, TContext> functor, TContext context) => functor.VisitAffineMulBinary(this, context);
+
+    public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context) => functor.VisitAffineMulBinary(this, context);
+
+    public AffineMulBinary With(AffineExpr? lhs = null, AffineExpr? rhs = null) => new AffineMulBinary(lhs ?? Lhs, rhs ?? Rhs);
+
+    public override string ToString() => $"({Lhs} * {Rhs})";
+}
+
+public sealed class AffineDivBinary : AffineExpr
+{
+    public AffineDivBinary(AffineDivBinaryOp binaryOp, AffineExpr lhs, AffineExpr rhs)
+        : base(new BaseExpr[] { lhs, rhs })
+    {
+        BinaryOp = binaryOp;
+    }
+
+    public AffineDivBinaryOp BinaryOp { get; }
+
+    public AffineExpr Lhs => (AffineExpr)Operands[0];
+
+    public AffineExpr Rhs => (AffineExpr)Operands[1];
+
+    /// <inheritdoc/>
+    public override TExprResult Accept<TExprResult, TContext>(AffineExprVisitor<TExprResult, TContext> functor, TContext context) => functor.VisitAffineDivBinary(this, context);
+
+    public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context) => functor.VisitAffineDivBinary(this, context);
+
+    public AffineDivBinary With(AffineDivBinaryOp? binaryOp = null, AffineExpr? lhs = null, AffineExpr? rhs = null) => new AffineDivBinary(binaryOp ?? BinaryOp, lhs ?? Lhs, rhs ?? Rhs);
+
+    public override string ToString() => F.Affine.ToString(BinaryOp, Lhs, Rhs);
+}
