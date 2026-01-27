@@ -13,7 +13,7 @@ set(SRCS
         type.cpp
         value.cpp)
 
-add_library(nncaseruntime STATIC ${SRCS})
+add_library(nncaseruntime SHARED ${SRCS})
 set_property(TARGET nncaseruntime PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_subdirectory(compiler)

@@ -116,6 +116,7 @@ public abstract class NTTTarget : Target
 
     public override void RegisterTIRSelectionPass(IPassManager passManager, CompileOptions optionsÍ)
     {
+        passManager.Add<Passes.Transforms.FlattenIRBlockPass>();
         passManager.Add<NTTTIRSelectionPass>(NTTModuleCompiler.ModuleKind);
     }
 

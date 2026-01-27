@@ -24,7 +24,7 @@ public sealed class UnitTestFusion
         var updatedFusion = fusion.With(name: "newFunc", body: (Expr)false, parameters: new[] { new Var("y", DataTypes.Boolean) });
 
         Assert.Equal("newFunc", updatedFusion.Name);
-        Assert.Equal(DataTypes.Boolean, updatedFusion.Body.CheckedType);
+        Assert.Equal(TensorType.Scalar(DataTypes.Boolean), updatedFusion.Body.CheckedType);
         Assert.Equal(1, updatedFusion.Parameters.Length);
         Assert.Equal("y", updatedFusion.Parameters[0].Name);
         Assert.Equal(DataTypes.Boolean, updatedFusion.Parameters[0].CheckedType);

@@ -498,6 +498,11 @@ public class UnitTestExpression
 
     private sealed class ExpressionTreeBuilder : ExprVisitor<Expression, Type>
     {
+        protected internal override Expression VisitIRBlock(IRBlock expr)
+        {
+            return Visit(expr.Body);
+        }
+
         protected override Expression VisitLeafConst(Const expr)
         {
             if (expr is TensorConst tc && tc.Value.Shape.IsScalar)

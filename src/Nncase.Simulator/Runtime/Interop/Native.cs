@@ -12,7 +12,7 @@ namespace Nncase.Runtime.Interop;
 
 internal static class Native
 {
-    public const string LibraryName = "Nncase.Runtime.Native";
+    public const string LibraryName = "nncaseruntime";
 
     [DllImport(LibraryName, EntryPoint = "nncase_object_add_ref")]
     public static extern ErrorCode ObjectAddRef(IntPtr obj);

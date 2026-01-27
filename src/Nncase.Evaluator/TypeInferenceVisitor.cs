@@ -358,8 +358,25 @@ internal sealed partial class TypeInferenceVisitor : ExprVisitor<IRType, Unit>
         VerifySubField(expr, expr.Body);
 
         var paramTypes = expr.Parameters.AsValueEnumerable().Select(x => x.CheckedType).ToArray();
-        var type = new CallableType(expr.Body.CheckedType, ImmutableArray.Create(paramTypes));
-        return type;
+        var bodyType = expr.Body.CheckedType;
+
+        if (bodyType is InvalidType invalidReturn)
+        {
+            return invalidReturn;
+        }
+
+        var invalidParam = paramTypes.FirstOrDefault(t => t is InvalidType) as InvalidType;
+        if (invalidParam is not null)
+        {
+            return invalidParam;
+        }
+
+        if (bodyType is AnyType || paramTypes.Any(t => t is AnyType))
+        {
+            return AnyType.Default;
+        }
+
+        return new CallableType(bodyType, ImmutableArray.Create(paramTypes));
     }
 
     protected override IRType VisitLeafDimension(Dimension expr)
