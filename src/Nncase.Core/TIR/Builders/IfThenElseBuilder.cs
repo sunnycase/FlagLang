@@ -33,11 +33,11 @@ public interface IIfThenElseBuilder : IExprBuilder<IfThenElse>
 
 internal class IfThenElseBuilder : IIfThenElseBuilder
 {
-    private readonly Expr _condition;
+    private readonly BaseExpr _condition;
     private readonly List<object> _then = new();
     private readonly List<object> _else = new();
 
-    public IfThenElseBuilder(Expr condition)
+    public IfThenElseBuilder(BaseExpr condition)
     {
         _condition = condition;
     }

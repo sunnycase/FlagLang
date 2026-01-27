@@ -12,20 +12,18 @@ using static Nncase.IR.TypePatternUtility;
 namespace Nncase.IR.Affine;
 
 [PatternFunctionalGenerator]
-public sealed partial class Gather : Op
+public sealed partial class Scatter : Op
 {
-    public static readonly ParameterInfo Source = new(typeof(Gather), 0, "source", IsPointer());
+    public static readonly ParameterInfo Source = new(typeof(Scatter), 0, "source");
 
-    public static readonly ParameterInfo DefaultValue = new(typeof(Gather), 1, "defaultValue", IsScalar());
+    public static readonly ParameterInfo Dest = new(typeof(Scatter), 1, "dest", IsPointer());
 
     public AffineRelation Relation { get; }
 
     public RankedShape Symbols { get; }
 
-    public Shape Shape { get; }
-
     /// <inheritdoc/>
     public override bool CanFoldConstCall => false;
 
-    public override string DisplayProperty() => $"{Relation}, Symbols: {Symbols}, Shape: {Shape}";
+    public override string DisplayProperty() => $"{Relation}, Symbols: {Symbols}";
 }

@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using NetFabric.Hyperlinq;
+using Nncase.IR.Logics;
 using Nncase.Utilities;
 
 namespace Nncase.IR.Affine;
@@ -16,19 +17,23 @@ public sealed class AffineRelation : BaseExpr
 {
     private readonly int _domainsCount;
     private readonly int _symbolsCount;
+    private readonly int _resultsCount;
 
-    public AffineRelation(ReadOnlySpan<AffineDim> domains, ReadOnlySpan<AffineSymbol> symbols, ReadOnlySpan<AffineExpr> results)
-            : base(domains.ToArray().AsEnumerable<BaseExpr>().Concat(symbols.ToArray()).Concat(results.ToArray()))
+    public AffineRelation(ReadOnlySpan<AffineDim> domains, ReadOnlySpan<AffineSymbol> symbols, ReadOnlySpan<AffineExpr> results, LogicalExpr? constraint = null)
+            : base(domains.ToArray().AsEnumerable<BaseExpr>().Concat(symbols.ToArray()).Concat(results.ToArray()).Append(constraint ?? LogicalExpr.True).ToArray())
     {
         _domainsCount = domains.Length;
         _symbolsCount = symbols.Length;
+        _resultsCount = results.Length;
     }
 
     public ReadOnlySpan<AffineDim> Domains => SpanUtility.UnsafeCast<BaseExpr, AffineDim>(Operands.Slice(0, _domainsCount));
 
     public ReadOnlySpan<AffineSymbol> Symbols => SpanUtility.UnsafeCast<BaseExpr, AffineSymbol>(Operands.Slice(_domainsCount, _symbolsCount));
 
-    public ReadOnlySpan<AffineExpr> Results => SpanUtility.UnsafeCast<BaseExpr, AffineExpr>(Operands.Slice(_domainsCount + _symbolsCount));
+    public ReadOnlySpan<AffineExpr> Results => SpanUtility.UnsafeCast<BaseExpr, AffineExpr>(Operands.Slice(_domainsCount + _symbolsCount, _resultsCount));
+
+    public LogicalExpr Constraint => (LogicalExpr)Operands[_domainsCount + _symbolsCount + _resultsCount];
 
     public override BaseExpr this[Dimension index] => throw new NotSupportedException();
 
@@ -41,7 +46,7 @@ public sealed class AffineRelation : BaseExpr
 
         var results = rhs.Results.AsValueEnumerable().Select(x => x.ReplaceDomainsAndSymbols(lhs.Results.AsValueEnumerable().Select(r => new AffineRange(r, 0)).ToArray(), Array.Empty<AffineSymbol>())).ToArray();
         var symbols = lhs.Symbols.ToArray().Concat(rhs.Symbols.ToArray()).ToArray();
-        return new AffineRelation(lhs.Domains, symbols, results);
+        return new AffineRelation(lhs.Domains, symbols, results, lhs.Constraint & rhs.Constraint);
     }
 
     public static AffineRelation FromCallable(Func<AffineDim[], AffineSymbol[], AffineExpr[]> func, int dimsCount, int symbolsCount = 0)
@@ -140,10 +145,12 @@ public sealed class AffineRelation : BaseExpr
         var domains = string.Join(", ", Enumerable.Range(0, Domains.Length).Select(i => $"d{i}"));
         var syms = string.Join(", ", Enumerable.Range(0, Symbols.Length).Select(i => $"s{i}"));
         var results = StringUtility.Join(", ", Results.AsValueEnumerable().Select(expr => expr.GetDisplayString(Symbols)));
+        var symsPart = Symbols.Length > 0 ? $"[{syms}]" : string.Empty;
+        var constraintsPart = Constraint != LogicalExpr.True ? $" where {Constraint}" : string.Empty;
 
-        return Symbols.Length == 0 ? $"({domains}) -> ({results})" : $"({domains})[{syms}] -> ({results})";
+        return $"({domains}){symsPart} -> ({results}){constraintsPart}";
     }
 
-    public AffineRelation With(AffineDim[]? domains = null, AffineSymbol[]? symbols = null, AffineExpr[]? results = null)
-        => new AffineRelation(domains ?? Domains, symbols ?? Symbols, results ?? Results);
+    public AffineRelation With(AffineDim[]? domains = null, AffineSymbol[]? symbols = null, AffineExpr[]? results = null, LogicalExpr? constraint = null)
+        => new AffineRelation(domains ?? Domains, symbols ?? Symbols, results ?? Results, constraint ?? Constraint);
 }

@@ -373,6 +373,31 @@ public partial class ExprFunctor<TExprResult, TTypeResult, TContext>
     /// </summary>
     internal protected virtual TExprResult VisitShapeOf(IR.Shapes.ShapeOf expr, TContext context) => VisitShape(expr, context);
 
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalExpr"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalExpr(IR.Logics.LogicalExpr expr, TContext context) => DefaultVisit(expr, context);
+
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalConst"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalConst(IR.Logics.LogicalConst expr, TContext context) => VisitLogicalExpr(expr, context);
+
+    /// <summary>
+    /// Visit <see cref="IR.Logics.DimCompare"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitDimCompare(IR.Logics.DimCompare expr, TContext context) => VisitLogicalExpr(expr, context);
+
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalAnd"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalAnd(IR.Logics.LogicalAnd expr, TContext context) => VisitLogicalExpr(expr, context);
+
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalOr"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalOr(IR.Logics.LogicalOr expr, TContext context) => VisitLogicalExpr(expr, context);
+
 }
 
 public partial class ExprFunctor<TExprResult, TTypeResult>
@@ -881,4 +906,39 @@ public partial class ExprFunctor<TExprResult, TTypeResult>
     
     /// <inheritdoc/>
     internal protected sealed override TExprResult VisitShapeOf(IR.Shapes.ShapeOf expr, Unit context) => VisitShapeOf(expr);
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalExpr"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalExpr(IR.Logics.LogicalExpr expr) => base.VisitLogicalExpr(expr, default);
+    
+    /// <inheritdoc/>
+    internal protected sealed override TExprResult VisitLogicalExpr(IR.Logics.LogicalExpr expr, Unit context) => VisitLogicalExpr(expr);
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalConst"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalConst(IR.Logics.LogicalConst expr) => base.VisitLogicalConst(expr, default);
+    
+    /// <inheritdoc/>
+    internal protected sealed override TExprResult VisitLogicalConst(IR.Logics.LogicalConst expr, Unit context) => VisitLogicalConst(expr);
+    /// <summary>
+    /// Visit <see cref="IR.Logics.DimCompare"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitDimCompare(IR.Logics.DimCompare expr) => base.VisitDimCompare(expr, default);
+    
+    /// <inheritdoc/>
+    internal protected sealed override TExprResult VisitDimCompare(IR.Logics.DimCompare expr, Unit context) => VisitDimCompare(expr);
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalAnd"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalAnd(IR.Logics.LogicalAnd expr) => base.VisitLogicalAnd(expr, default);
+    
+    /// <inheritdoc/>
+    internal protected sealed override TExprResult VisitLogicalAnd(IR.Logics.LogicalAnd expr, Unit context) => VisitLogicalAnd(expr);
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalOr"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalOr(IR.Logics.LogicalOr expr) => base.VisitLogicalOr(expr, default);
+    
+    /// <inheritdoc/>
+    internal protected sealed override TExprResult VisitLogicalOr(IR.Logics.LogicalOr expr, Unit context) => VisitLogicalOr(expr);
 }

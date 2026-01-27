@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Nncase.IR.Logics;
 using Nncase.IR.Shapes;
 
 namespace Nncase.IR.F;
@@ -25,37 +26,36 @@ public static class Shapes
     /// <param name="compareOp">Compare operator.</param>
     /// <param name="lhs">Left operand.</param>
     /// <param name="rhs">Right operand.</param>
-    /// <param name="maskVectorStyle">Mask vector style.</param>
     /// <returns>Result expression.</returns>
-    public static Call Compare(CompareOp compareOp, Dimension lhs, Dimension rhs, MaskVectorStyle maskVectorStyle = MaskVectorStyle.Unknown) => new Call(new IR.Math.Compare(compareOp, maskVectorStyle), lhs, rhs);
+    public static DimCompare Compare(CompareOp compareOp, Dimension lhs, Dimension rhs) => new DimCompare(compareOp, lhs, rhs);
 
     /// <summary>
     /// Call equal.
     /// </summary>
-    public static Call Equal(Dimension lhs, Dimension rhs) => Compare(CompareOp.Equal, lhs, rhs);
+    public static DimCompare Equal(Dimension lhs, Dimension rhs) => Compare(CompareOp.Equal, lhs, rhs);
 
     /// <summary>
     /// call not equal.
     /// </summary>
-    public static Call NotEqual(Dimension lhs, Dimension rhs) => Compare(CompareOp.NotEqual, lhs, rhs);
+    public static DimCompare NotEqual(Dimension lhs, Dimension rhs) => Compare(CompareOp.NotEqual, lhs, rhs);
 
     /// <summary>
     /// call less than.
     /// </summary>
-    public static Call LessThan(Dimension lhs, Dimension rhs) => Compare(CompareOp.LowerThan, lhs, rhs);
+    public static DimCompare LowerThan(Dimension lhs, Dimension rhs) => Compare(CompareOp.LowerThan, lhs, rhs);
 
     /// <summary>
     /// call less equal.
     /// </summary>
-    public static Call LessEqual(Dimension lhs, Dimension rhs) => Compare(CompareOp.LowerOrEqual, lhs, rhs);
+    public static DimCompare LowerOrEqual(Dimension lhs, Dimension rhs) => Compare(CompareOp.LowerOrEqual, lhs, rhs);
 
     /// <summary>
     /// call greater equal.
     /// </summary>
-    public static Call GreaterEqual(Dimension lhs, Dimension rhs) => Compare(CompareOp.GreaterOrEqual, lhs, rhs);
+    public static DimCompare GreaterOrEqual(Dimension lhs, Dimension rhs) => Compare(CompareOp.GreaterOrEqual, lhs, rhs);
 
     /// <summary>
     /// call greater than.
     /// </summary>
-    public static Call GreaterThan(Dimension lhs, Dimension rhs) => Compare(CompareOp.GreaterThan, lhs, rhs);
+    public static DimCompare GreaterThan(Dimension lhs, Dimension rhs) => Compare(CompareOp.GreaterThan, lhs, rhs);
 }

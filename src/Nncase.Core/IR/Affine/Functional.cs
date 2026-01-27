@@ -46,7 +46,9 @@ public static class Affine
         _ => throw new ArgumentOutOfRangeException(nameof(binaryOp)),
     };
 
-    public static Call Gather(Expr source, AffineRelation relation, Shape shape) => new Call(new Gather(relation, shape), source);
+    public static Call Gather(Expr source, AffineRelation relation, RankedShape symbols, Shape shape, Expr defaultValue) => new Call(new Gather(relation, symbols, shape), source, defaultValue);
+
+    public static Call Scatter(Expr source, Expr dest, AffineRelation relation, RankedShape symbols) => new Call(new Scatter(relation, symbols), source, dest);
 
     public static For For(int memoryLevel, AffineMap domain, Expr body) => new For(memoryLevel, domain, body);
 

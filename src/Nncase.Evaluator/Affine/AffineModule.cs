@@ -14,5 +14,6 @@ internal class AffineModule : IApplicationPart
     public void ConfigureServices(IRegistrator registrator)
     {
         registrator.RegisterManyInterface<GatherEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<ScatterEvaluator>(reuse: Reuse.Singleton);
     }
 }

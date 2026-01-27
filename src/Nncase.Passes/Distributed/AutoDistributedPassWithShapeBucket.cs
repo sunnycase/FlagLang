@@ -10,6 +10,7 @@ using NetFabric.Hyperlinq;
 using Nncase.Diagnostics;
 using Nncase.IR;
 using Nncase.IR.Distributed;
+using Nncase.IR.Logics;
 using Nncase.TIR;
 using Nncase.Utilities;
 
@@ -110,7 +111,7 @@ public sealed partial class AutoDistributedWithShapeBucketPass : FunctionPass
             var segmentCall = MakeSegementCall(segmentFunctions[i].SegmentFunction);
             var condition = dimVars
                 .Select(dimVarPair => dimVarPair.Key <= (long)dimVarPair.Value.Metadata.Range!.Value.Max)
-                .Aggregate(IR.F.Math.LogicalAnd);
+                .Aggregate<LogicalExpr>(IR.F.Logics.LogicalAnd);
             lastSegmentCall = T.If(condition)
                 .Then(segmentCall)
                 .Else(lastSegmentCall)

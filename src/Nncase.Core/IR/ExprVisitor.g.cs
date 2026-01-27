@@ -837,6 +837,54 @@ public partial class ExprVisitor<TExprResult, TTypeResult, TContext>
         return VisitLeafShapeOf(expr, context);
     }
 
+    /// <inheritdoc />
+    protected internal override TExprResult VisitLogicalConst(IR.Logics.LogicalConst expr, TContext context)
+    {
+        VisitOperands(expr, context);
+        if (CanVisitAttributes(expr))
+        {
+            VisitAttributes(expr, context);
+        }
+
+        return VisitLeafLogicalConst(expr, context);
+    }
+
+    /// <inheritdoc />
+    protected internal override TExprResult VisitDimCompare(IR.Logics.DimCompare expr, TContext context)
+    {
+        VisitOperands(expr, context);
+        if (CanVisitAttributes(expr))
+        {
+            VisitAttributes(expr, context);
+        }
+
+        return VisitLeafDimCompare(expr, context);
+    }
+
+    /// <inheritdoc />
+    protected internal override TExprResult VisitLogicalAnd(IR.Logics.LogicalAnd expr, TContext context)
+    {
+        VisitOperands(expr, context);
+        if (CanVisitAttributes(expr))
+        {
+            VisitAttributes(expr, context);
+        }
+
+        return VisitLeafLogicalAnd(expr, context);
+    }
+
+    /// <inheritdoc />
+    protected internal override TExprResult VisitLogicalOr(IR.Logics.LogicalOr expr, TContext context)
+    {
+        VisitOperands(expr, context);
+        if (CanVisitAttributes(expr))
+        {
+            VisitAttributes(expr, context);
+        }
+
+        return VisitLeafLogicalOr(expr, context);
+    }
+
     /// <summary>
     /// Visit leaf <see cref="IRModule"/>.
     /// </summary>
@@ -1196,6 +1244,31 @@ public partial class ExprVisitor<TExprResult, TTypeResult, TContext>
     /// Visit leaf <see cref="IR.Shapes.ShapeOf"/>.
     /// </summary>
     protected virtual TExprResult VisitLeafShapeOf(IR.Shapes.ShapeOf expr, TContext context) => VisitLeafShape(expr, context);
+
+    /// <summary>
+    /// Visit leaf <see cref="IR.Logics.LogicalExpr"/>.
+    /// </summary>
+    protected virtual TExprResult VisitLeafLogicalExpr(IR.Logics.LogicalExpr expr, TContext context) => DefaultVisitLeaf(expr, context);
+
+    /// <summary>
+    /// Visit leaf <see cref="IR.Logics.LogicalConst"/>.
+    /// </summary>
+    protected virtual TExprResult VisitLeafLogicalConst(IR.Logics.LogicalConst expr, TContext context) => VisitLeafLogicalExpr(expr, context);
+
+    /// <summary>
+    /// Visit leaf <see cref="IR.Logics.DimCompare"/>.
+    /// </summary>
+    protected virtual TExprResult VisitLeafDimCompare(IR.Logics.DimCompare expr, TContext context) => VisitLeafLogicalExpr(expr, context);
+
+    /// <summary>
+    /// Visit leaf <see cref="IR.Logics.LogicalAnd"/>.
+    /// </summary>
+    protected virtual TExprResult VisitLeafLogicalAnd(IR.Logics.LogicalAnd expr, TContext context) => VisitLeafLogicalExpr(expr, context);
+
+    /// <summary>
+    /// Visit leaf <see cref="IR.Logics.LogicalOr"/>.
+    /// </summary>
+    protected virtual TExprResult VisitLeafLogicalOr(IR.Logics.LogicalOr expr, TContext context) => VisitLeafLogicalExpr(expr, context);
 
 }
 
@@ -1670,6 +1743,34 @@ public partial class ExprVisitor<TExprResult, TTypeResult>
     
     /// <inheritdoc/>
     internal protected sealed override TExprResult VisitShapeOf(IR.Shapes.ShapeOf expr, Unit context) => VisitShapeOf(expr);
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalConst"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalConst(IR.Logics.LogicalConst expr) => base.VisitLogicalConst(expr, default);
+    
+    /// <inheritdoc/>
+    internal protected sealed override TExprResult VisitLogicalConst(IR.Logics.LogicalConst expr, Unit context) => VisitLogicalConst(expr);
+    /// <summary>
+    /// Visit <see cref="IR.Logics.DimCompare"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitDimCompare(IR.Logics.DimCompare expr) => base.VisitDimCompare(expr, default);
+    
+    /// <inheritdoc/>
+    internal protected sealed override TExprResult VisitDimCompare(IR.Logics.DimCompare expr, Unit context) => VisitDimCompare(expr);
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalAnd"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalAnd(IR.Logics.LogicalAnd expr) => base.VisitLogicalAnd(expr, default);
+    
+    /// <inheritdoc/>
+    internal protected sealed override TExprResult VisitLogicalAnd(IR.Logics.LogicalAnd expr, Unit context) => VisitLogicalAnd(expr);
+    /// <summary>
+    /// Visit <see cref="IR.Logics.LogicalOr"/>.
+    /// </summary>
+    internal protected virtual TExprResult VisitLogicalOr(IR.Logics.LogicalOr expr) => base.VisitLogicalOr(expr, default);
+    
+    /// <inheritdoc/>
+    internal protected sealed override TExprResult VisitLogicalOr(IR.Logics.LogicalOr expr, Unit context) => VisitLogicalOr(expr);
     /// <summary>
     /// Visit leaf <see cref="IRModule"/>.
     /// </summary>
@@ -2245,5 +2346,45 @@ public partial class ExprVisitor<TExprResult, TTypeResult>
     
     /// <inheritdoc/>
     protected sealed override TExprResult VisitLeafShapeOf(IR.Shapes.ShapeOf expr, Unit context) => VisitLeafShapeOf(expr);
+
+    /// <summary>
+    /// Visit leaf <see cref="IR.Logics.LogicalExpr"/>.
+    /// </summary>
+    protected virtual TExprResult VisitLeafLogicalExpr(IR.Logics.LogicalExpr expr) => base.VisitLeafLogicalExpr(expr, default);
+    
+    /// <inheritdoc/>
+    protected sealed override TExprResult VisitLeafLogicalExpr(IR.Logics.LogicalExpr expr, Unit context) => VisitLeafLogicalExpr(expr);
+
+    /// <summary>
+    /// Visit leaf <see cref="IR.Logics.LogicalConst"/>.
+    /// </summary>
+    protected virtual TExprResult VisitLeafLogicalConst(IR.Logics.LogicalConst expr) => base.VisitLeafLogicalConst(expr, default);
+    
+    /// <inheritdoc/>
+    protected sealed override TExprResult VisitLeafLogicalConst(IR.Logics.LogicalConst expr, Unit context) => VisitLeafLogicalConst(expr);
+
+    /// <summary>
+    /// Visit leaf <see cref="IR.Logics.DimCompare"/>.
+    /// </summary>
+    protected virtual TExprResult VisitLeafDimCompare(IR.Logics.DimCompare expr) => base.VisitLeafDimCompare(expr, default);
+    
+    /// <inheritdoc/>
+    protected sealed override TExprResult VisitLeafDimCompare(IR.Logics.DimCompare expr, Unit context) => VisitLeafDimCompare(expr);
+
+    /// <summary>
+    /// Visit leaf <see cref="IR.Logics.LogicalAnd"/>.
+    /// </summary>
+    protected virtual TExprResult VisitLeafLogicalAnd(IR.Logics.LogicalAnd expr) => base.VisitLeafLogicalAnd(expr, default);
+    
+    /// <inheritdoc/>
+    protected sealed override TExprResult VisitLeafLogicalAnd(IR.Logics.LogicalAnd expr, Unit context) => VisitLeafLogicalAnd(expr);
+
+    /// <summary>
+    /// Visit leaf <see cref="IR.Logics.LogicalOr"/>.
+    /// </summary>
+    protected virtual TExprResult VisitLeafLogicalOr(IR.Logics.LogicalOr expr) => base.VisitLeafLogicalOr(expr, default);
+    
+    /// <inheritdoc/>
+    protected sealed override TExprResult VisitLeafLogicalOr(IR.Logics.LogicalOr expr, Unit context) => VisitLeafLogicalOr(expr);
 
 }

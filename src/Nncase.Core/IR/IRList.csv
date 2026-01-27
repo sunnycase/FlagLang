@@ -43,7 +43,7 @@ AffineDivBinary,true,false,AffineExpr,Affine.,Lhs;Rhs
 AffineDomain,true,false,Default,Affine.,Offset;Extent
 AffineRange,true,false,Default,Affine.,Offset;Extent
 AffineMap,true,false,Default,Affine.,@Domains;@Symbols;@Results
-AffineRelation,true,false,Default,Affine.,@Domains;@Symbols;@Results
+AffineRelation,true,false,Default,Affine.,@Domains;@Symbols;@Results;Constraint
 Grid,true,false,Default,Affine.,DomainParameter;@BodyParameters;@AccessMaps;@Buffers;@Reads;Body
 For,true,false,Default,Affine.,Domain;Body
 # Buffers
@@ -77,3 +77,9 @@ UnrankedShape,true,false,Shape,,Value
 InvalidShape,true,false,Shape,,
 ShapeVar,true,false,Shape,,
 ShapeOf,true,false,Shape,IR.Shapes.,Value
+# Logics
+LogicalExpr,false,false,Default,IR.Logics.,
+LogicalConst,true,false,LogicalExpr,IR.Logics.,
+DimCompare,true,false,LogicalExpr,IR.Logics.,Lhs;Rhs
+LogicalAnd,true,false,LogicalExpr,IR.Logics.,@Operands
+LogicalOr,true,false,LogicalExpr,IR.Logics.,@Operands

@@ -18,7 +18,7 @@ public sealed class IfThenElse : Expr
     /// <summary>
     /// Initializes a new instance of the <see cref="IfThenElse"/> class.
     /// </summary>
-    public IfThenElse(Expr condition, Sequential then, Sequential @else)
+    public IfThenElse(BaseExpr condition, Sequential then, Sequential @else)
         : base([condition, then, @else])
     {
     }
@@ -26,12 +26,12 @@ public sealed class IfThenElse : Expr
     /// <summary>
     /// Initializes a new instance of the <see cref="IfThenElse"/> class.
     /// </summary>
-    public IfThenElse(Expr condition, Sequential then)
+    public IfThenElse(BaseExpr condition, Sequential then)
         : this(condition, then, new())
     {
     }
 
-    public Expr Condition => (Expr)Operands[0];
+    public BaseExpr Condition => (BaseExpr)Operands[0];
 
     public Sequential Then => (Sequential)Operands[1];
 
@@ -40,6 +40,6 @@ public sealed class IfThenElse : Expr
     public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context)
         => functor.VisitIfThenElse(this, context);
 
-    public IfThenElse With(Expr? condition = null, Sequential? then = null, Sequential? @else = null)
+    public IfThenElse With(BaseExpr? condition = null, Sequential? then = null, Sequential? @else = null)
         => new IfThenElse(condition ?? Condition, then ?? Then, @else ?? Else);
 }

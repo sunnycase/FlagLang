@@ -4,62 +4,27 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reactive;
-using NetFabric.Hyperlinq;
 using Nncase;
 using Nncase.IR;
 using Nncase.IR.Affine;
 using Nncase.IR.Distributed;
-using Nncase.IR.F;
+using Nncase.IR.Logics;
 using Nncase.IR.Math;
 using Nncase.IR.Shapes;
 using Nncase.IR.Tensors;
-using Nncase.IR.Triton;
-using Nncase.Passes;
-using Nncase.PatternMatch;
 using Nncase.Utilities;
-using static Nncase.IR.TypePatternUtility;
-using static Nncase.PatternMatch.Utility;
-using isl = IntegerSetLibrary;
 
 namespace Nncase.Passes.Rules.Triton;
 
-[RuleGenerator]
-public sealed partial class LoadToAffineLoad : IRewriteRule
+public static class TritonAffineUtility
 {
-    public IPattern Pattern { get; } =
-        Nncase.PatternMatch.F.Triton.IsLoad(
-            target_name: "load",
-            "call",
-            _ => true,
-            IsWildcard("ptr"),
-            IsWildcard("mask"),
-            IsWildcard("other"));
-
-    public Expr? GetReplace(Expr call, IR.Triton.Load load, Expr ptr, Expr mask, Expr other)
-    {
-        var generator = new ReadDimGenerator();
-        var ptrBaseAndReadDim = generator.GeneratePtrBaseAndReadDim(ptr);
-        if (ptrBaseAndReadDim is null)
-        {
-            return null;
-        }
-
-        var readMap = GenerateReadMap(ptrBaseAndReadDim.ReadDim);
-        if (readMap is null)
-        {
-            return null;
-        }
-
-        return IR.F.Affine.Gather(ptrBaseAndReadDim.PtrBase, readMap, ptr.CheckedShape);
-    }
-
-    private AffineRelation? GenerateReadMap(Dimension readDim)
+    public static (AffineRelation? Relation, RankedShape? Symbols) GenerateReadMap(Dimension readDim, LogicalExpr constraint)
     {
         var generator = new AffineAddressGenerator();
-        return generator.Generate(readDim);
+        return generator.Generate(readDim, constraint);
     }
 
-    private class ReadDimGenerator : ExprVisitor<Dimension?, Unit>
+    public class ReadDimGenerator : ExprVisitor<BaseExpr?, Unit>
     {
         private readonly List<(DimVar Dim, Expr Value)> _ptrBases = new();
         private readonly List<DimVar> _domains = new();
@@ -70,7 +35,7 @@ public sealed partial class LoadToAffineLoad : IRewriteRule
 
         public PtrBaseAndReadDim? GeneratePtrBaseAndReadDim(Expr ptr)
         {
-            var addressDim = Visit(ptr);
+            var addressDim = Visit(ptr) as Dimension;
             if (addressDim is null || _ptrBases.Count > 1)
             {
                 // cannot handle multiple ptr bases or null address dimension
@@ -96,19 +61,31 @@ public sealed partial class LoadToAffineLoad : IRewriteRule
             return null;
         }
 
-        protected override Dimension? DefaultVisitLeaf(BaseExpr expr) => null;
+        public LogicalExpr? GenerateMask(Expr mask)
+        {
+            if (mask is None)
+            {
+                return LogicalExpr.True;
+            }
 
-        protected override Dimension? VisitLeafAsDim(AsDim expr) => Visit(expr.Dim);
+            return Visit(mask) as LogicalExpr;
+        }
 
-        protected override Dimension? VisitLeafProgramIdDim(ProgramIdDim expr) => expr;
+        protected override BaseExpr? DefaultVisitLeaf(BaseExpr expr) => null;
 
-        protected override Dimension? VisitLeafCall(Call expr) => expr.Target switch
+        protected override BaseExpr? VisitLeafAsDim(AsDim expr) => Visit(expr.Dim);
+
+        protected override BaseExpr? VisitLeafProgramIdDim(ProgramIdDim expr) => expr;
+
+        protected override BaseExpr? VisitLeafCall(Call expr) => expr.Target switch
         {
             AsTensor => Visit(expr[AsTensor.Input]),
             Cast => Visit(expr[Cast.Input]),
 
             Binary binary => VisitBinary(expr, binary),
             Range => VisitIRRange(expr),
+
+            Compare compare => VisitCompare(expr, compare),
             _ => null,
         };
 
@@ -140,8 +117,8 @@ public sealed partial class LoadToAffineLoad : IRewriteRule
 
         private Dimension? VisitBinary(Call expr, Binary binary)
         {
-            var left = Visit(expr[Binary.Lhs]);
-            var right = Visit(expr[Binary.Rhs]);
+            var left = Visit(expr[Binary.Lhs]) as Dimension;
+            var right = Visit(expr[Binary.Rhs]) as Dimension;
             if (left is null || right is null)
             {
                 return null;
@@ -153,6 +130,27 @@ public sealed partial class LoadToAffineLoad : IRewriteRule
                 BinaryOp.Sub => left - right,
                 BinaryOp.Mul => left * right,
                 BinaryOp.FloorDiv => left / right,
+                _ => null,
+            };
+        }
+
+        private DimCompare? VisitCompare(Call expr, Compare compare)
+        {
+            var left = Visit(expr[Compare.Lhs]) as Dimension;
+            var right = Visit(expr[Compare.Rhs]) as Dimension;
+            if (left is null || right is null)
+            {
+                return null;
+            }
+
+            return compare.CompareOp switch
+            {
+                CompareOp.Equal => IR.F.Shapes.Equal(left, right),
+                CompareOp.NotEqual => IR.F.Shapes.NotEqual(left, right),
+                CompareOp.LowerThan => IR.F.Shapes.LowerThan(left, right),
+                CompareOp.LowerOrEqual => IR.F.Shapes.LowerOrEqual(left, right),
+                CompareOp.GreaterThan => IR.F.Shapes.GreaterThan(left, right),
+                CompareOp.GreaterOrEqual => IR.F.Shapes.GreaterOrEqual(left, right),
                 _ => null,
             };
         }
@@ -187,18 +185,19 @@ public sealed partial class LoadToAffineLoad : IRewriteRule
     private class AffineAddressGenerator : ExprVisitor<AffineExpr?, Unit>
     {
         private readonly List<AffineDim> _domains = new();
-        private readonly List<(AffineSymbol Symbol, BaseExpr Value)> _symbols = new();
+        private readonly List<(AffineSymbol Symbol, Dimension Value)> _symbols = new();
 
-        public AffineRelation? Generate(Dimension dim)
+        public (AffineRelation? Relation, RankedShape? Symbols) Generate(Dimension dim, LogicalExpr constraint)
         {
             var affineExpr = Visit(dim);
             if (affineExpr is null)
             {
-                return null;
+                return (null, null);
             }
 
             var results = new AffineExpr[] { affineExpr };
-            return new AffineRelation(_domains.ToArray(), _symbols.Select(s => s.Symbol).ToArray(), results);
+            var relation = new AffineRelation(_domains.ToArray(), _symbols.Select(s => s.Symbol).ToArray(), results, constraint);
+            return (relation, new RankedShape(_symbols.Select(s => s.Value).ToArray()));
         }
 
         protected override AffineExpr? DefaultVisitLeaf(BaseExpr expr) => null;
@@ -289,7 +288,7 @@ public sealed partial class LoadToAffineLoad : IRewriteRule
             return result!;
         }
 
-        private AffineSymbol AddSymbol(BaseExpr value)
+        private AffineSymbol AddSymbol(Dimension value)
         {
             var symbol = IR.F.Affine.Symbol(_symbols.Count);
             _symbols.Add((symbol, value));

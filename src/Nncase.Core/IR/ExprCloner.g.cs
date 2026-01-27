@@ -1082,6 +1082,11 @@ public partial class ExprCloner<TContext>
                 return true;
             }
 
+            if (IsMutated(expr.Constraint, context))
+            {
+                return true;
+            }
+
             return false;
         }
 
@@ -1090,7 +1095,8 @@ public partial class ExprCloner<TContext>
             return expr.With(
                 domains: CloneArray(expr.Domains, context),
                 symbols: CloneArray(expr.Symbols, context),
-                results: CloneArray(expr.Results, context)
+                results: CloneArray(expr.Results, context),
+                constraint: Clone(expr.Constraint, context)
             );
         }
 
@@ -1789,6 +1795,98 @@ public partial class ExprCloner<TContext>
         {
             return expr.With(
                 value: Clone(expr.Value, context)
+            );
+        }
+
+        return expr;
+    }
+
+    /// <inheritdoc />
+    protected override BaseExpr VisitLeafLogicalConst(IR.Logics.LogicalConst expr, TContext context)
+    {
+        bool IsOperandsMutated()
+        {
+            return false;
+        }
+
+        if (CloneUnmutated || IsOperandsMutated())
+        {
+            return expr.With(
+            );
+        }
+
+        return expr;
+    }
+
+    /// <inheritdoc />
+    protected override BaseExpr VisitLeafDimCompare(IR.Logics.DimCompare expr, TContext context)
+    {
+        bool IsOperandsMutated()
+        {
+            if (IsMutated(expr.Lhs, context))
+            {
+                return true;
+            }
+
+            if (IsMutated(expr.Rhs, context))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        if (CloneUnmutated || IsOperandsMutated())
+        {
+            return expr.With(
+                lhs: Clone(expr.Lhs, context),
+                rhs: Clone(expr.Rhs, context)
+            );
+        }
+
+        return expr;
+    }
+
+    /// <inheritdoc />
+    protected override BaseExpr VisitLeafLogicalAnd(IR.Logics.LogicalAnd expr, TContext context)
+    {
+        bool IsOperandsMutated()
+        {
+            if (IsMutatedArray(expr.Operands, context))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        if (CloneUnmutated || IsOperandsMutated())
+        {
+            return expr.With(
+                operands: CloneArray(expr.Operands, context)
+            );
+        }
+
+        return expr;
+    }
+
+    /// <inheritdoc />
+    protected override BaseExpr VisitLeafLogicalOr(IR.Logics.LogicalOr expr, TContext context)
+    {
+        bool IsOperandsMutated()
+        {
+            if (IsMutatedArray(expr.Operands, context))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        if (CloneUnmutated || IsOperandsMutated())
+        {
+            return expr.With(
+                operands: CloneArray(expr.Operands, context)
             );
         }
 

@@ -215,7 +215,7 @@ public static class T
     /// <summary>
     /// rethen the IfThenElseBuilder.
     /// </summary>
-    public static IIfThenElseBuilder If(Expr condition)
+    public static IIfThenElseBuilder If(BaseExpr condition)
     {
         return new IfThenElseBuilder(condition);
     }

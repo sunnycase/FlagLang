@@ -85,7 +85,8 @@ public static unsafe partial class CApi
             c.Add<UnbroadcastCompareLhs>();
             c.Add<UnbroadcastCompareRhs>();
 
-            c.Add<Passes.Rules.Triton.LoadToAffineLoad>();
+            c.Add<Passes.Rules.Triton.LoadToAffineGather>();
+            c.Add<Passes.Rules.Triton.StoreToAffineScatter>();
         });
 
         passManager.CompileSession.Target.RegisterTargetInDependentPass(passManager, passManager.CompileSession.CompileOptions);

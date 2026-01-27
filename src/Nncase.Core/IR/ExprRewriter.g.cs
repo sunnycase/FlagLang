@@ -445,6 +445,36 @@ public partial class ExprRewriter<TContext>
         return RewriteLeafShapeOf(expr, context);
     }
 
+    /// <inheritdoc/>
+    protected sealed override BaseExpr VisitLeafLogicalExpr(IR.Logics.LogicalExpr expr, TContext context)
+    {
+        return RewriteLeafLogicalExpr(expr, context);
+    }
+
+    /// <inheritdoc/>
+    protected sealed override BaseExpr VisitLeafLogicalConst(IR.Logics.LogicalConst expr, TContext context)
+    {
+        return RewriteLeafLogicalConst(expr, context);
+    }
+
+    /// <inheritdoc/>
+    protected sealed override BaseExpr VisitLeafDimCompare(IR.Logics.DimCompare expr, TContext context)
+    {
+        return RewriteLeafDimCompare(expr, context);
+    }
+
+    /// <inheritdoc/>
+    protected sealed override BaseExpr VisitLeafLogicalAnd(IR.Logics.LogicalAnd expr, TContext context)
+    {
+        return RewriteLeafLogicalAnd(expr, context);
+    }
+
+    /// <inheritdoc/>
+    protected sealed override BaseExpr VisitLeafLogicalOr(IR.Logics.LogicalOr expr, TContext context)
+    {
+        return RewriteLeafLogicalOr(expr, context);
+    }
+
     /// <summary>
     /// Rewrite leaf <see cref="IRModule"/>.
     /// </summary>
@@ -804,6 +834,31 @@ public partial class ExprRewriter<TContext>
     /// Rewrite leaf <see cref="IR.Shapes.ShapeOf"/>.
     /// </summary>
     protected virtual BaseExpr RewriteLeafShapeOf(IR.Shapes.ShapeOf expr, TContext context) => RewriteLeafShape(expr, context);
+
+    /// <summary>
+    /// Rewrite leaf <see cref="IR.Logics.LogicalExpr"/>.
+    /// </summary>
+    protected virtual BaseExpr RewriteLeafLogicalExpr(IR.Logics.LogicalExpr expr, TContext context) => DefaultRewriteLeaf(expr, context);
+
+    /// <summary>
+    /// Rewrite leaf <see cref="IR.Logics.LogicalConst"/>.
+    /// </summary>
+    protected virtual BaseExpr RewriteLeafLogicalConst(IR.Logics.LogicalConst expr, TContext context) => RewriteLeafLogicalExpr(expr, context);
+
+    /// <summary>
+    /// Rewrite leaf <see cref="IR.Logics.DimCompare"/>.
+    /// </summary>
+    protected virtual BaseExpr RewriteLeafDimCompare(IR.Logics.DimCompare expr, TContext context) => RewriteLeafLogicalExpr(expr, context);
+
+    /// <summary>
+    /// Rewrite leaf <see cref="IR.Logics.LogicalAnd"/>.
+    /// </summary>
+    protected virtual BaseExpr RewriteLeafLogicalAnd(IR.Logics.LogicalAnd expr, TContext context) => RewriteLeafLogicalExpr(expr, context);
+
+    /// <summary>
+    /// Rewrite leaf <see cref="IR.Logics.LogicalOr"/>.
+    /// </summary>
+    protected virtual BaseExpr RewriteLeafLogicalOr(IR.Logics.LogicalOr expr, TContext context) => RewriteLeafLogicalExpr(expr, context);
 
 }
 
@@ -1384,5 +1439,45 @@ public partial class ExprRewriter
 
     /// <inheritdoc />
     protected sealed override BaseExpr RewriteLeafShapeOf(IR.Shapes.ShapeOf expr, Unit context) => RewriteLeafShapeOf(expr);
+
+    /// <summary>
+    /// Rewrite leaf <see cref="IR.Logics.LogicalExpr"/>.
+    /// </summary>
+    protected virtual BaseExpr RewriteLeafLogicalExpr(IR.Logics.LogicalExpr expr) => DefaultRewriteLeaf(expr);
+
+    /// <inheritdoc />
+    protected sealed override BaseExpr RewriteLeafLogicalExpr(IR.Logics.LogicalExpr expr, Unit context) => RewriteLeafLogicalExpr(expr);
+
+    /// <summary>
+    /// Rewrite leaf <see cref="IR.Logics.LogicalConst"/>.
+    /// </summary>
+    protected virtual BaseExpr RewriteLeafLogicalConst(IR.Logics.LogicalConst expr) => RewriteLeafLogicalExpr(expr);
+
+    /// <inheritdoc />
+    protected sealed override BaseExpr RewriteLeafLogicalConst(IR.Logics.LogicalConst expr, Unit context) => RewriteLeafLogicalConst(expr);
+
+    /// <summary>
+    /// Rewrite leaf <see cref="IR.Logics.DimCompare"/>.
+    /// </summary>
+    protected virtual BaseExpr RewriteLeafDimCompare(IR.Logics.DimCompare expr) => RewriteLeafLogicalExpr(expr);
+
+    /// <inheritdoc />
+    protected sealed override BaseExpr RewriteLeafDimCompare(IR.Logics.DimCompare expr, Unit context) => RewriteLeafDimCompare(expr);
+
+    /// <summary>
+    /// Rewrite leaf <see cref="IR.Logics.LogicalAnd"/>.
+    /// </summary>
+    protected virtual BaseExpr RewriteLeafLogicalAnd(IR.Logics.LogicalAnd expr) => RewriteLeafLogicalExpr(expr);
+
+    /// <inheritdoc />
+    protected sealed override BaseExpr RewriteLeafLogicalAnd(IR.Logics.LogicalAnd expr, Unit context) => RewriteLeafLogicalAnd(expr);
+
+    /// <summary>
+    /// Rewrite leaf <see cref="IR.Logics.LogicalOr"/>.
+    /// </summary>
+    protected virtual BaseExpr RewriteLeafLogicalOr(IR.Logics.LogicalOr expr) => RewriteLeafLogicalExpr(expr);
+
+    /// <inheritdoc />
+    protected sealed override BaseExpr RewriteLeafLogicalOr(IR.Logics.LogicalOr expr, Unit context) => RewriteLeafLogicalOr(expr);
 
 }
