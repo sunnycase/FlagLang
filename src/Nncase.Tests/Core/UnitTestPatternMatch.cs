@@ -40,10 +40,10 @@ public sealed class UnitTestPatternMatch
         var wc1 = IsWildcard("x");
         var wc2 = IsWildcard("y");
 
-        Expr func = new Function(x + y - 1200, x, y);
+        Expr func = new Function(new IRBlock(x + y - 1200, x, y));
 
-        var pat1 = IsFunction(wc1 + wc2 - 1200, wc1, wc2);
-        var pat2 = IsFunction(wc1 - wc2, wc1, wc2);
+        var pat1 = IsFunction(IsIRBlock(wc1 + wc2 - 1200, wc1, wc2));
+        var pat2 = IsFunction(IsIRBlock(wc1 - wc2, wc1, wc2));
 
         Assert.True(CompilerServices.TryEMatchRoot(func, pat1, out var res1));
         Assert.Single(res1);
@@ -91,8 +91,8 @@ public sealed class UnitTestPatternMatch
     [Fact]
     public void TestUtility()
     {
-        var targetFunc = new Function(new Normal(DataTypes.Float32));
-        var funcPattern = new FunctionPattern(IsOp<Normal>("normal"), IsVArgs(), null);
+        var targetFunc = new Function(new IRBlock(new Normal(DataTypes.Float32)));
+        var funcPattern = new FunctionPattern(IsIRBlock(IsOp<Normal>("normal"), IsVArgs()), null);
         Assert.True(CompilerServices.TryMatchRoot(new Call(targetFunc, (Expr)1f), IsCall(null, funcPattern, IsWildcard()), out _));
         Assert.True(CompilerServices.TryMatchRoot(new Call(targetFunc, (Expr)1f), IsCall(null, funcPattern, IsVArgs(IsWildcard())), out _));
 

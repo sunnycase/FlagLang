@@ -55,7 +55,7 @@ public class UnitTestDataFlowRewriteFactory : TestClassBase
         var preHashCode = pre.GetHashCode();
         using (var preScope = new DumpScope("Pre", DumpFlags.None))
         {
-            preValue = pre.Body.Evaluate(feed_dict);
+            preValue = pre.Body.Body.Evaluate(feed_dict);
         }
 
         var pass = new DataflowPass { Name = "DataFlowOptimize" };
@@ -72,7 +72,7 @@ public class UnitTestDataFlowRewriteFactory : TestClassBase
 
         using (var postScope = new DumpScope("Post", DumpFlags.None))
         {
-            postValue = post.Body.Evaluate(feed_dict);
+            postValue = post.Body.Body.Evaluate(feed_dict);
         }
 
         Assert.True(Comparator.Compare(preValue, postValue));

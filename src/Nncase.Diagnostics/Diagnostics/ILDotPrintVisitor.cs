@@ -194,6 +194,13 @@ internal sealed class ILDotPrintVisitor : ExprFunctor<ILDotOption, string>
         return new(expr.Name);
     }
 
+    protected override ILDotOption VisitIRBlock(IRBlock expr)
+    {
+        VisitArray(expr.Parameters);
+        Visit(expr.Body);
+        return new(expr.Name);
+    }
+
     protected override ILDotOption VisitBufferOf(BufferOf expr)
     {
         if (!_exprMemo.TryGetValue(expr, out var result))

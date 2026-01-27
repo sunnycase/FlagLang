@@ -31,7 +31,7 @@ public sealed class UnitTestAnalysis : TestClassBase
         var v0 = IR.F.Math.Unary(UnaryOp.Abs, input);
         var v1 = v0 + input;
         var v2 = IR.F.Math.Unary(UnaryOp.Abs, v1);
-        var func = new Function(v2, input);
+        var func = new Function(new IRBlock(v2, input));
 
         var userAnalysis = AnalyzerMananger.GetAnaylsis<IExprUserAnalysisResult>(func);
         Assert.Equal(2, userAnalysis[input].Count());
@@ -42,7 +42,7 @@ public sealed class UnitTestAnalysis : TestClassBase
     {
         var fusionCase = new ReWrite.FusionTest.DataFlowType7FusionCaseLeft();
         var input = new Var("input", new TensorType(DataTypes.Float32, new int[] { 1, 3, 224, 224 }));
-        var main = new Function(fusionCase.BuildBody(input), input);
+        var main = new Function(new IRBlock(fusionCase.BuildBody(input), input));
         CompilerServices.InferenceType(main);
 
         var userAnalysis = AnalyzerMananger.GetAnaylsis<IExprUserAnalysisResult>(main);
@@ -57,7 +57,7 @@ public sealed class UnitTestAnalysis : TestClassBase
         var input2 = new Var("input2", new TensorType(DataTypes.Float32, new int[] { 1, 3, 224, 224 }));
         var v0 = IR.F.Tensors.Concat(new IR.Tuple(new[] { input1, input2 }), 1) + input2;
         var v1 = IR.F.Math.Quantize(v0, new QuantParam(1, 2.0f), DataTypes.UInt8);
-        var main = new Function(v1, new[] { input1, input2 });
+        var main = new Function(new IRBlock(v1, input1, input2));
         CompilerServices.InferenceType(main);
 
         var userAnalysis = AnalyzerMananger.GetAnaylsis<IExprUserAnalysisResult>(main);

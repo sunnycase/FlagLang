@@ -1,6 +1,7 @@
 ﻿// Copyright (c) SunnyCase. All rights reserved.
 // Licensed under the Apache license. See LICENSE file in the project root for full license information.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -131,7 +132,7 @@ public sealed class UnitTestEGraphRewriteFactory : TestClassBase
         long pre_time;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         stopwatch.Start();
-        ret = pre.Body.Evaluate(feed_dict);
+        ret = pre.Body.Body.Evaluate(feed_dict);
         stopwatch.Stop();
         pre_time = stopwatch.ElapsedTicks;
         return pre_time;
@@ -142,7 +143,21 @@ public sealed class UnitTestEGraphRewriteFactory : TestClassBase
         using var dumpScope = new DumpScope($"../{@case.Name}");
         IValue pre_ret, post_ret;
         var pre = @case.PreExpr;
-        var infered = pre.InferenceType();
+        if (pre is null)
+        {
+            throw new InvalidOperationException($"Rewrite case '{@case.Name}' returned a null PreExpr.");
+        }
+
+        bool infered;
+        try
+        {
+            infered = pre.InferenceType();
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to infer types for pre graph of case '{@case.Name}'.", ex);
+        }
+
         Assert.True(infered);
 #if DEBUG
         DumpScope.Current.DumpIR(pre, "pre");
@@ -160,9 +175,34 @@ public sealed class UnitTestEGraphRewriteFactory : TestClassBase
             }
         });
 
-        await pmgr.RunAsync(module);
-        var post = (Function)module.Entry!;
-        Assert.True(post.InferenceType());
+        module = await pmgr.RunAsync(module);
+        var entryFunction = module.Entry ?? (module.Functions.Length > 0 ? module.Functions[0] : null);
+        if (entryFunction is null)
+        {
+            throw new InvalidOperationException($"Rewrite case '{@case.Name}' removed every function from module.");
+        }
+
+        if (module.Entry is null)
+        {
+            module.Entry = entryFunction;
+        }
+
+        if (entryFunction is not Function post)
+        {
+            throw new InvalidOperationException($"Rewrite case '{@case.Name}' produced an entry of type '{entryFunction.GetType().Name}', expected Function.");
+        }
+
+        bool postInfered;
+        try
+        {
+            postInfered = post.InferenceType();
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to infer types for post graph of case '{@case.Name}'.", ex);
+        }
+
+        Assert.True(postInfered);
 
 #if DEBUG
         DumpScope.Current.DumpIR(post, "post");

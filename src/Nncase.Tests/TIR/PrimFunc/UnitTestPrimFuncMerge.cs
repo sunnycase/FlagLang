@@ -52,7 +52,7 @@ public class UnitTestPrimFuncMerge : TestClassBase
     {
         var dumper = Diagnostics.DumpScope.Current.CreateSubDummper($"case_{count}");
         var inputVar = new Var("input", new TensorType(DataTypes.Float32, PrimFuncBuilder.Dimensions));
-        var main = new Function(fusionCase.BuildBody(inputVar), inputVar);
+        var main = new Function(new IRBlock(fusionCase.BuildBody(inputVar), inputVar));
 
         CompilerServices.InferenceType(main);
 #if DEBUG

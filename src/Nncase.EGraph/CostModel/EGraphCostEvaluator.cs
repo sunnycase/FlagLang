@@ -124,6 +124,7 @@ internal sealed class EGraphCostEvaluator
             Function func => Visit(enode, func),
             Call call => Visit(enode, call, returnType),
             IR.Tuple tuple => Visit(enode, tuple),
+            IRBlock block => Visit(enode, block),
             Op op => Visit(enode, op),
             If @if => Visit(enode, @if, returnType),
             Marker marker => Visit(enode, marker),
@@ -151,6 +152,11 @@ internal sealed class EGraphCostEvaluator
     }
 
     private Cost? Visit(ENode enode, Function func)
+    {
+        return Visit(enode, costs => Cost.Zero);
+    }
+
+    private Cost? Visit(ENode enode, IRBlock block)
     {
         return Visit(enode, costs => Cost.Zero);
     }

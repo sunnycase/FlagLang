@@ -27,7 +27,7 @@ public sealed class UnitTestPassManager : TestClassBase
         var prim_wrapper = new PrimFunctionWrapper(prim_func_1, 1);
 
         var input = new Var("input", new TensorType(DataTypes.Float32, new[] { 1, 2, 3, 4 }));
-        var main_func = new Function("main", new Call(prim_wrapper, input), input);
+        var main_func = new Function("main", new IRBlock(new Call(prim_wrapper, input), input));
 
         // prim_func_2 for update
         var prim_func_2 = T.PrimFunc("prim_func_2", "k?", T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), out _), T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), out _)).Body(
@@ -42,7 +42,7 @@ public sealed class UnitTestPassManager : TestClassBase
         module.Add(prim_func_1);
 
         module.Replace(2, prim_func_2);
-        Assert.True(module.Entry is Function { Body: Call { Target: PrimFunctionWrapper { Target: PrimFunction { Name: "prim_func_2" } } } });
+        Assert.True(module.Entry is Function { Body: IRBlock { Body: Call { Target: PrimFunctionWrapper { Target: PrimFunction { Name: "prim_func_2" } } } } });
     }
 
     [Fact]
@@ -68,9 +68,8 @@ public sealed class UnitTestPassManager : TestClassBase
 
         var input = new Var("input", new TensorType(DataTypes.Float32, new[] { 1, 24, 32, 3 }));
         var main_func = new Function(
-            "main",
-            new Call(func_2, new Call(func_1, new Call(func_0, input))),
-            input);
+          "main",
+          new IRBlock(new Call(func_2, new Call(func_1, new Call(func_0, input))), input));
         Assert.True(CompilerServices.InferenceType(main_func));
 
         // prim_func_2 for update

@@ -8,6 +8,8 @@ using System.Linq;
 using System.Reactive;
 using DryIoc.ImTools;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NetFabric.Hyperlinq;
 using Nncase.Diagnostics;
 using Nncase.IR;
@@ -24,13 +26,15 @@ internal sealed partial class EvaluateVisitor : ExprVisitor<IValue, Unit>, IDisp
     private readonly Dictionary<IVar, IValue> _dimVarsValues;
     private readonly EvaluatorDumpManager _dumpManager;
     private readonly Dictionary<Type, IEvaluator> _evaluator_cache;
+    private readonly ILogger _logger;
 
-    public EvaluateVisitor(IReadOnlyDictionary<IVar, IValue> varsValues, Dictionary<Type, IEvaluator> evaluator_cache)
+    public EvaluateVisitor(IReadOnlyDictionary<IVar, IValue> varsValues, Dictionary<Type, IEvaluator> evaluator_cache, ILogger<EvaluateVisitor>? logger = null)
     {
         _context = new EvaluateContext(this, ExprMemo);
         _evaluator_cache = evaluator_cache;
         _varsValues = varsValues;
         _dimVarsValues = new();
+        _logger = logger ?? NullLogger<EvaluateVisitor>.Instance;
         _dumpManager = new EvaluatorDumpManager(DumpScope.Current.CreateSubDummper("Evaluate", null), expr => _context.GetValue(expr).AsTensors());
         _dumpManager.RegisterDumpCallbacks(RegisterBeforeCallback, RegisterAfterCallback);
     }
@@ -44,6 +48,18 @@ internal sealed partial class EvaluateVisitor : ExprVisitor<IValue, Unit>, IDisp
         _dumpManager.Dispose();
     }
 
+    protected override IValue DispatchVisit(BaseExpr expr)
+    {
+        if (HasVisited(expr, out var cached))
+        {
+            return cached;
+        }
+
+        var result = base.DispatchVisit(expr);
+        BindDynamicDims(expr, result);
+        return result;
+    }
+
     /// <inheritdoc/>
     protected override IValue VisitLeafBaseFunction(BaseFunction expr) => NoneValue.Default;
 
@@ -55,6 +71,10 @@ internal sealed partial class EvaluateVisitor : ExprVisitor<IValue, Unit>, IDisp
 
     /// <inheritdoc/>
     protected override IValue VisitLeafNone(None expr) => NoneValue.Default;
+
+    protected override IValue VisitIRBlock(IRBlock expr) => VisitLeafIRBlock(expr);
+
+    protected override IValue VisitLeafIRBlock(IRBlock expr) => NoneValue.Default;
 
     /// <inheritdoc/>
     protected override IValue VisitLeafTuple(IR.Tuple expr)
@@ -97,6 +117,7 @@ internal sealed partial class EvaluateVisitor : ExprVisitor<IValue, Unit>, IDisp
                                     if (!_dimVarsValues.ContainsKey(dimVar))
                                     {
                                         _dimVarsValues.Add(dimVar, Value.FromConst(valueShape[i].FixedValue));
+                                        _logger.LogInformation("Bind DimVar {DimVar} from Var {Var} with value {Value}", dimVar.Name, expr.Name, valueShape[i].FixedValue);
                                     }
 
                                     break;
@@ -201,6 +222,7 @@ internal sealed partial class EvaluateVisitor : ExprVisitor<IValue, Unit>, IDisp
             Op op => CompilerServices.EvaluateOp(op, _context, _evaluator_cache),
             Function func => CompilerServices.Evaluate(func.Body, CreateFunctionEvaluateArguments(func.Parameters, arguments), _evaluator_cache),
             Fusion fusion => CompilerServices.Evaluate(fusion.Body, CreateFunctionEvaluateArguments(fusion.Parameters, arguments), _evaluator_cache),
+            IRBlock block => CompilerServices.Evaluate(block.Body, CreateFunctionEvaluateArguments(block.Parameters, arguments), _evaluator_cache),
             _ => throw new NotImplementedException(callable.ToString()),
         };
     }
@@ -224,5 +246,37 @@ internal sealed partial class EvaluateVisitor : ExprVisitor<IValue, Unit>, IDisp
     private void RegisterAfterCallback(string name, Action<Expr> action)
     {
         AfterCallAction += action;
+    }
+
+    private void BindDynamicDims(BaseExpr expr, IValue result)
+    {
+        if (result is not TensorValue tensorValue)
+        {
+            return;
+        }
+
+        if (expr.CheckedType is not TensorType tensorType)
+        {
+            return;
+        }
+
+        if (tensorType.Shape is not RankedShape checkedShape)
+        {
+            return;
+        }
+
+        var actualShape = tensorValue.AsTensor().Shape;
+        var actualDims = actualShape.ToValueArray();
+        var count = System.Math.Min(checkedShape.Count, actualDims.Length);
+        for (int i = 0; i < count; i++)
+        {
+            switch (checkedShape[i])
+            {
+                case DimVar dimVar when !_dimVarsValues.ContainsKey(dimVar):
+                    _logger.LogTrace("BindDim {DimVar} from {Expr} with value {Value}", dimVar.Name, expr, actualDims[i]);
+                    _dimVarsValues.Add(dimVar, Value.FromTensor(Tensor.FromScalar<long>(actualDims[i])));
+                    break;
+            }
+        }
     }
 }

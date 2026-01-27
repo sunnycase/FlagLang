@@ -445,7 +445,7 @@ public sealed class UnitTestTileGraph : TestClassBase
         using var ctx = IntegerSetLibrary.ctx.Create();
         var func = FunctionSamples.GetMulDivMulSub();
         var post = new NTTAffineSelectionPass(CompileOptions).RunAsync(func, new()).Result;
-        var grid = (IR.Affine.Grid)((Function)post).Body;
+        var grid = (IR.Affine.Grid)((Function)post).Body.Body;
         var rootGraph = TieredTileGraphBuilder.Build(grid, 2, out _);
 #if DEBUG
         rootGraph.Dump($"g");
@@ -474,7 +474,7 @@ public sealed class UnitTestTileGraph : TestClassBase
     private static void SolveTileGraphChecker0(BaseExpr post)
     {
         Assert.IsType<IR.Function>(post);
-        Assert.IsType<IR.Tuple>(((IR.Function)post).Body);
+        Assert.IsType<IR.Tuple>(((IR.Function)post).Body.Body);
     }
 
     private static void MergeTileGraphCheckerDefault(TieredTileGraph tileGraph)

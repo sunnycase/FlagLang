@@ -81,8 +81,8 @@ public class UnitTestFusionGroup : TestClassBase
     [Fact]
     public void TestFusionMergeCandidateComparer()
     {
-        var f1 = new Fusion("main", Callable.CPUModuleKind, None.Default, Array.Empty<Var>());
-        var f2 = new Fusion("main", Callable.CPUModuleKind, None.Default, Array.Empty<Var>());
+        var f1 = new Fusion("main", BaseFunction.CPUModuleKind, None.Default, Array.Empty<Var>());
+        var f2 = new Fusion("main", BaseFunction.CPUModuleKind, None.Default, Array.Empty<Var>());
         var h1 = new HashSet<Fusion>() { f1, f2 };
         var h2 = new HashSet<Fusion>() { f1, f2 };
         Assert.Equal(FusionGroupMutator.GroupedMatchOptions.GetCandidateHashCode(h1), FusionGroupMutator.GroupedMatchOptions.GetCandidateHashCode(h2));
@@ -101,7 +101,7 @@ public class UnitTestFusionGroup : TestClassBase
     public void TestTwoStage(IDataFlowFusionCaseTwoStage fusionCase)
     {
         var input = new Var("input", new TensorType(DataTypes.Float32, new int[] { 1, 3, 224, 224 }));
-        var main = new Function(fusionCase.BuildBody(input), input);
+        var main = new Function(new IRBlock(fusionCase.BuildBody(input), input));
 
         IRModule module = new(main);
         CompilerServices.InferenceType(main);
@@ -114,7 +114,7 @@ public class UnitTestFusionGroup : TestClassBase
         {
           { input, Value.FromTensor(input_tensor) },
         };
-        var pre_result = CompilerServices.Evaluate(main.Body, feed_dict);
+        var pre_result = CompilerServices.Evaluate(main.Body.Body, feed_dict);
 
         var analysis = new Dictionary<System.Type, IAnalysisResult>
         {
@@ -135,7 +135,7 @@ public class UnitTestFusionGroup : TestClassBase
         Dumpper.DumpDotIR(post, "post1");
 #endif
         var visitor = new FusionCounterVisitor();
-        visitor.Visit(post.Body);
+        visitor.Visit(post.Body.Body);
         Assert.Equal(fusionCase.MidFusionCount, visitor.Count);
 
         var postRewriter = new DataFlowMergeRewriter();
@@ -153,9 +153,9 @@ public class UnitTestFusionGroup : TestClassBase
 #endif
 
         visitor = new FusionCounterVisitor();
-        visitor.Visit(post.Body);
+        visitor.Visit(post.Body.Body);
         Assert.Equal(fusionCase.FinalFusionCount, visitor.Count);
-        var post_result = CompilerServices.Evaluate(post.Body, feed_dict);
+        var post_result = CompilerServices.Evaluate(post.Body.Body, feed_dict);
         Assert.True(Comparator.AllEqual(pre_result, post_result));
     }
 
@@ -164,7 +164,7 @@ public class UnitTestFusionGroup : TestClassBase
         var caseName = fusionCase.GetType().Name;
         using var scope = new Diagnostics.DumpScope(caseName);
         var input = new Var("input", new TensorType(DataTypes.Float32, new int[] { 1, 3, 224, 224 }));
-        var main = new Function(fusionCase.BuildBody(input), input);
+        var main = new Function(new IRBlock(fusionCase.BuildBody(input), input));
 
         IRModule module = new(main);
         CompilerServices.InferenceType(main);
@@ -178,7 +178,7 @@ public class UnitTestFusionGroup : TestClassBase
         {
           { input, Value.FromTensor(input_tensor) },
         };
-        var pre_result = CompilerServices.Evaluate(main.Body, feed_dict);
+        var pre_result = CompilerServices.Evaluate(main.Body.Body, feed_dict);
 
         Function post;
         {
@@ -186,7 +186,7 @@ public class UnitTestFusionGroup : TestClassBase
             var biGraph = new BidirectionalGraph<ExprVertex, ExprEdge>(true);
             {
                 var graphConvertor = new ExprGraphConvertor<ExprVertex, ExprEdge>();
-                graphConvertor.Visit(main.Body, biGraph);
+                graphConvertor.Visit(main.Body.Body, biGraph);
             }
 
             // 2. perform condensation
@@ -226,7 +226,8 @@ public class UnitTestFusionGroup : TestClassBase
             // 3. reconstruction
             var constructor = new TestReconstructor(main.Name, main.ModuleKind, condenseAlgo);
             var postbody = constructor.Construct();
-            post = main.With(body: postbody);
+            var rebuiltBlock = new IRBlock(postbody, main.Body.Parameters.ToArray());
+            post = (Function)main.With(body: rebuiltBlock);
         }
 
         if (Diagnostics.DumpScope.Current.IsEnabled(Diagnostics.DumpFlags.Rewrite))
@@ -235,9 +236,9 @@ public class UnitTestFusionGroup : TestClassBase
         }
 
         var visitor = new FusionCounterVisitor();
-        visitor.Visit(post.Body);
+        visitor.Visit(post.Body.Body);
         Assert.True(fusionCase.FinalFusionCount == visitor.Count, $"The TestCase {caseName} failed.");
-        var post_result = CompilerServices.Evaluate(post.Body, feed_dict);
+        var post_result = CompilerServices.Evaluate(post.Body.Body, feed_dict);
         Assert.True(Comparator.AllEqual(pre_result, post_result), $"The TestCase {caseName} failed.");
     }
 }

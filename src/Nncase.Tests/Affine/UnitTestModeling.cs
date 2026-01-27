@@ -246,7 +246,7 @@ public sealed class UnitTestModeling : TestClassBase
             var d = IR.F.Math.Exp(c);
             var e = new Var(new TensorType(DataTypes.Float32, new[] { 1024, 3072 }));
             var f = IR.F.Tensors.MatMul(d, e);
-            func = new("main", CPUTarget.Kind, f, [a, b, e]);
+            func = new("main", CPUTarget.Kind, new IRBlock(f, a, b, e));
         }
 
         var post = (BaseFunction)CompilerServices.ERewrite(func, new IRewriteRule[] { new Passes.Rules.NTT.VectorizeMatMul(1, 8), new Passes.Rules.NTT.VectorizeUnary(1, 8), }, new(), CompileOptions);
@@ -265,7 +265,7 @@ public sealed class UnitTestModeling : TestClassBase
     [Fact]
     public async Task TestAutoFusion()
     {
-        var func = FunctionSamples.GetMatmulExpMatmulWithTarget(Callable.CPUModuleKind);
+        var func = FunctionSamples.GetMatmulExpMatmulWithTarget(BaseFunction.CPUModuleKind);
         var module = new IR.IRModule(func);
         CompileSession.Compiler.ImportIRModule(module);
         await CompileSession.Compiler.CompileAsync();

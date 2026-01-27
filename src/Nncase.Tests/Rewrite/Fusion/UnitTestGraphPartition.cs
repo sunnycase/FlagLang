@@ -46,7 +46,7 @@ public class UnitTestGraphPartition : TestClassBase
     public async Task TestLineSameModuleI()
     {
         var input = new Var("input", new TensorType(DataTypes.Float32, new int[] { 1, 32, 32 }));
-        var main = new Function("main", IR.F.Math.Unary(UnaryOp.Abs, IR.F.Math.Unary(UnaryOp.Sin, input)), input);
+        var main = new Function("main", new IRBlock(IR.F.Math.Unary(UnaryOp.Abs, IR.F.Math.Unary(UnaryOp.Sin, input)), input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -81,7 +81,7 @@ public class UnitTestGraphPartition : TestClassBase
     public async Task TestLineSameModuleC()
     {
         var input = new Var("input", new TensorType(DataTypes.Float32, new int[] { 1, 32, 32 }));
-        var main = new Function("main", IR.F.Math.Abs(IR.F.Distributed.Boxing(input, new DistributedType(input.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")))), input);
+        var main = new Function("main", new IRBlock(IR.F.Math.Abs(IR.F.Distributed.Boxing(input, new DistributedType(input.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")))), input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -118,7 +118,7 @@ public class UnitTestGraphPartition : TestClassBase
         var ttype = new TensorType(DataTypes.Float32, new int[] { 1, 32, 32 });
         var input = new Var("input", ttype);
         var unary = IR.F.Distributed.Boxing(input, new DistributedType(ttype, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "b")));
-        var main = new Function("main", IR.F.Math.Abs(IR.F.Distributed.Boxing(unary, ttype)), input);
+        var main = new Function("main", new IRBlock(IR.F.Math.Abs(IR.F.Distributed.Boxing(unary, ttype)), input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -155,7 +155,7 @@ public class UnitTestGraphPartition : TestClassBase
         var ttype = new TensorType(DataTypes.Float32, new int[] { 1, 32, 32 });
         var input = new Var("input", ttype);
         var unary = IR.F.Distributed.Boxing(IR.F.Math.Abs(input), new DistributedType(ttype, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "b")));
-        var main = new Function("main", IR.F.Distributed.Boxing(IR.F.Math.Abs(unary), ttype), input);
+        var main = new Function("main", new IRBlock(IR.F.Distributed.Boxing(IR.F.Math.Abs(unary), ttype), input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -194,7 +194,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_0 = IR.F.Math.Unary(UnaryOp.Cos, input1);
         var v_1 = IR.F.Math.Unary(UnaryOp.Neg, input2);
         var v_2 = IR.F.Math.Binary(BinaryOp.Add, v_0, v_1);
-        var main = new Function("main", v_2, input1, input2);
+        var main = new Function("main", new IRBlock(v_2, input1, input2));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -234,7 +234,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_0 = IR.F.Distributed.Boxing(input1, new DistributedType(input1.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")));
         var v_1 = IR.F.Distributed.Boxing(input2, new DistributedType(input2.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")));
         var v_2 = IR.F.Math.Binary(BinaryOp.Add, v_0, v_1);
-        var main = new Function("main", v_2, input1, input2);
+        var main = new Function("main", new IRBlock(v_2, input1, input2));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -272,7 +272,7 @@ public class UnitTestGraphPartition : TestClassBase
         var input = new Var("input", new TensorType(DataTypes.Float32, new int[] { 1, 32, 32 }));
         var v_0 = IR.F.Math.Unary(UnaryOp.Abs, input);
         var v_1 = IR.F.Math.Binary(BinaryOp.Add, v_0, v_0);
-        var main = new Function("main", v_1, input);
+        var main = new Function("main", new IRBlock(v_1, input));
         Assert.True(CompilerServices.InferenceType(main));
 
         var tv = new TestVisitor(false);
@@ -307,7 +307,7 @@ public class UnitTestGraphPartition : TestClassBase
         var input = new Var("input", new TensorType(DataTypes.Float32, new int[] { 1, 32, 32 }));
         var v_0 = IR.F.Distributed.Boxing(input, new DistributedType(input.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")));
         var v_1 = IR.F.Math.Binary(BinaryOp.Add, v_0, v_0);
-        var main = new Function("main", v_1, input);
+        var main = new Function("main", new IRBlock(v_1, input));
         Assert.True(CompilerServices.InferenceType(main));
 
         var tv = new TestVisitor(false);
@@ -344,7 +344,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_1 = IR.F.Math.Unary(UnaryOp.Cos, v_0);
         var v_2 = IR.F.Math.Binary(BinaryOp.Add, v_0, v_1);
 
-        var main = new Function("main", v_2, input);
+        var main = new Function("main", new IRBlock(v_2, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -382,7 +382,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_1 = IR.F.Math.Unary(UnaryOp.Cos, v_0);
         var v_2 = IR.F.Math.Unary(UnaryOp.Neg, v_0);
         var v_3 = IR.F.Math.Binary(BinaryOp.Add, v_1, v_2);
-        var main = new Function("main", v_3, input);
+        var main = new Function("main", new IRBlock(v_3, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -423,7 +423,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_2 = IR.F.Math.Sin(v_0);
         var v_3 = IR.F.Math.Add(IR.F.Distributed.Boxing(v_1, new DistributedType(ttype, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t"))), v_2);
         var v_4 = IR.F.Math.Neg(v_3);
-        var main = new Function("main", IR.F.Distributed.Boxing(v_4, ttype), new[] { input });
+        var main = new Function("main", new IRBlock(IR.F.Distributed.Boxing(v_4, ttype), input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -463,7 +463,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_2 = IR.F.Math.Unary(UnaryOp.Cos, v_0);
         var v_3 = IR.F.Math.Unary(UnaryOp.Neg, v_2);
         var v_4 = IR.F.Math.Binary(BinaryOp.Add, v_1, v_3);
-        var main = new Function("main", v_4, new[] { input });
+        var main = new Function("main", new IRBlock(v_4, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -501,7 +501,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_1 = IR.F.Math.Unary(UnaryOp.Abs, v_0);
         var v_2 = IR.F.Math.Unary(UnaryOp.Cos, v_1);
         var v_3 = IR.F.Math.Binary(BinaryOp.Add, v_0, v_2);
-        var main = new Function("main", v_3, new[] { input });
+        var main = new Function("main", new IRBlock(v_3, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -538,7 +538,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_0 = IR.F.Distributed.Boxing(input, new DistributedType(input.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")));
         var v_1 = IR.F.Distributed.Boxing(input, new DistributedType(input.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")));
         var v_2 = IR.F.Math.Binary(BinaryOp.Add, v_0, v_1);
-        var main = new Function("main", v_2, new[] { input });
+        var main = new Function("main", new IRBlock(v_2, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -575,7 +575,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_0 = IR.F.Distributed.Boxing(input, new DistributedType(input.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")));
         var v_1 = IR.F.Distributed.Boxing(input, new DistributedType(input.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")));
         var v_2 = new IR.Tuple(v_0, v_1);
-        var main = new Function("main", v_2, new[] { input });
+        var main = new Function("main", new IRBlock(v_2, input));
         Assert.True(CompilerServices.InferenceType(main));
 
         var tv = new TestVisitor(false);
@@ -612,7 +612,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_1 = IR.F.Math.Unary(UnaryOp.Abs, v_0);
         var v_2 = IR.F.Math.Unary(UnaryOp.Abs, v_1);
         var v_3 = new IR.Tuple(v_0, v_2);
-        var main = new Function("main", v_3, new[] { input });
+        var main = new Function("main", new IRBlock(v_3, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -649,7 +649,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_0 = IR.F.Distributed.Boxing(input, new DistributedType(input.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")));
         var v_1 = IR.F.Distributed.Boxing(input, new DistributedType(input.CheckedTensorType, new[] { SBP.B, SBP.B, SBP.B }, new(new[] { 1 }, "t")));
         var v_2 = new Call(new IR.Tensors.Concat(2), new IR.Tuple(v_0, v_1));
-        var main = new Function("main", v_2, new[] { input });
+        var main = new Function("main", new IRBlock(v_2, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -688,7 +688,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_1 = IR.F.Math.Unary(UnaryOp.Abs, v_0);
         var v_2 = IR.F.Math.Unary(UnaryOp.Cos, v_0);
         var v_3 = new Call(new IR.Tensors.Concat(2), new IR.Tuple(v_1, v_2));
-        var main = new Function("main", v_3, new[] { input });
+        var main = new Function("main", new IRBlock(v_3, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -724,7 +724,7 @@ public class UnitTestGraphPartition : TestClassBase
     {
         var input = new Var("input", new TensorType(DataTypes.Float32, new int[] { 1, 32, 32 }));
         var v_0 = new Call(new IR.Tensors.Concat(0), new IR.Tuple(input, input, input));
-        var main = new Function("main", v_0, input);
+        var main = new Function("main", new IRBlock(v_0, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -764,7 +764,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v0 = IR.F.Distributed.Boxing(input, new DistributedType(ttype, new[] { SBP.B, SBP.B, SBP.B }, new Placement(new[] { 1 }, "t")));
         var v1 = IR.F.Tensors.Concat(new IR.Tuple(v0, v0, v0), 0);
         var v2 = IR.F.Distributed.Boxing(v1, new TensorType(DataTypes.Float32, new int[] { 9, 32, 32 }));
-        var main = new Function("main", v2, [input]);
+        var main = new Function("main", new IRBlock(v2, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 
@@ -804,7 +804,7 @@ public class UnitTestGraphPartition : TestClassBase
         var v_1 = IR.F.Tensors.GetItem(v_0, 0);
         var v_2 = IR.F.Tensors.GetItem(v_0, 1);
         var v_3 = new IR.Tuple(v_1, v_2);
-        var main = new Function("main", v_3, input);
+        var main = new Function("main", new IRBlock(v_3, input));
 
         Assert.True(CompilerServices.InferenceType(main));
 

@@ -50,7 +50,7 @@ public class UnitTestVectorizePad : TransformTestBase
         Expr expr = Pad(inputVar, new([(0, 0), (0, 1024 - sequenceLength), (0, 0)]), PadMode.Constant, 0f);
         expr = Pack(expr, [32], [2]);
         expr = Unpack(expr, [32], [2]);
-        var func = new Function("main", expr, [inputVar]);
+        var func = new Function("main", new IRBlock(expr, inputVar));
         var module = new IRModule(func);
 
         var pmgr = CompileSession.CreatePassManager("Vectorize");
@@ -60,7 +60,7 @@ public class UnitTestVectorizePad : TransformTestBase
                 c.Add<VectorizePadPropagation>();
             });
         pmgr.RunAsync(module).Wait();
-        Assert.True(module.Entry is Function { Body: Call { Target: IR.Tensors.Unpack, Arguments: var devectorizeArgs } }
+        Assert.True(module.Entry is Function { Body: IRBlock { Body: Call { Target: IR.Tensors.Unpack, Arguments: var devectorizeArgs } } }
             && devectorizeArgs[0] is Call { Target: IR.NN.Pad });
     }
 }

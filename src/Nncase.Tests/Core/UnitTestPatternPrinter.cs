@@ -45,7 +45,7 @@ public sealed class UnitTestPatternPrinter
     {
         var wc1 = IsWildcard();
         var wc2 = IsWildcard();
-        var pattern = IsCall(null, new FunctionPattern(wc1 + wc2, IsVArgs(wc1, wc2), null));
+        var pattern = IsCall(null, new FunctionPattern(IsIRBlock(wc1 + wc2, wc1, wc2), null));
         var il = pattern.DumpAsIL();
         var builder = new StringBuilder();
         var writer = new StringWriter(builder);

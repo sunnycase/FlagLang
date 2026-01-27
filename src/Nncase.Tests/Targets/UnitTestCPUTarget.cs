@@ -112,7 +112,7 @@ public class UnitTestCPUTarget : TestClassBase
     {
         var x = new Var("x", new TensorType(DataTypes.Float32, new[] { 1 }));
         var y = x + 1.0f;
-        var main = new Function("main", y, new[] { x });
+        var main = new Function("main", new IRBlock(y, x));
         var module = new IRModule(main);
         GenerateKModelAndRun(module, new[] { 1.0f }, new[] { 2.0f });
     }
@@ -122,7 +122,7 @@ public class UnitTestCPUTarget : TestClassBase
     {
         var x = new Var("x", new TensorType(DataTypes.Float32, new[] { 1 }));
         var y = IR.F.Math.Abs(x);
-        var main = new Function("main", y, new[] { x });
+        var main = new Function("main", new IRBlock(y, x));
         var module = new IRModule(main);
         GenerateKModelAndRun(module, new[] { -1.0f }, new[] { 1.0f });
     }
@@ -134,7 +134,7 @@ public class UnitTestCPUTarget : TestClassBase
         // order is false: 3 - x = 3 - 2 = 1
         var x = new Var("x", new TensorType(DataTypes.Float32, new[] { 1 }));
         var y = x - 3f;
-        var main = new Function("main", y, new[] { x });
+        var main = new Function("main", new IRBlock(y, x));
         GenerateKModelAndRunFromFn(main, new[] { 2f }, (Tensor)new[] { -1f });
     }
 
@@ -142,7 +142,7 @@ public class UnitTestCPUTarget : TestClassBase
     public void TestSimpleTupleOutput()
     {
         var x = new Var("x", new TensorType(DataTypes.Float32, new[] { 1 }));
-        var main = new Function("main", new IR.Tuple(x + 1.0f, x * 3.0f), new[] { x });
+        var main = new Function("main", new IRBlock(new IR.Tuple(x + 1.0f, x * 3.0f), x));
         var module = new IRModule(main);
         GenerateKModelAndRun(module, new[] { 1.0f }, new[] { (Tensor)2.0f, 3.0f });
     }
@@ -151,7 +151,7 @@ public class UnitTestCPUTarget : TestClassBase
     public void TestTupleOrder()
     {
         var x = new Var("x", new TensorType(DataTypes.Float32, new[] { 1 }));
-        var main = new Function("main", new IR.Tuple(x + 1.0f, x + 2f, x + 3f), new[] { x });
+        var main = new Function("main", new IRBlock(new IR.Tuple(x + 1.0f, x + 2f, x + 3f), x));
         GenerateKModelAndRunFromFn(main, new[] { 1f }, new[] { (Tensor)2f, 3f, 4f });
     }
 
@@ -162,7 +162,7 @@ public class UnitTestCPUTarget : TestClassBase
         var input = Tensor.From(new[] { 1, 2, 3, 4, 5, 6 }, [1, 2, 3]);
         var x = new Var("x", new TensorType(DataTypes.Int32, new[] { 1, 2, 3 }));
         var second = GetItem(x, index);
-        var main = new Function("main", second, new[] { x });
+        var main = new Function("main", new IRBlock(second, x));
         var dict = new Dictionary<IVar, IValue>() { { x, Value.FromTensor(input) } };
         GenerateKModelAndRunFromFn(main, input, second.Evaluate(dict).AsTensor());
     }
@@ -172,11 +172,11 @@ public class UnitTestCPUTarget : TestClassBase
     {
         var a = new Var("a", TensorType.Scalar(DataTypes.Float32));
         var b = a + 1.0f;
-        var funcA = new Function("funcA", b, new[] { a });
+        var funcA = new Function("funcA", new IRBlock(b, a));
 
         var x = new Var("x", TensorType.Scalar(DataTypes.Float32));
         var y = new Call(funcA, x + 1.0f);
-        var main = new Function("main", y, new[] { x });
+        var main = new Function("main", new IRBlock(y, x));
         var module = new IRModule(main);
         module.Add(funcA);
         GenerateKModelAndRun(module, new[] { 1.0f }, new[] { 3.0f });
@@ -188,12 +188,12 @@ public class UnitTestCPUTarget : TestClassBase
     {
         using var dumpScope = new Diagnostics.DumpScope($"{input}", CompileOptions.DumpFlags);
         var condVar = new Var(new TensorType(DataTypes.Boolean, Shape.Scalar));
-        var then = new Function((Expr)(-2f));
-        var @else = new Function(IR.F.NN.Relu(Cast(3, DataTypes.Float32)));
-        var @if = IR.F.Math.Abs(new If(condVar, then, @else));
+        var thenBlock = new IRBlock((Expr)(-2f));
+        var elseBlock = new IRBlock(IR.F.NN.Relu(Cast(3, DataTypes.Float32)));
+        var @if = IR.F.Math.Abs(new If(condVar, thenBlock, elseBlock));
 
         Assert.True(@if.InferenceType());
-        var main = new Function("main", @if, new[] { condVar });
+        var main = new Function("main", new IRBlock(@if, condVar));
 
         var output = @if.Evaluate(new Dictionary<IVar, IValue> { { condVar, Value.FromTensor(input) } }).AsTensor();
         GenerateKModelAndRunFromFn(main, input, output);
@@ -204,11 +204,11 @@ public class UnitTestCPUTarget : TestClassBase
     {
         var condVar = new Var(new TensorType(DataTypes.Boolean, Shape.Scalar));
         _ = (Expr)3 - 1;
-        var @else = new Function((Expr)3 + 1);
-        var elseThen = new Function((Expr)8 * 8);
-        var elsif = new If(condVar, elseThen, @else);
+        var elseBlock = new IRBlock((Expr)3 + 1);
+        var elseThenBlock = new IRBlock((Expr)8 * 8);
+        var elsif = new If(condVar, elseThenBlock, elseBlock);
 
-        var main = new Function("main", 2 * elsif, new[] { condVar });
+        var main = new Function("main", new IRBlock(2 * elsif, condVar));
 
         var input = (Tensor)true;
         var output = (Tensor)128;
@@ -222,7 +222,7 @@ public class UnitTestCPUTarget : TestClassBase
         var condVar = new Var(new TensorType(DataTypes.Boolean, Shape.Scalar));
         var cast = Cast(condVar, DataTypes.Int32);
         var i = ShapeUtility.If(condVar, (condVar, cast) => cast * ShapeUtility.If(condVar, cast => 3 + cast, cast => 2, cast), (condVar, cast) => 6, condVar, cast);
-        var main = new Function("main", i, new[] { condVar });
+        var main = new Function("main", new IRBlock(i, condVar));
         Dumpper.DumpIR(main, "main");
         var input = (Tensor)true;
         var output = (Tensor)4;
@@ -234,7 +234,7 @@ public class UnitTestCPUTarget : TestClassBase
     {
         var condVar = new Var(new TensorType(DataTypes.Boolean, Shape.Scalar));
         var i = ShapeUtility.If(condVar, condVar => 3, condVar => ShapeUtility.If(condVar, () => 1, () => 2), condVar);
-        var main = new Function("main", i, new[] { condVar });
+        var main = new Function("main", new IRBlock(i, condVar));
         var input = (Tensor)false;
         var output = (Tensor)2;
         GenerateKModelAndRunFromFn(main, input, output);
@@ -242,7 +242,7 @@ public class UnitTestCPUTarget : TestClassBase
 
     private void TestCodeGen(BaseExpr body, Var[] vars, [CallerMemberName] string? name = null)
     {
-        var main = new Function("main", CPUTarget.Kind, body, vars);
+        var main = new Function("main", CPUTarget.Kind, new IRBlock(body, vars));
         var module = new IRModule(main);
         var pmgr = CompileSession.CreatePassManager("pmgr");
         var compiler = (Nncase.Compiler.Compiler)CompileSession.Compiler;

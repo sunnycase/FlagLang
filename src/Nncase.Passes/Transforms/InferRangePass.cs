@@ -48,6 +48,10 @@ internal sealed class InferRangeVisitor : ExprVisitor<ValueRange<double>, Unit>
 
     public override Unit DefaultVisitTypeLeaf(IRType type, Unit context) => default;
 
+    public override Unit VisitType(PointerType type, Unit context) => default;
+
+    public override Unit VisitTypeLeaf(PointerType type, Unit context) => default;
+
     protected override ValueRange<double> DispatchVisit(BaseExpr expr)
     {
         if (expr.Metadata.Range is null)

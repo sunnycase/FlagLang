@@ -3,6 +3,7 @@
 
 using System;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 using NetFabric.Hyperlinq;
 using Nncase.CostModel;
 using Nncase.IR;
@@ -21,13 +22,31 @@ internal partial class EvaluateVisitor
         {
             if (!_dimVarsValues.TryGetValue(expr, out value))
             {
+                var knownKeys = string.Join(", ", _dimVarsValues.Keys.Select(k => k is IVar v ? $"{v.Name}#{v.GlobalVarIndex}" : k.ToString()));
+                _logger.LogWarning(
+                    "Missing binding for DimVar {DimVar}#{Index}. Known keys: [{KnownKeys}]",
+                    expr.Name,
+                    expr.GlobalVarIndex,
+                    knownKeys);
                 throw new ArgumentException($"Must Set Input For Var {expr.Name}!");
             }
         }
 
-        if (value is TensorValue tv && tv.Type == DataTypes.Int64)
+        if (value is TensorValue tv)
         {
-            return value;
+            var tensorType = tv.Type as TensorType;
+            if (tensorType is not null && tensorType.Shape.IsScalar && tensorType.DType == DataTypes.Int64)
+            {
+                return value;
+            }
+
+            var tensor = tv.AsTensor();
+            _logger.LogWarning(
+                "DimVar {DimVar} has unsupported tensor type {TensorType} (DType={DType}, Shape={Shape})",
+                expr.Name,
+                tensorType ?? tv.Type,
+                tensor.ElementType,
+                tensor.Shape);
         }
 
         throw new ArgumentException($"DimVar {expr.Name} must be a scalar int64 tensor!");

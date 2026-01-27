@@ -269,6 +269,8 @@ public partial class EGraphPrinter
 
         protected override string VisitBaseFunction(BaseFunction expr) => $"{expr.GetType().Name} {expr.Name}";
 
+        protected override string VisitIRBlock(IRBlock expr) => $"{expr.GetType().Name} {expr.Name}";
+
         protected override string VisitOp(Op expr)
         {
             return $"{expr.GetType().Name}({expr.DisplayProperty()})";

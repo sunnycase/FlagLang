@@ -34,8 +34,8 @@ public class UnitTestFor
         var a = Const.FromTensor(Tensor.FromScalar(1f, [dimM, dimK]));
         var b = Const.FromTensor(Tensor.FromScalar(2f, [dimK, dimN]));
 
-        var aT2 = F.Affine.For(2, aAccessMap, a[aAccessMap]);
-        var bT2 = F.Affine.For(2, bAccessMap, b[bAccessMap]);
-        var cT2 = F.Affine.For(2, cAccessMap.Result, F.Tensors.MatMul(aT2[cAccessMap.Operands[0]], bT2[cAccessMap.Operands[1]]));
+        // var aT2 = F.Affine.For(2, aAccessMap, a[aAccessMap]);
+        // var bT2 = F.Affine.For(2, bAccessMap, b[bAccessMap]);
+        // var cT2 = F.Affine.For(2, cAccessMap.Result, F.Tensors.MatMul(aT2[cAccessMap.Operands[0]], bT2[cAccessMap.Operands[1]]));
     }
 }

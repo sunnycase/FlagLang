@@ -30,7 +30,7 @@ public static class FunctionSamples
             var d = IR.F.Math.Exp(c);
             var e = new Var(new TensorType(DataTypes.Float32, new[] { 384, 512 }));
             var f = IR.F.Tensors.MatMul(d, e);
-            func = new("main", target, f, [a, b, e]);
+            func = new("main", target, new IRBlock(f, a, b, e));
         }
 
         return func;
@@ -45,7 +45,7 @@ public static class FunctionSamples
             var a = new Var(new TensorType(DataTypes.Float32, new[] { 128, 256 }));
             var b = new Var(new TensorType(DataTypes.Float32, new[] { 256, 384 }));
             var c = IR.F.Tensors.MatMul(a, b);
-            func = new("main", CPUTarget.Kind, c, [a, b]);
+            func = new("main", CPUTarget.Kind, new IRBlock(c, a, b));
         }
 
         return func;
@@ -57,7 +57,7 @@ public static class FunctionSamples
         {
             var a = new Var(new TensorType(DataTypes.Float32, new[] { 128, 384 }));
             var d = IR.F.Math.Exp(a);
-            func = new("main", CPUTarget.Kind, d, [a]);
+            func = new("main", CPUTarget.Kind, new IRBlock(d, a));
         }
 
         return func;
@@ -77,7 +77,7 @@ public static class FunctionSamples
             var d = IR.F.Math.Exp(c);
             var e = new Var(new TensorType(DataTypes.Float32, new[] { 384, 512 }));
             var f = IR.F.NTT.VectorizedMatMul(d, IR.F.Tensors.Pack(e, new[] { 4 }, new[] { 0 }), new[] { 0, 1 }, new[] { 0 }, false, false, false);
-            func = new("main", CPUTarget.Kind, f, [a, b, e]);
+            func = new("main", CPUTarget.Kind, new IRBlock(f, a, b, e));
         }
 
         return func;
@@ -98,7 +98,7 @@ public static class FunctionSamples
             var fshape = new[] { 1, 1, 384, 384 };
             var f = new IR.Var("f", new IR.TensorType(DataTypes.Float32, fshape));
             var g = IR.F.Math.Binary(BinaryOp.Add, e, f);
-            func = new IR.Function("main", CPUTarget.Kind, g, [a, b, d, f]);
+            func = new IR.Function("main", CPUTarget.Kind, new IRBlock(g, a, b, d, f));
         }
 
         return func;
@@ -114,7 +114,7 @@ public static class FunctionSamples
             var c = IR.F.Math.Div(b, new[] { 2.0f });
             var d = IR.F.Math.Mul(c, new[] { 1.0f });
             var e = IR.F.Math.Sub(new[] { 1.5f }, d);
-            func = new IR.Function("main", CPUTarget.Kind, e, [a]);
+            func = new IR.Function("main", CPUTarget.Kind, new IRBlock(e, a));
         }
 
         return func;
@@ -131,7 +131,7 @@ public static class FunctionSamples
             var b2 = IR.F.Math.Cos(a1);
             var c = IR.F.Math.Add(b1, b2);
             var d = IR.F.Math.Square(c);
-            func = new IR.Function("main", CPUTarget.Kind, d, [a]);
+            func = new IR.Function("main", CPUTarget.Kind, new IRBlock(d, a));
         }
 
         return func;
@@ -149,7 +149,7 @@ public static class FunctionSamples
             var b = new IR.Var("b", new IR.TensorType(DataTypes.Float32, shape));
             var c = IR.F.Math.Binary(BinaryOp.Mul, a, b);
             var d = IR.F.Math.Neg(c);
-            func = new IR.Function("main", CPUTarget.Kind, new IR.Tuple(c, d), [a, b]);
+            func = new IR.Function("main", CPUTarget.Kind, new IRBlock(new IR.Tuple(c, d), a, b));
         }
 
         return func;
@@ -166,7 +166,7 @@ public static class FunctionSamples
             var a = new IR.Var("a", new IR.TensorType(DataTypes.Float32, shape));
             var b = new IR.Var("b", new IR.TensorType(DataTypes.Float32, shape));
             var c = IR.F.Math.Binary(BinaryOp.Mul, a, b);
-            func = new IR.Function("main", CPUTarget.Kind, c, [a, b]);
+            func = new IR.Function("main", CPUTarget.Kind, new IRBlock(c, a, b));
         }
 
         return func;
@@ -192,7 +192,7 @@ public static class FunctionSamples
             var v2 = IR.F.Tensors.Cast(v1, DataTypes.Float16);
             var v3 = IR.F.Tensors.Transpose(v2, [1, 0]);
             new Passes.Transforms.InferRangeVisitor().Visit(v3);
-            func = new("main", CPUTarget.Kind, v3, [v0]);
+            func = new("main", CPUTarget.Kind, new IRBlock(v3, v0));
         }
 
         return func;
@@ -210,7 +210,7 @@ public static class FunctionSamples
             var b = new IR.Var("b", new IR.TensorType(DataTypes.Float32, shape));
             var c = IR.F.Math.Binary(BinaryOp.Mul, a, b);
             var d = IR.F.Math.Unary(UnaryOp.Neg, c);
-            func = new IR.Function("main", CPUTarget.Kind, new IR.Tuple(c, d), [a, b]);
+            func = new IR.Function("main", CPUTarget.Kind, new IRBlock(new IR.Tuple(c, d), a, b));
         }
 
         return func;
@@ -289,7 +289,7 @@ public static class FunctionSamples
             var v25 = IR.F.NN.RoPE(v15, v21, v24);
 
             new Passes.Transforms.InferRangeVisitor().Visit(v25);
-            func = new("main", CPUTarget.Kind, v25, [v0]);
+            func = new("main", CPUTarget.Kind, new IRBlock(v25, v0));
         }
 
         return func;
@@ -317,7 +317,7 @@ public static class FunctionSamples
         var v2 = IR.F.Tensors.Pack(v1, [4], [2]); // {f32<4>[32,12,(ceil(dim2 / 4)),dim3], (S(0),B,B,B), [8@t,12,32,128]} ,
         var v3 = IR.F.NN.Swish(v2); // {f32<4>[32,12,(ceil(dim2 / 4)),dim3], (S(0),B,B,B), [8@t,12,32,128]} ,
         var v4 = IR.F.Tensors.Unpack(v3, [4], [2]); // {f32[32,12,(4 * ceil(dim2 / 4)),dim3], (S(0),B,B,B), [8@t,12,128,128]} ,
-        return new Function("main", CPUTarget.Kind, v4, [v1, dim2, dim3]);
+        return new Function("main", CPUTarget.Kind, new IRBlock(v4, v1, dim2, dim3));
     }
 
     public static Function GetDynamicVectorizedCastTranspose()
@@ -333,6 +333,6 @@ public static class FunctionSamples
         var v1 = new Var("input", new TensorType(new VectorType(DataTypes.Float16, 64), new RankedShape(seq_len, 16)));
         var v2 = IR.F.NTT.VectorizedCast(v1, new VectorType(DataTypes.Float32, 32), CastMode.KDefault, [1], None.Default);
         var v3 = IR.F.Tensors.Transpose(v2, [1, 0]);
-        return new Function("main", CPUTarget.Kind, v3, [v1]);
+        return new Function("main", CPUTarget.Kind, new IRBlock(v3, v1));
     }
 }

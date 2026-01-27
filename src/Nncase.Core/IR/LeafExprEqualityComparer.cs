@@ -43,6 +43,7 @@ public sealed class LeafExprEqualityComparer : IEqualityComparer<BaseExpr>
             (Var tx, Var ty) => tx.Equals(ty),
             (Const tx, Const ty) => tx.Equals(ty),
             (Fusion tx, Fusion ty) => tx.Equals(ty),
+            (IRBlock tx, IRBlock ty) => tx.Equals(ty),
 
             // note think of primfunc/primfunc wrapper as a black box.
             (TIR.PrimFunction tx, TIR.PrimFunction ty) => ReferenceEquals(tx, ty),
@@ -95,6 +96,7 @@ public sealed class LeafExprEqualityComparer : IEqualityComparer<BaseExpr>
             Const x => x.GetHashCode(),
             Function x => ReferenceEqualityComparer.Instance.GetHashCode(x),
             Fusion x => x.GetHashCode(),
+            IRBlock x => x.GetHashCode(),
             TIR.PrimFunction x => ReferenceEqualityComparer.Instance.GetHashCode(x),
             PrimFunctionWrapper x => ReferenceEqualityComparer.Instance.GetHashCode(x),
             Tuple x => x.Count.GetHashCode(),

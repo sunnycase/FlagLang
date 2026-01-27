@@ -309,7 +309,7 @@ public sealed class UnitTestFusionMaker : TestClassBase
         var oldBody = WrapOutput(lstm);
 
         Assert.True(oldBody.InferenceType());
-        var f = new Function("main", oldBody, new[] { x, initC, initH });
+        var f = new Function("main", new IRBlock(oldBody, x, initC, initH));
 
         using var exprPin1 = new ExprPinner(lstm);
         var pass = new DataflowPass { Name = "TestComplexFusion" };

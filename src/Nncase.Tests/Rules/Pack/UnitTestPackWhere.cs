@@ -75,7 +75,7 @@ public class UnitTestVectorizeWhere : TransformTestBase
         Expr expr = Where(condVar, lhs, rhsVar);
         expr = Pack(expr, [8], [1]);
         expr = Unpack(expr, [8], [1]);
-        var func = new Function("main", expr, [condVar, rhsVar]);
+        var func = new Function("main", new IRBlock(expr, condVar, rhsVar));
         var module = new IRModule(func);
 
         var pmgr = CompileSession.CreatePassManager("Vectorize");
@@ -85,7 +85,7 @@ public class UnitTestVectorizeWhere : TransformTestBase
                 c.Add<VectorizeWherePropagation>(MaskVectorStyle.Fat);
             });
         pmgr.RunAsync(module).Wait();
-        Assert.True(module.Entry is Function { Body: Call { Target: IR.Tensors.Unpack, Arguments: var devectorizeArgs } }
+        Assert.True(module.Entry is Function { Body: IRBlock { Body: Call { Target: IR.Tensors.Unpack, Arguments: var devectorizeArgs } } }
             && devectorizeArgs[0] is Call { Target: IR.Tensors.Where });
     }
 }

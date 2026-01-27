@@ -54,7 +54,7 @@ public sealed class UnitTestDumpper : TestClassBase
     {
         var fusionCase = new ReWrite.FusionTest.DataFlowType7FusionCaseLeft();
         var input = new Var("input", new TensorType(DataTypes.Float32, new int[] { 1, 3, 224, 224 }));
-        var main = new Function("main", fusionCase.BuildBody(input), new[] { input });
+        var main = new Function("main", new IRBlock(fusionCase.BuildBody(input), input));
         CompilerServices.InferenceType(main);
 
         Dumpper.DumpIR(main, string.Empty);
@@ -82,7 +82,7 @@ public sealed class UnitTestDumpper : TestClassBase
         var y = new Var("y", new TensorType(DataTypes.Float32, new[] { 3, 2 }));
         var z = x + y;
         var tuple = new IR.Tuple(x, y, z);
-        var module = new IRModule(new Function("main", tuple, new[] { x, y }));
+        var module = new IRModule(new Function("main", new IRBlock(tuple, x, y)));
         CompilerServices.InferenceType(module.Entry!);
 
         Dumpper.DumpModule(module);
@@ -158,7 +158,7 @@ public sealed class UnitTestDumpper : TestClassBase
             var padW = TypeInference.GetWindowedPadding(inW, fW, strideW, dilationW, true);
             var padding = new[] { Padding.Zero, Padding.Zero, padH, padW };
             var body = IR.F.NN.Pad(input, padding, PadMode.Constant, 0.0f);
-            main = new Function("main", body, input);
+            main = new Function("main", new IRBlock(body, input));
         }
 
         var pass = new ShapeInferPass { Name = $"ShapeInfer" };
@@ -187,7 +187,7 @@ public sealed class UnitTestDumpper : TestClassBase
         var y = new Var("y", new TensorType(DataTypes.UInt8, new int[] { 1, 2, 2, 2 }));
         var z = IR.F.Random.Normal(DataTypes.UInt8, 0, 1, 0, new[] { 1, 2, 2, 2 });
         var m = IR.F.Random.Normal(DataTypes.UInt8, 0, 1, 0, new[] { 1, 20, 2, 2 });
-        var main = new Function("main", IR.F.Tensors.Concat(new IR.Tuple(new Expr[] { x, y, z, m }), 1), new[] { y });
+        var main = new Function("main", new IRBlock(IR.F.Tensors.Concat(new IR.Tuple(new Expr[] { x, y, z, m }), 1), y));
         CompilerServices.DumpCSharpIR(main, string.Empty, Dumpper.Directory);
     }
 
@@ -198,7 +198,7 @@ public sealed class UnitTestDumpper : TestClassBase
         var y = new Var("y", new TensorType(DataTypes.UInt8, new int[] { 1, 2, 2, 2 }));
         var z = IR.F.Random.Normal(DataTypes.UInt8, 0, 1, 0, new[] { 1, 2, 2, 2 });
         var m = IR.F.Random.Normal(DataTypes.UInt8, 0, 1, 0, new[] { 1, 20, 2, 2 });
-        var main = new Function("main", IR.F.Tensors.Concat(new IR.Tuple(new Expr[] { x, y, z, m }), 1), new[] { y });
+        var main = new Function("main", new IRBlock(IR.F.Tensors.Concat(new IR.Tuple(new Expr[] { x, y, z, m }), 1), y));
         CompilerServices.DumpPatternIR(main, string.Empty, Dumpper.Directory);
     }
 
@@ -215,7 +215,7 @@ public sealed class UnitTestDumpper : TestClassBase
         var xx = IR.F.Math.RangeOfMarker(IR.F.Random.Normal(DataTypes.Float32, 0, 1, 0, new[] { 1, 8, 2, 2 }), new ulong[] { 1UL, 2UL });
         var xy = IR.F.Math.RangeOfMarker(IR.F.Tensors.Cast(IR.F.Random.Normal(DataTypes.BFloat16, 0, 1, 0, new[] { 1, 9, 2, 2 }), DataTypes.Float32), new ulong[] { 1UL, 2UL });
         var fusion = new Fusion("fusion", "stackvm", new IR.Tuple(new Expr[] { x, y, z, m, n, k, j, xx, xy }), Array.Empty<Var>());
-        var main = new Function("main", IR.F.Tensors.Concat(new Call(fusion, Array.Empty<Expr>()), 1), Array.Empty<Var>());
+        var main = new Function("main", new IRBlock(IR.F.Tensors.Concat(new Call(fusion, Array.Empty<Expr>()), 1), Array.Empty<Var>()));
         CompilerServices.DumpCSharpIR(main, string.Empty, Dumpper.Directory, false);
     }
 
@@ -231,7 +231,7 @@ public sealed class UnitTestDumpper : TestClassBase
 
     private async Task<BaseExpr> RunShapeInferPass(string name, Expr expr, params Var[] parameters)
     {
-        var f = new Function(name, expr, parameters);
+        var f = new Function(name, new IRBlock(expr, parameters));
         var result = ((Function)await new ShapeInferPass { Name = $"ShapeInfer_{name}" }.RunAsync(f, new())).Body;
         Assert.True(CompilerServices.InferenceType(f));
         return result;

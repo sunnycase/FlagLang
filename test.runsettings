@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- File name extension must be .runsettings -->
+<RunSettings>
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <LD_LIBRARY_PATH>/mnt/home-nas/work/repo/FlagLang/build/cmake.linux-x86_64-cpython-3.10/Debug/lib</LD_LIBRARY_PATH>
+      <DYLD_LIBRARY_PATH>/mnt/home-nas/work/repo/FlagLang/build/cmake.linux-x86_64-cpython-3.10/Debug/lib</DYLD_LIBRARY_PATH>
+      <NNCASE_TILING_MAX_SOLUTIONS>1</NNCASE_TILING_MAX_SOLUTIONS>
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>

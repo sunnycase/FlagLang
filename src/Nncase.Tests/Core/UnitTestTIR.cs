@@ -120,11 +120,13 @@ public sealed class UnitTestTIR
     [Fact]
     public void TestPrimFunction()
     {
-        var primFunc = new PrimFunction("test_module", new Sequential(new Expr[] { 1 }), new[]
+        var parameters = new IVar[]
         {
             TIR.T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 16, 64, 400 }), out var _),
             TIR.T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 16, 64, 400 }), out var _),
-        });
+        };
+
+        var primFunc = new PrimFunction("test_module", BaseFunction.CPUModuleKind, new Sequential(new Expr[] { 1 }, parameters));
 
         var primFuncParameters = primFunc.Parameters;
         var primFuncParameterTypes = primFunc.ParameterTypes;
@@ -132,14 +134,14 @@ public sealed class UnitTestTIR
         Assert.Equal(expect, primFuncParameterTypes);
 
         var newModuleKind = "new_module";
-        var newBody = new Sequential(new Expr[] { 3 });
         var newParams = new[]
         {
             TIR.T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 16, 64, 400 }), out var _),
             TIR.T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 16, 64, 400 }), out var _),
         };
+        var newBody = new Sequential(new Expr[] { 3 }, newParams);
 
-        var newPrimFunc = primFunc.With(moduleKind: newModuleKind, body: newBody, parameters: newParams);
+        var newPrimFunc = primFunc.With(moduleKind: newModuleKind, body: newBody);
 
         Assert.NotSame(primFunc, newPrimFunc);
         Assert.Equal(newModuleKind, newPrimFunc.ModuleKind);
@@ -147,7 +149,7 @@ public sealed class UnitTestTIR
         Assert.Equal(newParams, newPrimFunc.Parameters.ToArray());
         Assert.Equal(primFunc.Name, newPrimFunc.Name); // should not change the name
 
-        Assert.NotNull(new PrimFunction("test_module", new Sequential(new Expr[] { 1 }), default(ReadOnlySpan<IVar>)));
+        Assert.NotNull(new PrimFunction("test_module", BaseFunction.CPUModuleKind, new Sequential(new Expr[] { 1 })));
     }
 
     [Fact]

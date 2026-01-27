@@ -34,10 +34,10 @@ public class UnitTestInteropIntegrated : TestClassBase
         var body = T.Sequential().Body(
             T.AttachBuffer(1.0f, out var constBuffer),
             TIR.F.NTT.VectorizedBinary(x, constBuffer, T.CreateBuffer(type, MemoryLocation.Output, out var outBuffer), None.Default, BinaryOp.Add),
-            T.Return(outBuffer)).Build();
-        var main = new PrimFunction("main_prim", CPUTarget.Kind, body, new[] { x });
+            T.Return(outBuffer)).Build().With(parameters: new IVar[] { x });
+        var main = new PrimFunction("main_prim", CPUTarget.Kind, body);
         var module = new IRModule(main);
-        var funcGroups = module.Functions.OfType<PrimFunction>().GroupBy(x => x.ModuleKind);
+        var funcGroups = module.Functions.ToArray().OfType<PrimFunction>().GroupBy(f => f.ModuleKind);
         new BufferizeVisitor(funcGroups.First()).Bufferize();
         var target = CompilerServices.GetTarget(CPUTarget.Kind);
         var modelBuilder = new ModelBuilder(target, CompileOptions);

@@ -31,7 +31,7 @@ public class UnitTestEvaluator : TestClassBase
         var cfunc = (int x) => ((x * 10) - 200) / 5;
 
         var x = new Var("x", TensorType.Scalar(DataTypes.Int32));
-        var func = new Function("main", ((x * 10) - 200) / 5, new[] { x });
+        var func = new Function("main", new IRBlock(((x * 10) - 200) / 5, x));
 
         Assert.Equal(cfunc(10), new Call(func, (Expr)10).Evaluate().AsTensor().ToScalar<int>());
 

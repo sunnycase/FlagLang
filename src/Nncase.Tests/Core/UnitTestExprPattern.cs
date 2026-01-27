@@ -123,16 +123,14 @@ public class UnitTestExprPattern
         var wc1 = IsWildcard();
         var wc2 = IsWildcard();
         var c = wc1 + wc2;
-        var fp = new FunctionPattern(c, new[] { wc1, wc2 }, null);
+        var blockPattern = IsIRBlock(c, wc1, wc2);
+        var fp = new FunctionPattern(blockPattern, null);
         Assert.IsType<FunctionPattern>(fp);
-        Assert.IsType<ExprPattern>(fp.Parameters[0]);
-        Assert.IsType<ExprPattern>(fp.Parameters[1]);
-        Assert.IsType<CallPattern>(fp.Body);
-        Assert.IsType<ExprPattern>(((CallPattern)fp.Body).Arguments[0]);
-        Assert.IsType<ExprPattern>(((CallPattern)fp.Body).Arguments[1]);
-        _ = new FunctionPattern(c, IsVArgs(new[] { wc1, wc2 }), null);
-        Assert.IsType<ExprPattern>(fp.Parameters[0]);
-        Assert.IsType<ExprPattern>(fp.Parameters[1]);
+        var irBlockPattern = Assert.IsType<IRBlockPattern>(fp.Body);
+        Assert.IsType<VArgsPattern>(irBlockPattern.Parameters);
+        var callPattern = Assert.IsType<CallPattern>(irBlockPattern.Body);
+        Assert.IsType<ExprPattern>(callPattern.Arguments[0]);
+        Assert.IsType<ExprPattern>(callPattern.Arguments[1]);
     }
 
     [Fact]

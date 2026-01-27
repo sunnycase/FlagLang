@@ -87,7 +87,7 @@ public class UnitTestDumpQuantError : TestClassBase
         CompileOptions.QuantizeOptions.WQuantType = DataTypes.UInt8;
         CompileOptions.DumpFlags = DumpFlags.ImportOps | DumpFlags.EGraphCost | DumpFlags.Compile | DumpFlags.PassIR | DumpFlags.Rewrite;
 
-        var module = new IRModule(new Function("main", output, new Var[] { input }));
+        var module = new IRModule(new Function("main", new IRBlock(output, input)));
 
         var pmgr = CompileSession.CreatePassManager("Passes");
 

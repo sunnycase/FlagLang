@@ -8,6 +8,7 @@ using System.Linq;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Nncase.Diagnostics;
 using Nncase.IR;
 
@@ -39,7 +40,8 @@ internal sealed class EvaluateProvider : IEvaluateProvider
             throw new InvalidOperationException("Expr in Evaluator need a valid type");
         }
 
-        using var evaluatorVisitor = new EvaluateVisitor(varsValues ?? new Dictionary<IVar, IValue>(), evaluator_cache ?? new());
+        var logger = _serviceProvider.GetService<ILogger<EvaluateVisitor>>();
+        using var evaluatorVisitor = new EvaluateVisitor(varsValues ?? new Dictionary<IVar, IValue>(), evaluator_cache ?? new(), logger);
         return evaluatorVisitor.Visit(expr);
     }
 

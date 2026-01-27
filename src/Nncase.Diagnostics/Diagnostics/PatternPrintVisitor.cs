@@ -113,6 +113,30 @@ internal sealed class PatternPrintVisitor : ExprFunctor<string, string>
         return name;
     }
 
+    protected override string VisitIRBlock(IRBlock expr)
+    {
+        if (_names.TryGetValue(expr, out var name))
+        {
+            return name;
+        }
+
+        name = AllocateTempVar(expr);
+        _scope.Push();
+
+        _scope.IndWrite($"IRBlock {name}");
+        AppendCheckedType(expr.CheckedType);
+
+        _scope.IndWriteLine("{");
+        using (_scope.IndentUp())
+        {
+            Visit(expr.Body);
+        }
+
+        _scope.IndWriteLine("}");
+        _scope.Append(_scope.Pop());
+        return name;
+    }
+
     protected override string VisitFusion(Fusion expr)
     {
         if (_names.TryGetValue(expr, out var name))

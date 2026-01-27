@@ -13,6 +13,7 @@ using Nncase.IR.F;
 using Nncase.IR.NN;
 using Nncase.Passes;
 using Nncase.Passes.Transforms;
+using Nncase.Tests.TestFixture;
 using Nncase.Utilities;
 using OrtKISharp;
 using Xunit;
@@ -979,7 +980,7 @@ public class UnitTestEvaluatorNN : TestClassBase
         {
             // var refTensor = OrtKI.Concat(refOutputs.ToArray(), 1L).ToTensor();
             var refTensor = referenceResults.GetOutputTensor();
-            var actualTensor = root.Evaluate(feedDict).AsTensor();
+            var actualTensor = root.EvaluateUnwrapped(feedDict).AsTensor();
 
             var cos = Comparator.CosSimilarity(refTensor, actualTensor);
             Assert.True(cos > 0.999, $"cos: {cos} ");
@@ -1018,7 +1019,7 @@ public class UnitTestEvaluatorNN : TestClassBase
             var qHead = 8;
             var func = scheduler.CreateTestFunction(qHead, [AttentionDimKind.Seq, AttentionDimKind.Head, AttentionDimKind.Dim], [AttentionDimKind.Seq, AttentionDimKind.Head, AttentionDimKind.Dim]);
 
-            func.Evaluate(new Dictionary<IVar, IValue>()
+            _ = func.EvaluateUnwrapped(new Dictionary<IVar, IValue>()
             {
                 { func.Parameters[0], Value.FromTensor(Tensor.Zeros(config.KVPrimType, [64, config.NumKVHeads, config.HeadDim])) },
                 { func.Parameters[1], Value.FromTensor(Tensor.Zeros(config.KVPrimType, [64, qHead, config.HeadDim])) },

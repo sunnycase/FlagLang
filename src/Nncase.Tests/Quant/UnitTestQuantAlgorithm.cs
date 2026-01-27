@@ -95,7 +95,7 @@ public class UnitTestKLQuant : TestClassBase
         var conv = IR.F.NN.Conv2D(input, weights, bias, stride, padding, dilation, PadMode.Constant, 1);
 
         var output = conv;
-        var module = new IRModule(new Function("main", output, new Var[] { input }));
+        var module = new IRModule(new Function("main", new IRBlock(output, input)));
 
         CompileOptions.QuantizeOptions.CalibrationDataset = new SolidCalibrationDatasetProvider(new Var[] { input });
         CompileOptions.QuantizeOptions.CalibrationMethod = CalibMethod.Kld;

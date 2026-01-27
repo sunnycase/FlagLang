@@ -88,7 +88,7 @@ public class UnitTestExportQuantScheme : TestClassBase
         CompileOptions.QuantizeOptions.QuantType = DataTypes.UInt8;
         CompileOptions.QuantizeOptions.WQuantType = DataTypes.UInt8;
 
-        var module = new IRModule(new Function("main", output, new Var[] { input }));
+        var module = new IRModule(new Function("main", new IRBlock(output, input)));
 
         var pmgr = CompileSession.CreatePassManager("Passes");
 

@@ -93,10 +93,10 @@ public sealed class UnitTestEGraphMatch
         var wc1 = IsWildcard("x");
         var wc2 = IsWildcard("y");
 
-        Expr func = new Function(x + y - 1200, x, y);
+        Expr func = new Function(new IRBlock(x + y - 1200, x, y));
 
-        var pat_1 = IsFunction("pt1", wc1 + wc2 - 1200, wc1, wc2);
-        var pat_2 = IsFunction("pt1", wc1 - wc2, wc1, wc2);
+        var pat_1 = IsFunction("pt1", IsIRBlock(wc1 + wc2 - 1200, wc1, wc2));
+        var pat_2 = IsFunction("pt1", IsIRBlock(wc1 - wc2, wc1, wc2));
 
         Assert.True(CompilerServices.TryEMatchRoot(func, pat_1, out var res_1));
         Assert.Single(res_1);
@@ -192,12 +192,12 @@ public sealed class UnitTestEGraphMatch
         Fusion fusion;
         {
             var fusion_input = new Var(new TensorType(DataTypes.Float32, new[] { 1, 2, 3, 4 }));
-            fusion = new Fusion(Callable.CPUModuleKind, IR.F.Tensors.Transpose(fusion_input, new[] { 0, 3, 1, 2 }), new[] { fusion_input });
+            fusion = new Fusion(BaseFunction.CPUModuleKind, IR.F.Tensors.Transpose(fusion_input, new[] { 0, 3, 1, 2 }), new[] { fusion_input });
         }
 
         var call = new Call(fusion, IR.F.Random.Normal(DataTypes.Float32, 0, 1, 1, new[] { 1, 2, 3, 4 }));
 
-        var pattern = IsCall("callee", IsFusion("callee_fusion", Callable.CPUModuleKind, IsWildcard(), IsVArgs(IsVar())), IsWildcard("callee_input"));
+        var pattern = IsCall("callee", IsFusion("callee_fusion", BaseFunction.CPUModuleKind, IsWildcard(), IsVArgs(IsVar())), IsWildcard("callee_input"));
 
         Assert.True(CompilerServices.TryEMatchRoot(call, pattern, out var result));
         Assert.Single(result);

@@ -71,7 +71,7 @@ public class UnitTestK210Target : TestClassBase
 
     private async Task TestCodeGenAsync(Expr body, Var[] vars)
     {
-        var main = new Function("main", body, vars);
+        var main = new Function("main", new IRBlock(body, vars));
         var module = new IRModule(main);
 
         // 1. Optimize target dependent

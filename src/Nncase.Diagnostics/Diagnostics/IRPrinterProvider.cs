@@ -59,6 +59,12 @@ internal sealed class IRPrinterProvider : IPrinterProvider
     /// <inheritdoc/>
     public void DumpDotIR(BaseExpr expr, string prefix, string dumpDir, PrinterFlags flags)
     {
+        if (expr is null)
+        {
+            // Dumping is best-effort; guard against null expressions coming from optional rewrite outputs.
+            return;
+        }
+
         if (string.IsNullOrEmpty(dumpDir))
         {
             throw new ArgumentException("The dumpPath Is Empty!", nameof(dumpDir));

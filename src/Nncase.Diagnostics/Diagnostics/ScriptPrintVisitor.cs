@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading.Tasks;
 using DryIoc;
 using NetFabric.Hyperlinq;
+using Nncase;
 using Nncase.IR;
 using Nncase.IR.Buffers;
 using Nncase.IR.Math;
@@ -170,6 +171,12 @@ internal sealed class ScriptPrintVisitor : ExprFunctor<IPrintSymbol, string>
     public override string VisitType(TupleType type) =>
         $"({string.Join(", ", type.Fields.Select(VisitType))})";
 
+    public override string VisitType(PointerType type)
+    {
+        var elem = type.ElemType.GetDisplayName();
+        return type.AddressSpace == 0 ? $"Pointer({elem})" : $"Pointer({elem}, as={type.AddressSpace})";
+    }
+
     /// <inheritdoc/>
     public override string VisitType(InvalidType type) => $"Invalid:{type.Reason}";
 
@@ -212,6 +219,22 @@ internal sealed class ScriptPrintVisitor : ExprFunctor<IPrintSymbol, string>
         doc = new(il_sb, expr.Name, true);
         _extFuncMemo[expr] = doc;
 
+        _exprMemo.Add(expr, doc);
+        return doc;
+    }
+
+    protected override IPrintSymbol VisitIRBlock(IRBlock expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var doc))
+        {
+            return doc;
+        }
+
+        string ilSb = Flags.HasFlag(PrinterFlags.Detailed)
+            ? CompilerServices.Print(expr, Flags & ~PrinterFlags.Script)
+            : $"{expr.Name} = IRBlock({VisitType(expr.CheckedType)})";
+
+        doc = new(ilSb, expr.Name, true);
         _exprMemo.Add(expr, doc);
         return doc;
     }
@@ -698,7 +721,8 @@ internal sealed class ScriptPrintVisitor : ExprFunctor<IPrintSymbol, string>
         _scope.Push();
         var memSpan = Visit(expr.MemSpan);
         var distributedType = expr.DistributedType == null ? string.Empty : VisitType(expr.DistributedType);
-        _scope.Append($"T.Buffer({expr.Name}, {VisitType(expr.ElemType)}, {memSpan.Span}, [{string.Join(',', expr.Dimensions.AsValueEnumerable().Select(Visit).Select(e => e.Span.ToString()).ToArray())}], [{string.Join(',', expr.Strides.AsValueEnumerable().Select(Visit).Select(e => e.Span.ToString()).ToArray())}], {distributedType})");
+        var elemType = expr.ElemType.ToString();
+        _scope.Append($"T.Buffer({expr.Name}, {elemType}, {memSpan.Span}, [{string.Join(',', expr.Dimensions.AsValueEnumerable().Select(Visit).Select(e => e.Span.ToString()).ToArray())}], [{string.Join(',', expr.Strides.AsValueEnumerable().Select(Visit).Select(e => e.Span.ToString()).ToArray())}], {distributedType})");
         doc = new(_scope.Pop().ToString(), expr.Name, true);
         _exprMemo.Add(expr, doc);
         return doc;

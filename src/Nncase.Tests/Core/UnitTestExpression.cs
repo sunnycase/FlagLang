@@ -153,11 +153,11 @@ public class UnitTestExpression
     {
         var a = new Var("a", TensorType.Scalar(DataTypes.Float32));
         var b = a - 1;
-        var f = new Function("main", b, new[] { a });
+        var f = new Function("main", new IRBlock(b, a));
 
         var a1 = a.With();
         var b1 = a1 - 1;
-        var f1 = new Function("main", b1, new[] { a1 });
+        var f1 = new Function("main", new IRBlock(b1, a1));
 
         Assert.NotEqual(f, f1);
         Assert.Equal(f.SchedResult, f1.SchedResult);
@@ -423,7 +423,7 @@ public class UnitTestExpression
     public void TestExpressionTree()
     {
         var input_1 = new Var("input_1", TensorType.Scalar(DataTypes.Int32));
-        var fn_1 = new Function("add", IR.F.Math.Binary(BinaryOp.Add, input_1, 10), new[] { input_1 });
+        var fn_1 = new Function("add", new IRBlock(IR.F.Math.Binary(BinaryOp.Add, input_1, 10), input_1));
         Assert.True(CompilerServices.InferenceType(fn_1));
 
         var visitor = new ExpressionTreeBuilder();
@@ -431,7 +431,7 @@ public class UnitTestExpression
 
         for (int i = 0; i < 100000; i++)
         {
-            var res_1 = CompilerServices.Evaluate(fn_1.Body, new Dictionary<IVar, IValue>(ReferenceEqualityComparer.Instance) { { input_1, Value.FromConst(i) } }).AsTensor().ToScalar<int>();
+            var res_1 = CompilerServices.Evaluate(fn_1.Body.Body, new Dictionary<IVar, IValue>(ReferenceEqualityComparer.Instance) { { input_1, Value.FromConst(i) } }).AsTensor().ToScalar<int>();
             Assert.Equal(i + 10, res_1);
             Assert.Equal(res_1, fn_2.DynamicInvoke(i));
         }

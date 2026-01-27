@@ -283,8 +283,29 @@ internal sealed class PassManager : IPassManager
 
             private void ReplaceFunction(BaseFunction newFunction)
             {
+                List<IRModule>? entryModules = null;
+                if (_function.IsEntry)
+                {
+                    foreach (var module in _function.Users.OfType<IRModule>())
+                    {
+                        if (ReferenceEquals(module.Entry, _function))
+                        {
+                            entryModules ??= new();
+                            entryModules.Add(module);
+                        }
+                    }
+                }
+
                 ReplaceUtility.ReplaceAllUsesWith(_function, newFunction);
                 _function = newFunction;
+
+                if (entryModules is not null)
+                {
+                    foreach (var module in entryModules)
+                    {
+                        module.Entry = newFunction;
+                    }
+                }
             }
 
             private RunPassContext CreateRunPassContext(IPass pass, int index)

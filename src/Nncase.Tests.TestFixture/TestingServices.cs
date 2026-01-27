@@ -293,7 +293,7 @@ public static class Testing
             throw new ArgumentException("the module case is invalid!");
         }
 
-        var outputs = func.Body.Evaluate(moduleCase.Vars.Zip(inputs).ToDictionary(p => p.First, p => (IValue)Value.FromTensor(p.Second))).AsTensors();
+        var outputs = func.Body.Body.Evaluate(moduleCase.Vars.Zip(inputs).ToDictionary(p => p.First, p => (IValue)Value.FromTensor(p.Second))).AsTensors();
 
         if (DumpScope.Current.IsEnabled(DumpFlags.CodeGen))
         {

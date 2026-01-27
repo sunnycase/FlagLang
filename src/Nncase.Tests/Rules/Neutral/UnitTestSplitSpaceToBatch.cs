@@ -24,7 +24,7 @@ public class UnitTestSpaceToBatch : TransformTestBase
         var ev = newBody.Evaluate();
         _ = Comparator.CosSimilarity(originEvaluateResult, ev);
         var dumpDir = Dumpper.Directory;
-        var (kmodelPath, _) = Testing.BuildKModel("kmodel", new IRModule(new Function(newBody, System.Array.Empty<Var>())), CompileSession);
+        var (kmodelPath, _) = Testing.BuildKModel("kmodel", new IRModule(new Function(new IRBlock(newBody, System.Array.Empty<Var>()))), CompileSession);
         var inputs = System.Array.Empty<Tensor>();
         var result = Testing.RunKModel(kmodelPath, dumpDir, inputs);
         var v = Comparator.CosSimilarity(ev, result);

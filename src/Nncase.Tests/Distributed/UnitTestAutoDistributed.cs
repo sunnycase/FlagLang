@@ -33,7 +33,7 @@ public sealed class UnitTestDistribAutoDistributed : TestClassBase
     {
         var lhs = new Var("lhs", new TensorType(DataTypes.Float32, [32, 1]));
         var rhs = new Var("rhs", new TensorType(DataTypes.Float32, [16]));
-        var main = new Function("main", lhs + rhs, [lhs, rhs]);
+        var main = new Function("main", new IRBlock(lhs + rhs, lhs, rhs));
         var pass = new AutoDistributedPass(false, CPUTarget.Kind, CompileOptions);
         pass.RunAsync(main, new()).Wait();
     }
@@ -44,7 +44,7 @@ public sealed class UnitTestDistribAutoDistributed : TestClassBase
         var dimX = new DimVar("dimX") { Metadata = { Range = (1, 256) } };
         var lhs = new Var("lhs", new TensorType(DataTypes.Float32, [dimX, 1]));
         var rhs = new Var("rhs", new TensorType(new VectorType(DataTypes.Float32, [8]), [16]));
-        var main = new Function("main", lhs + rhs, [lhs, rhs]);
+        var main = new Function("main", new IRBlock(lhs + rhs, lhs, rhs));
         var pass = new AutoDistributedPass(false, CPUTarget.Kind, CompileOptions);
         pass.RunAsync(main, new()).Wait();
     }

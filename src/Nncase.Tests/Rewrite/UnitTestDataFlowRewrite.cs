@@ -128,12 +128,12 @@ public class UnitTestDataFlowRewrite : RewriteFixtrue
             { input, Value.FromTensor(input_tensor) },
         };
 
-        var pre = new Function(tile, new[] { input });
+        var pre = new Function(new IRBlock(tile, input));
         var pass = new DataflowPass() { Name = "TileToExpand" };
         pass.Add<Passes.Rules.Neutral.TileToExpand>();
 
         var post = (Function)pass.RunAsync(pre, new()).Result;
-        Assert.Equal(expand.Evaluate(feedDict).AsTensor().ToArray<float>(), post.Body.Evaluate(feedDict).AsTensor().ToArray<float>());
+        Assert.Equal(expand.Evaluate(feedDict).AsTensor().ToArray<float>(), post.Body.Body.Evaluate(feedDict).AsTensor().ToArray<float>());
     }
 
     [Fact]
@@ -314,7 +314,7 @@ public class UnitTestDataFlowRewriteAndInferIntegrate : RewriteFixtrue
         var y = new Var(TensorType.Scalar(DataTypes.Int32));
         var z = new Var(TensorType.Scalar(DataTypes.Int32));
         var m = new Var(TensorType.Scalar(DataTypes.Int32));
-        var pre = new Function(m + (x + (z + (x + (y / y)))), new[] { x, y, z, m });
+        var pre = new Function(new IRBlock(m + (x + (z + (x + (y / y)))), x, y, z, m));
         CompilerServices.InferenceType(pre);
 
         var analysis = new Dictionary<System.Type, IAnalysisResult>
@@ -327,11 +327,12 @@ public class UnitTestDataFlowRewriteAndInferIntegrate : RewriteFixtrue
         pass.Add<DivToConst>();
         var post = (Function)pass.RunAsync(pre, new() { AnalysisResults = analysis }).Result;
 
-        Assert.True(post.Body is Call { Target: IR.Math.Binary { BinaryOp: BinaryOp.Sub }, Arguments: var param0 } && // m - (x + (z - (x + (1))))
-                    param0[1] is Call { Target: IR.Math.Binary { BinaryOp: BinaryOp.Add }, Arguments: var param1 } && // x + (z - (x + (1)))
-                    param1[1] is Call { Target: IR.Math.Binary { BinaryOp: BinaryOp.Sub }, Arguments: var param2 } && // z - (x + (1))
-                    param2[1] is Call { Target: IR.Math.Binary { BinaryOp: BinaryOp.Add }, Arguments: var param3 } && // x + (1)
-                    param3[1] is TensorConst);
+        var rewritten = post.Body.Body;
+        Assert.True(rewritten is Call { Target: IR.Math.Binary { BinaryOp: BinaryOp.Sub }, Arguments: var param0 } && // m - (x + (z - (x + (1))))
+                param0[1] is Call { Target: IR.Math.Binary { BinaryOp: BinaryOp.Add }, Arguments: var param1 } && // x + (z - (x + (1)))
+                param1[1] is Call { Target: IR.Math.Binary { BinaryOp: BinaryOp.Sub }, Arguments: var param2 } && // z - (x + (1))
+                param2[1] is Call { Target: IR.Math.Binary { BinaryOp: BinaryOp.Add }, Arguments: var param3 } && // x + (1)
+                param3[1] is TensorConst);
     }
 
     [Theory]
@@ -351,7 +352,7 @@ public class UnitTestDataFlowRewriteAndInferIntegrate : RewriteFixtrue
             var transB = IR.F.Tensors.Transpose(b, new[] { 1, 0, 2 }); // 20,30,40;
             var exp = IR.F.Math.Cos(transA + transB); // 20,30,40;
             var transC = IR.F.Tensors.Transpose(exp, new[] { 1, 2, 0 }); // 30,40,20
-            pre = new IR.Function(transC, a, b);
+            pre = new IR.Function(new IRBlock(transC, a, b));
         }
 
         using var scope = new Diagnostics.DumpScope(count.ToString(), Diagnostics.DumpFlags.Rewrite | Diagnostics.DumpFlags.EGraphCost);
@@ -395,8 +396,8 @@ public class UnitTestDataFlowRewriteAndInferIntegrate : RewriteFixtrue
             { b, IR.F.Random.Normal(btype.DType, 0, 1, 2, btype.Shape.ToValueArray()).Evaluate() },
         };
 
-        var preValue = pre.Body.Evaluate(feedDict);
-        var postValue = ((Function)post).Body.Evaluate(feedDict);
+        var preValue = pre.Body.Body.Evaluate(feedDict);
+        var postValue = ((Function)post).Body.Body.Evaluate(feedDict);
         Assert.True(Comparator.Compare(preValue, postValue));
     }
 
@@ -406,20 +407,22 @@ public class UnitTestDataFlowRewriteAndInferIntegrate : RewriteFixtrue
         var input = new Var(new TensorType(DataTypes.Float32, new RankedShape(1, 3, 224, 224)));
         var pad = IR.F.NN.Pad(input, new int[,] { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } }, PadMode.Constant, 0.0f);
         pad.Metadata.OutputNames = new string[] { "pad" };
-        var pre = new Function(pad, new[] { input });
+        var pre = new Function(new IRBlock(pad, input));
         var pass = new DataflowPass() { Name = "BroadcastNopPadOutputNamesUpPass" };
         pass.Add<Passes.Rules.Neutral.BroadcastNopPadOutputNames>();
         pass.Add<Passes.Rules.Neutral.FoldNopPad>();
         var post = (Function)pass.RunAsync(pre, new()).Result;
-        Assert.True(post.Body.Metadata.OutputNames![0] == "pad");
+        var broadcastPadBody = post.Body.Body;
+        Assert.True(broadcastPadBody.Metadata.OutputNames![0] == "pad");
 
         pad = IR.F.NN.Pad(input, new int[,] { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } }, PadMode.Constant, 0.0f);
         input.Metadata.OutputNames = new string[] { "input" };
-        pre = new Function(pad, new[] { input });
+        pre = new Function(new IRBlock(pad, input));
         pass = new DataflowPass() { Name = "BroadcastNopPadOutputNamesDownPass" };
         pass.Add<Passes.Rules.Neutral.BroadcastNopPadOutputNames>();
         post = (Function)pass.RunAsync(pre, new()).Result;
-        Assert.True(post.Body is Call && post.Body.Metadata.OutputNames![0] == "input");
+        var broadcastPadDownBody = post.Body.Body;
+        Assert.True(broadcastPadDownBody is Call && broadcastPadDownBody.Metadata.OutputNames![0] == "input");
     }
 
     [Fact]
@@ -428,20 +431,22 @@ public class UnitTestDataFlowRewriteAndInferIntegrate : RewriteFixtrue
         var input = new Var(new TensorType(DataTypes.Float32, new RankedShape(1, 3, 224, 224)));
         var reshape = IR.F.Tensors.Reshape(input, new int[] { 1, 224, 224, 3 });
         reshape.Metadata.OutputNames = new string[] { "reshape" };
-        var pre = new Function(reshape, new[] { input });
+        var pre = new Function(new IRBlock(reshape, input));
         var pass = new DataflowPass() { Name = "BroadcastReshapeOutputNamesUpPass" };
         pass.Add<Passes.Rules.Neutral.BroadcastReshapeOutputNames>();
         pass.Add<Passes.Rules.Neutral.FoldNopReshape>();
         var post = (Function)pass.RunAsync(pre, new()).Result;
-        Assert.True(post.Body.Metadata.OutputNames![0] == "reshape");
+        var broadcastReshapeBody = post.Body.Body;
+        Assert.True(broadcastReshapeBody.Metadata.OutputNames![0] == "reshape");
 
         reshape = IR.F.Tensors.Reshape(input, new int[] { 1, 224, 224, 3 });
         input.Metadata.OutputNames = new string[] { "input" };
-        pre = new Function(reshape, new[] { input });
+        pre = new Function(new IRBlock(reshape, input));
         pass = new DataflowPass() { Name = "BroadcastReshapeOutputNamesDownPass" };
         pass.Add<Passes.Rules.Neutral.BroadcastReshapeOutputNames>();
         post = (Function)pass.RunAsync(pre, new()).Result;
-        Assert.True(post.Body is Call && post.Body.Metadata.OutputNames![0] == "input");
+        var broadcastReshapeDownBody = post.Body.Body;
+        Assert.True(broadcastReshapeDownBody is Call && broadcastReshapeDownBody.Metadata.OutputNames![0] == "input");
     }
 
     [Fact]
@@ -450,20 +455,22 @@ public class UnitTestDataFlowRewriteAndInferIntegrate : RewriteFixtrue
         var input = new Var(new TensorType(DataTypes.Float32, new RankedShape(1, 3, 224, 224)));
         var transpose = IR.F.Tensors.Transpose(input, new int[] { 0, 1, 2, 3 });
         transpose.Metadata.OutputNames = new string[] { "transpose" };
-        var pre = new Function(transpose, new[] { input });
+        var pre = new Function(new IRBlock(transpose, input));
         var pass = new DataflowPass() { Name = "BroadcastTransposeOutputNamesUpPass" };
         pass.Add<Passes.Rules.Neutral.BroadcastTransposeOutputNames>();
         pass.Add<Passes.Rules.Neutral.FoldNopTranspose>();
         var post = (Function)pass.RunAsync(pre, new()).Result;
-        Assert.True(post.Body.Metadata.OutputNames![0] == "transpose");
+        var broadcastTransposeBody = post.Body.Body;
+        Assert.True(broadcastTransposeBody.Metadata.OutputNames![0] == "transpose");
 
         transpose = IR.F.Tensors.Transpose(input, new int[] { 0, 1, 2, 3 });
         input.Metadata.OutputNames = new string[] { "input" };
-        pre = new Function(transpose, new[] { input });
+        pre = new Function(new IRBlock(transpose, input));
         pass = new DataflowPass() { Name = "BroadcastTransposeOutputNamesDownPass" };
         pass.Add<Passes.Rules.Neutral.BroadcastTransposeOutputNames>();
         post = (Function)pass.RunAsync(pre, new()).Result;
-        Assert.True(post.Body is Call && post.Body.Metadata.OutputNames![0] == "input");
+        var broadcastTransposeDownBody = post.Body.Body;
+        Assert.True(broadcastTransposeDownBody is Call && broadcastTransposeDownBody.Metadata.OutputNames![0] == "input");
     }
 
     private sealed class DivToConst : IRewriteRule

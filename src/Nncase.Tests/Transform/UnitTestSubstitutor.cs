@@ -32,7 +32,7 @@ public sealed class UnitTestSubstitutor : TestClassBase
         var prim_wrapper = new PrimFunctionWrapper(prim_func_1, 1);
 
         var input = new Var("input", new TensorType(DataTypes.Float32, new[] { 1, 2, 3, 4 }));
-        var main_func = new Function("main", new Call(prim_wrapper, input), input);
+        var main_func = new Function("main", new IRBlock(new Call(prim_wrapper, input), input));
 
         Assert.True(CompilerServices.InferenceType(main_func));
 
@@ -75,7 +75,7 @@ public sealed class UnitTestSubstitutor : TestClassBase
         var prim_wrapper = new PrimFunctionWrapper(prim_func_1, 1);
 
         var input = new Var("input", new TensorType(DataTypes.Float32, new[] { 1, 2, 3, 4 }));
-        var main_func = new Function("main", new Call(prim_wrapper, input) + IR.F.Shapes.AsTensor(loop_i), input);
+        var main_func = new Function("main", new IRBlock(new Call(prim_wrapper, input) + IR.F.Shapes.AsTensor(loop_i), input));
 
         Assert.True(CompilerServices.InferenceType(main_func));
 
@@ -87,7 +87,7 @@ public sealed class UnitTestSubstitutor : TestClassBase
 
         Assert.True(object.ReferenceEquals(main_func, main_func_2));
 
-        Assert.True(main_func_2 is Function { Body: Call { Target: IR.Math.Binary, Arguments: var binary_param } } &&
+        Assert.True(main_func_2 is Function { Body: IRBlock { Body: Call { Target: IR.Math.Binary, Arguments: var binary_param } } } &&
                   binary_param[0] is Call { Target: PrimFunctionWrapper wrapper } &&
                   object.Equals(prim_wrapper, wrapper) &&
                    binary_param[1] is Call { Target: AsTensor });
@@ -101,7 +101,7 @@ public sealed class UnitTestSubstitutor : TestClassBase
     {
         var input = new Var("input", new TensorType(DataTypes.Float32, new[] { 1, 2, 3, 4 }));
         var loop_i = new DimVar("loop_i");
-        var main_func = new Function("main", 3 + loop_i, input);
+        var main_func = new Function("main", new IRBlock(3 + loop_i, input));
 
         Assert.True(CompilerServices.InferenceType(main_func));
 
@@ -113,6 +113,6 @@ public sealed class UnitTestSubstitutor : TestClassBase
 
         Assert.True(object.ReferenceEquals(main_func, main_func_2));
 
-        Assert.True(main_func_2 is Function { Body: DimConst { Value: 4 } });
+        Assert.True(main_func_2 is Function { Body: IRBlock { Body: DimConst { Value: 4 } } });
     }
 }

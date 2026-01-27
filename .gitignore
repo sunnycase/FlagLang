@@ -95,3 +95,4 @@ docs/sg_execution_times.rst
 bin/
 obj/
 dump/
+tests_output/

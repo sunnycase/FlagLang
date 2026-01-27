@@ -106,6 +106,17 @@ public abstract partial class ExprVisitor<TExprResult, TTypeResult, TContext> : 
     }
 
     /// <inheritdoc/>
+    public override TTypeResult VisitType(PointerType type, TContext context)
+    {
+        if (HasVisited(type, out var result))
+        {
+            return result;
+        }
+
+        return MarkVisited(type, VisitTypeLeaf(type, context));
+    }
+
+    /// <inheritdoc/>
     public override TTypeResult VisitType(TupleType type, TContext context)
     {
         if (HasVisited(type, out var result))
@@ -198,6 +209,11 @@ public abstract partial class ExprVisitor<TExprResult, TTypeResult, TContext> : 
     public virtual TTypeResult VisitTypeLeaf(TensorType type, TContext context) => DefaultVisitTypeLeaf(type, context);
 
     /// <summary>
+    /// Visit pointer type leaf.
+    /// </summary>
+    public virtual TTypeResult VisitTypeLeaf(PointerType type, TContext context) => DefaultVisitTypeLeaf(type, context);
+
+    /// <summary>
     /// Visit tuple type leaf.
     /// </summary>
     public virtual TTypeResult VisitTypeLeaf(TupleType type, TContext context) => DefaultVisitTypeLeaf(type, context);
@@ -237,6 +253,11 @@ public abstract partial class ExprVisitor<TExprResult, TTypeResult, TContext> : 
     /// </summary>
     public virtual TTypeResult DefaultVisitTypeLeaf(IRType type, TContext context)
     {
+        if (type is PointerType)
+        {
+            return default!;
+        }
+
         throw new NotImplementedException($"Unhandled visit leaf routine for {type.GetType()}.");
     }
 

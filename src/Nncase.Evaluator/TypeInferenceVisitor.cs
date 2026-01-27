@@ -21,6 +21,7 @@ internal sealed partial class TypeInferenceVisitor : ExprVisitor<IRType, Unit>
 {
     private readonly TypeInferenceContext _context;
     private readonly Dictionary<Type, ITypeInferencer> _inferencer_cache;
+    private readonly Stack<(BaseExpr Parent, string Role)> _visitContext = new();
 
     public TypeInferenceVisitor(Dictionary<Type, ITypeInferencer> inferencer_cache)
     {
@@ -52,6 +53,15 @@ internal sealed partial class TypeInferenceVisitor : ExprVisitor<IRType, Unit>
         VerifySubField(expr, expr.Predicate, TypePatternUtility.IsBoolScalar());
 
         return TupleType.Void;
+    }
+
+    protected override void VisitOperands(BaseExpr expr, Unit context)
+    {
+        int index = 0;
+        foreach (var operand in expr.Operands)
+        {
+            VisitChild(expr, operand, $"operand[{index++}]", context);
+        }
     }
 
     /// <inheritdoc/>
@@ -382,14 +392,14 @@ internal sealed partial class TypeInferenceVisitor : ExprVisitor<IRType, Unit>
     {
         VerifySubField(expr, expr.Start, TypePatternUtility.IsDimensionType());
         VerifySubField(expr, expr.Size, TypePatternUtility.IsDimensionType());
-        return new PointerType(DataTypes.UInt8);
+        return TensorType.Pointer(DataTypes.UInt8);
     }
 
     protected override IRType VisitLeafPhysicalBuffer(PhysicalBuffer expr)
     {
         VerifySubField(expr, expr.Start, TypePatternUtility.IsNoneType() | TypePatternUtility.IsIntegralScalar() | TypePatternUtility.IsPointer());
         VerifySubField(expr, expr.Size, TypePatternUtility.IsDimensionType());
-        return new PointerType(DataTypes.UInt8);
+        return TensorType.Pointer(DataTypes.UInt8);
     }
 
     /// <inheritdoc/>
@@ -400,7 +410,7 @@ internal sealed partial class TypeInferenceVisitor : ExprVisitor<IRType, Unit>
             return type;
         }
 
-        Visit(expr.Expression);
+        VisitChild(expr, expr.Expression, nameof(expr.Expression));
 
         if (expr.Var is Var var && var.TypeAnnotation is not AnyType)
         {
@@ -414,13 +424,21 @@ internal sealed partial class TypeInferenceVisitor : ExprVisitor<IRType, Unit>
         {
             // now change the var checkedtype
             SetCheckedType((BaseExpr)expr.Var, expr.Expression.CheckedType);
-            Visit(expr.Body);
+            VisitChild(expr, expr.Body, nameof(expr.Body));
             return VisitLeafLet(expr);
         }
     }
 
     protected override IRType DispatchVisit(BaseExpr expr)
     {
+        if (expr is null)
+        {
+            var contextInfo = _visitContext.Count > 0
+                ? $"{_visitContext.Peek().Parent.GetType().Name}.{_visitContext.Peek().Role}"
+                : "root";
+            throw new InvalidOperationException($"Null expression encountered while visiting {contextInfo}.");
+        }
+
         if (IRHelpers.GetRawCheckedType(expr) is null)
         {
             try
@@ -476,5 +494,28 @@ internal sealed partial class TypeInferenceVisitor : ExprVisitor<IRType, Unit>
         }
 
         return ((CallableType)callable.CheckedType).ReturnType;
+    }
+
+    private void VisitChild(BaseExpr parent, BaseExpr? child, string role)
+    {
+        VisitChild(parent, child, role, default);
+    }
+
+    private void VisitChild(BaseExpr parent, BaseExpr? child, string role, Unit context)
+    {
+        if (child is null)
+        {
+            throw new InvalidOperationException($"Null {role} encountered while visiting {parent.GetType().Name}.");
+        }
+
+        _visitContext.Push((parent, role));
+        try
+        {
+            Visit(child, context);
+        }
+        finally
+        {
+            _visitContext.Pop();
+        }
     }
 }

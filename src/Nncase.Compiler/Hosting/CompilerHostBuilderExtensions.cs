@@ -62,6 +62,8 @@ public static class CompilerHostBuilderExtensions
     {
         services.AddLogging();
         services.AddRazorTemplating();
+
+        services.AddScoped<ICompiler, Compiler>();
     }
 
     private static void ConfigureLogging(ILoggingBuilder loggingBuilder)

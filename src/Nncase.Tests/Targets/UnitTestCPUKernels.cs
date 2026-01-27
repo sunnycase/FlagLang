@@ -2235,12 +2235,12 @@ public sealed class UnitTestCPUKernels : TestClassBase
             return;
         }
 
-        var main = new Function(fusion.Body, kernelCase.Vars.ToArray());
+        var main = new Function(new IRBlock(fusion.Body, kernelCase.Vars.ToArray()));
         main.Metadata = fusion.Body.Metadata;
 
         var module = new IR.IRModule(main);
         var inputs = kernelCase.Inputs.ToArray();
-        var outputs = fusion.Body.Evaluate(kernelCase.Vars.Zip(inputs).ToDictionary(p => p.First, p => (IValue)Value.FromTensor(p.Second))).AsTensors();
+        var outputs = ((Expr)fusion.Body).EvaluateUnwrapped(kernelCase.Vars.Zip(inputs).ToDictionary(p => p.First, p => (IValue)Value.FromTensor(p.Second))).AsTensors();
 
 #if DEBUG
         for (var i = 0; i < inputs.Length; i++)

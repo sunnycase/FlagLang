@@ -366,6 +366,31 @@ internal sealed class CSharpPrintVisitor : ExprFunctor<string, string>
         return name;
     }
 
+    protected override string VisitIRBlock(IRBlock expr)
+    {
+        if (_names.TryGetValue(expr, out var name))
+        {
+            return name;
+        }
+
+        name = AllocateTempVar(expr);
+        _scope.Push();
+
+        _scope.IndWrite($"IRBlock {name}");
+        AppendCheckedType(expr.CheckedType);
+
+        _scope.IndWriteLine("{");
+        using (_scope.IndentUp())
+        {
+            var body = Visit(expr.Body);
+            _scope.IndWriteLine($"{name} = new IRBlock(\"{expr.Name}\", {body}, new IVar[] {{{StringUtility.Join(", ", expr.Parameters.AsValueEnumerable().Select(Visit))}}});");
+        }
+
+        _scope.IndWriteLine("}");
+        _scope.Append(_scope.Pop());
+        return name;
+    }
+
     protected override string VisitFusion(Fusion expr)
     {
         if (_names.TryGetValue(expr, out var name))

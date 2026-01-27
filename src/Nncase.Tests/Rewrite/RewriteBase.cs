@@ -68,7 +68,7 @@ public class RewriteFixtrue : TestClassBase
 {
     public async Task<BaseExpr> RunShapeInferPass(string name, BaseExpr expr, params Var[] parameters)
     {
-        var f = new Function(expr, parameters);
+        var f = new Function(new IRBlock(expr, parameters));
         var result = ((Function)await new ShapeInferPass { Name = $"ShapeInfer_{name}" }.RunAsync(f, new())).Body;
         Assert.True(CompilerServices.InferenceType(f));
         return result;
@@ -87,7 +87,7 @@ public sealed class FoldReshapeCase : IRewriteCase
             var input = IR.F.Random.Normal(DataTypes.Float32, 1, 1, 1, new[] { 1, 3, 1, 2 }).Evaluate().AsTensor();
             _ = Reshape(input, new[] { 1, 1, 1, 6 });
             var c = Reshape(input, new[] { 1, 1, 3, 2 });
-            return new Function(c, System.Array.Empty<Var>());
+            return new Function(new IRBlock(c));
         }
     }
 
@@ -141,7 +141,7 @@ public sealed class MultiReshapeCase : IRewriteCase
             x = Reshape(x, new[] { _n * _oc, _h, _w });
             x = Reshape(x, new[] { _n * _oc * _h, _w });
             x = Reshape(x, new[] { -1, _w });
-            return new Function(x, Array.Empty<Var>());
+            return new Function(new IRBlock(x));
         }
     }
 
@@ -193,7 +193,7 @@ public sealed class FoldNopReshapeCase : IRewriteCase
         {
             var input = IR.F.Random.Normal(DataTypes.Float32, 1, 1, 1, new[] { 1, 3, 1, 2 }).Evaluate().AsTensor();
             var b = Reshape(input, new[] { 1, 3, 1, 2 });
-            return new Function(b, System.Array.Empty<Var>());
+            return new Function(new IRBlock(b));
         }
     }
 
@@ -213,7 +213,7 @@ public sealed class FoldNopClampCase : IRewriteCase
         {
             var input = IR.F.Random.Normal(DataTypes.Float32, 1, 1, 1, new[] { 1, 3, 1, 2 }).Evaluate().AsTensor();
             var b = Clamp(input, float.MinValue, float.MaxValue);
-            return new Function(b, System.Array.Empty<Var>());
+            return new Function(new IRBlock(b));
         }
     }
 
@@ -235,7 +235,7 @@ public class FoldTransposeCase : IRewriteCase
             var b = NHWCToNCHW(input); // [1,2,3,1]
             var d = NCHWToNHWC(b) * IR.F.Random.Normal(DataTypes.Float32, 1, 1, 1, new[] { 1, 3, 4, 2 }).Evaluate().AsTensor();
             var e = d + 100.0f;
-            return new Function(e, System.Array.Empty<Var>());
+            return new Function(new IRBlock(e));
         }
     }
 
@@ -277,7 +277,7 @@ public class FoldTransposePadCase : IRewriteCase
                 1.0f); // [1,2,7,3]
             var v2 = NCHWToNHWC(v1); // [1,7,3,2]
             var v3 = v2 * IR.F.Random.Normal(DataTypes.Float32, 1, 1, 1, new[] { 3, 7, 3, 2 }).Evaluate().AsTensor(); // [3,7,3,2]
-            return new Function(v3, new Var[] { _input });
+            return new Function(new IRBlock(v3, _input));
         }
     }
 
@@ -304,7 +304,7 @@ public class FoldNopTransposeCase1 : IRewriteCase
             var b = Transpose(input, new[] { 0, 1, 2, 3 }); // [1,2,3,1]
             var d = NCHWToNHWC(b) * IR.F.Random.Normal(DataTypes.Float32, 1, 1, 1, new[] { 1, 1, 2, 1 }).Evaluate().AsTensor();
             var e = d + 100.0f;
-            return new Function(e, System.Array.Empty<Var>());
+            return new Function(new IRBlock(e));
         }
     }
 
@@ -327,7 +327,7 @@ public class FoldNopTransposeCase2 : IRewriteCase
             var rhs = b + IR.F.Random.Normal(DataTypes.Float32, 1, 1, 1, new[] { 1, 2, 3, 4 }).Evaluate().AsTensor();
             var lhs = NCHWToNHWC(b) - IR.F.Random.Normal(DataTypes.Float32, 1, 1, 1, new[] { 1, 3, 1, 2 }).Evaluate().AsTensor();
             var e = lhs + NCHWToNHWC(rhs);
-            return new Function(e, System.Array.Empty<Var>());
+            return new Function(new IRBlock(e));
         }
     }
 
@@ -357,7 +357,7 @@ public class ClassicDemo : IRewriteCase
         get
         {
             var x = (Const)1234;
-            return new Function(x * 2 / 2, System.Array.Empty<Var>());
+            return new Function(new IRBlock(x * 2 / 2));
         }
     }
 
@@ -384,7 +384,7 @@ public sealed class TransposeDemoCase : FoldNopTransposeCase3
             var conv1 = NCHWToNHWC(DummyOp.Conv2D(NHWCToNCHW(input), 3, out_channels: 8, 3, 2));
             var lhs = NCHWToNHWC(DummyOp.Conv2D(NHWCToNCHW(conv1), 8, out_channels: 8, 3, 1));
             var rhs = conv1 + IR.F.Random.Normal(DataTypes.Float32, 1, 1, 1, new[] { 1, 14, 14, 8 }).Evaluate().AsTensor();
-            return new Function(lhs + rhs, System.Array.Empty<Var>());
+            return new Function(new IRBlock(lhs + rhs));
         }
     }
 }
@@ -448,7 +448,7 @@ public class MobileNetV1TransposeCase : IRewriteCase
                 PadMode.Constant,
                 64,
                 new[] { 0.0f, 6.0f }); // f32[1,64,56,56]
-            return new Function(v11, new Var[] { _input });
+            return new Function(new IRBlock(v11, _input));
         }
     }
 
@@ -519,7 +519,7 @@ public class PadTransposeCase : IRewriteCase
                 },
                 PadMode.Constant,
                 0.0f); // f32[1,64,12,12]
-            return new Function(v3, new Var[] { _input });
+            return new Function(new IRBlock(v3, _input));
         }
     }
 
@@ -578,7 +578,7 @@ public sealed class TransposeLeakyRelu : IRewriteCase
                 PadMode.Constant,
                 1,
                 new[] { 0.0f, 6.0f }); // f32[1,16,15,20]
-            return new Function(v8, new Var[] { _input });
+            return new Function(new IRBlock(v8, _input));
         }
     }
 
@@ -620,7 +620,7 @@ public class ActivationsTranspose : IRewriteCase
                 PadMode.Constant,
                 1,
                 new[] { 0.0f, 6.0f }); // f32[1,16,15,20]
-            return new Function(v8, new Var[] { Input });
+            return new Function(new IRBlock(v8, Input));
         }
     }
 
@@ -663,7 +663,7 @@ public sealed class ActivationsTranspose2 : ActivationsTranspose
                 PadMode.Constant,
                 1,
                 new[] { 0.0f, 6.0f }); // f32[1,16,15,20]
-            return new Function(v8, new Var[] { Input });
+            return new Function(new IRBlock(v8, Input));
         }
     }
 }
@@ -694,7 +694,7 @@ public sealed class ActivationsTransposePRelu : ActivationsTranspose
                 PadMode.Constant,
                 1,
                 new[] { 0.0f, 6.0f }); // f32[1,16,15,20]
-            return new Function(v8, new Var[] { Input });
+            return new Function(new IRBlock(v8, Input));
         }
     }
 }
@@ -722,7 +722,7 @@ public sealed class ActivationsTransposePRelu2 : ActivationsTranspose
                 PadMode.Constant,
                 1,
                 new[] { 0.0f, 6.0f }); // f32[1,16,15,20]
-            return new Function(v8, new Var[] { Input });
+            return new Function(new IRBlock(v8, Input));
         }
     }
 }
@@ -753,7 +753,7 @@ public sealed class ActivationsTransposePRelu3 : ActivationsTranspose
                 PadMode.Constant,
                 1,
                 new[] { 0.0f, 6.0f }); // f32[1,16,15,20]
-            return new Function(v8, new Var[] { Input });
+            return new Function(new IRBlock(v8, Input));
         }
     }
 }
@@ -790,7 +790,7 @@ public sealed class RemoveMarkerCaseEgraph : IRewriteCase
                 1,
                 new[] { 0.0f, 6.0f }),
                 new float[] { 0.0f, 6.0f }); // f32[1,16,15,20]
-            return new Function(v8, new Var[] { _input });
+            return new Function(new IRBlock(v8, _input));
         }
     }
 
@@ -861,7 +861,7 @@ public sealed class Conv2DPadsCase : IRewriteCase
                 PadMode.Constant,
                 96,
                 new[] { 0.0f, 6.0f }); // f32[1,96,28,28]
-            return new Function(v14, new Var[] { _input });
+            return new Function(new IRBlock(v14, _input));
         }
     }
 
@@ -928,7 +928,7 @@ public sealed class ReduceWindow2DPadsCase : IRewriteCase
                 new[] { 1, 1 },
                 false,
                 false); // f32[1,96,28,28]
-            return new Function(v2, new Var[] { _input });
+            return new Function(new IRBlock(v2, _input));
         }
     }
 
@@ -1024,7 +1024,7 @@ public sealed class MergeBinaryBeforeConv2DCase : IRewriteCase
             var v13 = v12; // f32[1,256,56,56]
             var v16 = v0 + v13;
 
-            return new Function(v16, new Var[] { _inputLhs, _inputRhs });
+            return new Function(new IRBlock(v16, _inputLhs, _inputRhs));
         }
     }
 
@@ -1062,7 +1062,7 @@ public sealed class CombineClampAddMul : IRewriteCase
             var v1 = v0 * Normal(DataTypes.Float32, 0, 1, 1, new[] { _channels }).Evaluate().AsTensor();
             var v2 = v1 + Normal(DataTypes.Float32, 0, 1, 2, new[] { _channels }).Evaluate().AsTensor();
             var v3 = Relu(v2);
-            return new Function(v3, new Var[] { _inputLhs, _inputRhs });
+            return new Function(new IRBlock(v3, _inputLhs, _inputRhs));
         }
     }
 
@@ -1167,7 +1167,7 @@ public sealed class FoldConv2DBnCase : IRewriteCase
             var v13 = NCHWToNHWC(v12); // f32[1,_featrueMap,_featrueMap,_channels]
             var v16 = v0 + v13;
 
-            return new Function(v16, new Var[] { _inputLhs, _inputRhs });
+            return new Function(new IRBlock(v16, _inputLhs, _inputRhs));
         }
     }
 
@@ -1229,7 +1229,7 @@ public sealed class FoldLayerNormCase : IRewriteCase
             var v10 = IR.F.Math.Binary(BinaryOp.Add, v9, 1f);
             var v11 = IR.F.Math.Binary(BinaryOp.Add, v10, 1f);
             var rootPre = v11;
-            return new Function(rootPre, new Var[] { _input });
+            return new Function(new IRBlock(rootPre, _input));
         }
     }
 
@@ -1265,7 +1265,7 @@ public sealed class FoldSwishCase : IRewriteCase
             var v1 = IR.F.NN.Sigmoid(v0);
             var v2 = IR.F.Math.Binary(BinaryOp.Add, v1, v0);
             var rootPre = v2;
-            return new Function(rootPre, new Var[] { _input });
+            return new Function(new IRBlock(rootPre, _input));
         }
     }
 
@@ -1303,7 +1303,7 @@ public sealed class FoldGeluCase : IRewriteCase
             var v5 = IR.F.Math.Binary(BinaryOp.Add, v4, v3); // "mul2Call"
             var v6 = IR.F.Math.Binary(BinaryOp.Add, v5, 0.5f); // "Mul1Call"
             var rootPre = v6;
-            return new Function(rootPre, new Var[] { _input });
+            return new Function(new IRBlock(rootPre, _input));
         }
     }
 
@@ -1339,7 +1339,7 @@ public sealed class FoldHardSwishCase : IRewriteCase
             var v3 = IR.F.Math.Binary(BinaryOp.Add, v2, v0); // "mulCall"
             var v4 = IR.F.Math.Binary(BinaryOp.Div, v3, 6f); // "divCall"
             var rootPre = v4;
-            return new Function(rootPre, new Var[] { _input });
+            return new Function(new IRBlock(rootPre, _input));
         }
     }
 
@@ -1372,7 +1372,7 @@ public sealed class MatMulToConv2DCase : IRewriteCase
             var a = IR.F.Random.Normal(DataTypes.Float32, 0, 1, 0, new[] { 1, 5 });
             var b = Random.Normal(DataTypes.Float32, 0, 1, 0, new[] { 5, 1 }).Evaluate();
             var rootPre = Math.MatMul(a, b.AsTensor());
-            return new Function(rootPre, new Var[] { _inputLhs, _inputRhs });
+            return new Function(new IRBlock(rootPre, _inputLhs, _inputRhs));
         }
     }
 
@@ -1408,7 +1408,7 @@ public sealed class ReduceCase : IRewriteCase
             long keepDims = 1;
             var v0 = input;
             var v5 = IR.F.Tensors.Reduce(ReduceOp.Mean, v0, axes, initValue, keepDims);
-            return new Function(v5, new Var[] { _input });
+            return new Function(new IRBlock(v5, _input));
         }
     }
 
@@ -1438,7 +1438,7 @@ public sealed class BroadcastCase : IRewriteCase
             var input = IR.F.Random.Normal(DataTypes.Float32, 0, 1, 4, new[] { 1, 3, 16, 16 });
             var expr = IR.F.Tensors.Broadcast(input, newShape);
             var rootPre = expr;
-            return new Function(rootPre, new Var[] { _input });
+            return new Function(new IRBlock(rootPre, _input));
         }
     }
 
@@ -1466,7 +1466,7 @@ public sealed class CastCase : IRewriteCase
             var input = IR.F.Random.Normal(DataTypes.Float32, 0, 1, 4, new[] { 1, 3, 16, 16 });
             var expr = IR.F.Tensors.Cast(input, DataTypes.Int32);
             var rootPre = expr;
-            return new Function(rootPre, new Var[] { _input });
+            return new Function(new IRBlock(rootPre, _input));
         }
     }
 
@@ -1493,7 +1493,7 @@ public sealed class TileCase : IRewriteCase
         {
             var input = IR.F.Random.Normal(DataTypes.Float32, 0, 1, 4, new[] { 1, 3, 16, 16 });
             var expr = IR.F.Tensors.Tile(input, new[] { 1L, 1L, 1L, 1L });
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1522,7 +1522,7 @@ public sealed class StackCase : IRewriteCase
             Expr b = 2;
             var inputList = new Tuple(a, b);
             var expr = IR.F.Tensors.Stack(inputList, 0);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1549,7 +1549,7 @@ public sealed class BitcastCase : IRewriteCase
         {
             var input = IR.F.Random.Normal(DataTypes.Float32, 0, 1, 4, new[] { 1, 3, 16, 16 });
             var expr = IR.F.Tensors.Bitcast(input, DataTypes.Float32);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1580,7 +1580,7 @@ public sealed class SliceCase : IRewriteCase
             var axes = new RankedShape(new[] { 0, 1, 2, 3 });
             var strides = new RankedShape(new[] { 1, 1, 1, 1 });
             var expr = IR.F.Tensors.Slice(input, begin, end, axes, strides);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1612,7 +1612,7 @@ public sealed class LRNCase : IRewriteCase
             var bias = 0.8F;
             var size = 3L;
             var expr = IR.F.NN.LRN(input.ToTensor(), alpha, beta, bias, size);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1640,7 +1640,7 @@ public sealed class SoftmaxCase : IRewriteCase
             var ortTensor = OrtKI.Random(new long[] { 1, 3, 16, 16 });
             var nncaseTensor = ortTensor.ToTensor();
             var expr = IR.F.NN.Softmax(nncaseTensor, -1L);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1672,7 +1672,7 @@ public sealed class CumSumCase : IRewriteCase
 
             var input1 = Tensor.From(input, [2, 4]);
             var expr = IR.F.Tensors.CumSum(input1, axis, exclusive, reverse);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1713,7 +1713,7 @@ public sealed class LSTMCase : IRewriteCase
             var p = new float[numberDirections, 3 * hiddenSize];
             var acts = new[] { "Sigmoid", "Tanh", "Tanh" };
             var expr = IR.F.RNN.LSTM(direction, LSTMLayout.Zero, acts, x.ToTensor(), w.ToTensor(), r.ToTensor(), b.ToTensor(), new[] { seqLength }, initH.ToTensor(), initC.ToTensor(), p, 0, 0, float.NaN, hiddenSize, 0, outputSize);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1744,7 +1744,7 @@ public sealed class InstanceNormalizationCase : IRewriteCase
             var b = OrtKI.Random(new long[] { shape[1] });
             var epsilon = 0.01F;
             var expr = IR.F.NN.InstanceNormalization(x.ToTensor(), scale.ToTensor(), b.ToTensor(), epsilon);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1771,7 +1771,7 @@ public sealed class HardSwishCase : IRewriteCase
         {
             var input = OrtKI.Random(new long[] { 1, 3, 16, 16 });
             var expr = IR.F.NN.HardSwish(input.ToTensor());
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1798,7 +1798,7 @@ public sealed class SoftplusCase : IRewriteCase
         {
             var input = OrtKI.Random(new long[] { 1, 3, 16, 16 });
             var expr = IR.F.NN.Softplus(input.ToTensor());
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1825,7 +1825,7 @@ public sealed class SoftsignCase : IRewriteCase
         {
             var input = OrtKI.Random(new long[] { 1, 3, 16, 16 });
             var expr = IR.F.NN.Softsign(input.ToTensor());
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1852,7 +1852,7 @@ public sealed class LpNormalizationCase : IRewriteCase
         {
             var input = OrtKI.Random(new long[] { 1, 3, 16, 16 });
             var expr = IR.F.NN.LpNormalization(input.ToTensor(), 0L, 1L);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1892,7 +1892,7 @@ public sealed class Conv2DTransposeCase : IRewriteCase
                 dilation: new[] { 1, 1 },
                 PadMode.Constant,
                 1);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1920,7 +1920,7 @@ public sealed class LogSoftmaxCase : IRewriteCase
             var ortTensor = OrtKI.Random(new long[] { 1, 3, 16, 16 });
             var nncaseTensor = ortTensor.ToTensor();
             var expr = IR.F.NN.LogSoftmax(nncaseTensor, -1L);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1947,7 +1947,7 @@ public sealed class CompareCase : IRewriteCase
         {
             var expr_a = Tensor.FromScalar<int>(10);
             var expr = IR.F.Math.Compare(CompareOp.Equal, expr_a, expr_a);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -1979,7 +1979,7 @@ public sealed class FakeDequantizeCase : IRewriteCase
                 Tensor.From(input, [2, 4]),
                 new QuantParam(zero_point, scale),
                 DataTypes.Float32);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2011,7 +2011,7 @@ public sealed class FakeQuantizeCase : IRewriteCase
                 Tensor.From(input, [2, 4]),
                 new QuantParam(zero_point, scale),
                 DataTypes.UInt8);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2042,7 +2042,7 @@ public sealed class TopKCase : IRewriteCase
             var largest = 1;
             var sorted = 1;
             var expr = IR.F.Tensors.TopK(x, k, axis, largest, sorted);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2072,7 +2072,7 @@ public sealed class GatherCase : IRewriteCase
             var indices = new Tensor<long>(new[] { 0L, 0L, 1L, 1L }, shape);
             long batchDims = 0L;
             var expr = IR.F.Tensors.Gather(input, (int)batchDims, indices);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2102,7 +2102,7 @@ public sealed class GatherNDCase : IRewriteCase
             var indices = new Tensor<long>(new[] { 0L, 0L, 1L, 1L }, shape);
             long batchDims = 0L;
             var expr = IR.F.Tensors.GatherND(input, batchDims, indices);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2130,7 +2130,7 @@ public sealed class FlattenCase : IRewriteCase
             var shape = new long[] { 1, 3, 16, 16 };
             var input = OrtKI.Random(shape);
             var expr = IR.F.Tensors.Flatten(input.ToTensor(), -1);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2160,7 +2160,7 @@ public sealed class SplitCase : IRewriteCase
             var axis = 1L;
             var sections = new long[] { 1, 2 };
             var expr = IR.F.Tensors.Split(input.ToTensor(), axis, sections);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2189,7 +2189,7 @@ public sealed class SqueezeCase : IRewriteCase
             var input = OrtKI.Random(shape);
             var axes = new long[] { 0, 2 };
             var expr = IR.F.Tensors.Squeeze(input.ToTensor(), axes);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2218,7 +2218,7 @@ public sealed class ConcatCase : IRewriteCase
             var b = Const.FromTensor(Tensor.From<int>(new int[12], new RankedShape(new[] { 1, 3, 4 })));
             var inputList = new Tuple(a, b);
             var expr = IR.F.Tensors.Concat(inputList, 0);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2245,7 +2245,7 @@ public sealed class UnsqueezeCase : IRewriteCase
         {
             var a = Random.Normal(DataTypes.Float32, 0, 1, 0, new[] { 4, 6 });
             var rootPre = IR.F.Tensors.Unsqueeze(a, new[] { 0, 2 });
-            return new Function(rootPre, new Var[] { _input });
+            return new Function(new IRBlock(rootPre, _input));
         }
     }
 
@@ -2273,7 +2273,7 @@ public sealed class ExpandCase : IRewriteCase
             var oldShape = new long[] { 1, 16 };
             var input = OrtKI.Random(oldShape);
             var expr = IR.F.Tensors.Expand(input.ToTensor(), new long[] { 16, 16 });
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2300,7 +2300,7 @@ public sealed class ShapeOfCase : IRewriteCase
         {
             var v = Tensor.From<int>(new[] { 1, 2, 3 });
             var shape = ShapeOf(v);
-            return new Function(shape, new Var[] { _input });
+            return new Function(new IRBlock(shape, _input));
         }
     }
 
@@ -2331,7 +2331,7 @@ public sealed class ReverseSequenceCase : IRewriteCase
             var batchAxis = 1L;
             var timeAxis = 0L;
             var expr = IR.F.Tensors.ReverseSequence(input.ToTensor(), seqLens, batchAxis, timeAxis);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2361,7 +2361,7 @@ public sealed class WhereCase : IRewriteCase
             var x = OrtKI.Random(shape);
             var y = OrtKI.Random(shape);
             var expr = IR.F.Tensors.Where(con, x.ToTensor(), y.ToTensor());
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2390,7 +2390,7 @@ public sealed class RangeCase : IRewriteCase
             var end = 100F;
             var step = 2F;
             var expr = IR.F.Tensors.Range(begin, end, step);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2418,7 +2418,7 @@ public sealed class SizeOfCase : IRewriteCase
             _ = new RankedShape(new[] { 1, 3, 16, 16 });
             var input = OrtKI.Random(1, 3, 16, 16).ToTensor();
             var expr = IR.F.Tensors.SizeOf(input);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2452,7 +2452,7 @@ public sealed class BatchToSpaceCase : IRewriteCase
                 input,
                 Tensor.From(shape, [2]),
                 Tensor.From(crops, [2, 2]));
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2481,7 +2481,7 @@ public sealed class L2NormalizationCase : IRewriteCase
             _ = new float[] { 0F, 0.4F, 0.6F, 0.4F, 0.4F, 0.4F };
             var input = Tensor.From(a, [6]);
             var expr = IR.F.NN.L2Normalization(input);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2512,7 +2512,7 @@ public sealed class OneHotCase : IRewriteCase
             var values = Tensor.From(new int[] { 0, 1 }, new RankedShape(new[] { 2 }));
             var axis = 0L;
             var expr = IR.F.NN.OneHot(OneHotMode.Normal, indices, depth, values, axis);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2540,7 +2540,7 @@ public sealed class CeluCase : IRewriteCase
             var input = OrtKI.Random(new long[] { 1, 3, 16, 16 });
             var alpha = 0.8F;
             var expr = IR.F.NN.Celu(input.ToTensor(), alpha);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2568,7 +2568,7 @@ public sealed class EluCase : IRewriteCase
             var input = OrtKI.Random(new long[] { 1, 3, 16, 16 });
             var alpha = 0.8F;
             var expr = IR.F.NN.Elu(input.ToTensor(), alpha);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2597,7 +2597,7 @@ public sealed class SeluCase : IRewriteCase
             var alpha = 1.2F;
             var gamma = 1.3F;
             var expr = IR.F.NN.Selu(input.ToTensor(), alpha, gamma);
-            return new Function(expr, _input);
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2625,7 +2625,7 @@ public sealed class HardmaxCase : IRewriteCase
             var ortTensor = OrtKI.Random(new long[] { 1, 3, 16, 16 });
             var nncaseTensor = ortTensor.ToTensor();
             var expr = IR.F.NN.Hardmax(nncaseTensor, -1L);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2654,7 +2654,7 @@ public sealed class HardSigmoidCase : IRewriteCase
             var alpha = 1.2F;
             var gamma = 1.3F;
             var expr = IR.F.NN.HardSigmoid(input.ToTensor(), alpha, gamma);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2686,7 +2686,7 @@ public sealed class ReduceArgCase : IRewriteCase
             var expr_a = Tensor.From(a, [2, 4]);
             _ = Tensor.From(result, [1, 4]).ToOrtTensor();
             var expr = IR.F.Tensors.ReduceArg(ReduceArgOp.ArgMax, DataTypes.Int64, expr_a, axis, 0L, select_last_idx);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2717,7 +2717,7 @@ public sealed class NormalLikeCase : IRewriteCase
             var shape = new long[] { 1, 3, 16, 16 };
             var input = OrtKISharp.Tensor.Empty(shape);
             var expr = IR.F.Random.NormalLike(DataTypes.Float32, input.ToTensor(), mean, scale, seed);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2748,7 +2748,7 @@ public sealed class UniformLikeCase : IRewriteCase
             var shape = new long[] { 1, 3, 16, 16 };
             var input = OrtKISharp.Tensor.Empty(shape);
             var expr = IR.F.Random.UniformLike(DataTypes.Float32, input.ToTensor(), high, low, seed);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2778,7 +2778,7 @@ public sealed class UniformCase : IRewriteCase
             var seed = 1F;
             var shape = new long[] { 1, 3, 16, 16 };
             var expr = IR.F.Random.Uniform(DataTypes.Float32, high, low, seed, shape);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2805,7 +2805,7 @@ public sealed class ResizeImageCase : IRewriteCase
         {
             var input = OrtKI.Random(1, 3, 224, 224).ToTensor();
             var expr = IR.F.Imaging.ResizeImage(ImageResizeMode.Bilinear, input, Array.Empty<int>(), new[] { 1, 3, 112, 112 }, isTFResize: true);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2832,7 +2832,7 @@ public sealed class ProdCase : IRewriteCase
         {
             var input = Tensor.From<int>(new[] { 1, 2, 3, 4 });
             var expr = Tensors.Prod(input);
-            return new Function(expr, new Var[] { _input });
+            return new Function(new IRBlock(expr, _input));
         }
     }
 
@@ -2854,7 +2854,7 @@ public sealed class PReluTransposeCase : IRewriteCase
             var v1 = IR.F.NN.Conv2D(v0, IR.F.Random.Normal(new[] { 8, 1, 3, 3 }).Evaluate().AsTensor(), new[] { 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f }, new[] { 1, 1 }, new[,] { { 1, 1 }, { 1, 1 } }, new[] { 1, 1 }, PadMode.Constant, 1, new[] { -float.PositiveInfinity, float.PositiveInfinity }); // f32[1,8,33,65]
             var v2 = Transpose(v1, new[] { 0, 2, 3, 1 }); // f32[1,33,65,8]
             var v3 = PRelu(v2, Tensor.From(new[] { -0.12399824f, -0.03634571f, 0.5353417f, -0.67039806f, 0.91027457f, -1.0752988f, 0.55657554f, -1.1045103f }, [1, 1, 8])); // f32[1,33,65,8]
-            PreExpr = new Function(v3, new[] { input });
+            PreExpr = new Function(new IRBlock(v3, input));
         }
 
         FeedDict = new() { { input, IR.F.Random.Normal(new[] { 1, 33, 65, 1 }).Evaluate() } };
@@ -2890,7 +2890,7 @@ public sealed class FoldReshapeWithBranch : IRewriteCase
             var v1079 = Reshape(v1078, new[] { 1, 2, 8400 }); // f32[1,2,8400]
             var v1080 = Sub(v1072, IR.F.Random.Normal(DataTypes.Float32, new[] { 1, 2, 8400 }).Evaluate().AsTensor()); // f32[1,2,8400]
             var v1081 = new IR.Tuple(v1079, v1080); // (f32[1,2,8400], f32[1,2,8400])
-            PreExpr = new Function(v1081, new[] { v1070 });
+            PreExpr = new Function(new IRBlock(v1081, v1070));
         }
 
         FeedDict = new() { { v1070, IR.F.Random.Normal(new[] { 1, 1, 2, 8400 }).Evaluate() } };
@@ -2915,7 +2915,7 @@ public sealed class ReshapeTransposeReshapeCase : IRewriteCase
             var v0 = Reshape(input, new[] { 1, 77, 12, 64 });
             var v2 = Transpose(v0, new[] { 0, 2, 1, 3 });
             var v3 = Reshape(v2, new[] { 12, 77, 64 });
-            PreExpr = new Function(v3, new[] { input });
+            PreExpr = new Function(new IRBlock(v3, input));
         }
 
         FeedDict = new() { { input, IR.F.Random.Normal(new[] { 1, 77, 768 }).Evaluate() } };
@@ -2941,7 +2941,7 @@ public sealed class ReshapeBinaryConstReshapeCase : IRewriteCase
             var v11 = IR.F.Math.Add(v10, IR.F.Random.Normal(new[] { 1, 1, 77, 77 }).Evaluate().AsTensor()); // f32[1,12,77,77]
             var v12 = Reshape(v11, new[] { 12, 77, 77 }); // f32[12,77,77]
 
-            PreExpr = new Function(v12, new[] { v9 });
+            PreExpr = new Function(new IRBlock(v12, v9));
         }
 
         FeedDict = new() { { v9, IR.F.Random.Normal(new[] { 12, 77, 77 }).Evaluate() } };
@@ -2965,7 +2965,7 @@ public sealed class MatMulTransposeCase : IRewriteCase
             var v33 = Transpose(v32, new[] { 0L, 1L, 3L, 2L }); // f32[1,64,128,384]
             var v21 = IR.F.Random.Normal(new[] { 1, 64, 384, 128 }).Evaluate().AsTensor();
             var v34 = IR.F.Math.MatMul(v21, v33); // f32[1,64,384,384]
-            PreExpr = new Function(v34, new[] { v32 });
+            PreExpr = new Function(new IRBlock(v34, v32));
         }
 
         FeedDict = new() { { v32, IR.F.Random.Normal(new[] { 1, 64, 384, 128 }).Evaluate() } };
@@ -3046,7 +3046,7 @@ public sealed class FlattenReshapeMultiBranchCase : IRewriteCase
             var v53 = Binary(BinaryOp.Add, v52, v40); // f32[1,104,512]
             var v54 = Binary(BinaryOp.Sub, v47, v53); // f32[1,104,512]
             var v55 = Binary(BinaryOp.Add, v54, v12); // f32[1,104,512]
-            PreExpr = new Function(v55, new[] { input });
+            PreExpr = new Function(new IRBlock(v55, input));
         }
 
         FeedDict = new() { { input, IR.F.Random.Normal(new[] { 104, 512 }).Evaluate() } };
@@ -3080,7 +3080,7 @@ public sealed class PaperCase : IRewriteCase
             var transB = IR.F.Tensors.Transpose(b, new[] { 1, 0, 2 }); // 20,30,40;
             var exp = IR.F.Math.Cos(transA + transB); // 20,30,40;
             var transC = IR.F.Tensors.Transpose(exp, new[] { 1, 2, 0 }); // 30,40,20
-            PreExpr = new IR.Function(transC, a, b);
+            PreExpr = new IR.Function(new IRBlock(transC, a, b));
         }
 
         FeedDict = new Dictionary<IVar, IValue>()

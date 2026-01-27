@@ -175,7 +175,7 @@ public class UnitTestEGraphRewrite : TestClassBase
         var v11 = IR.F.NN.Conv2D(v10, Testing.Rand<float>(64, 64, 1, 1), Testing.Rand<float>(64), new[] { 1, 1 }, new[,] { { 0, 0 }, { 0, 0 } }, new[] { 1, 1 }, PadMode.Constant, 1, new[] { float.NegativeInfinity, float.PositiveInfinity });
         var v12 = IR.F.Math.RangeOfMarker(v11, new[] { -14.803145, 40.543793 }); // f32[1,64,56,56]
         var v13 = IR.F.NN.Relu(v12); // f32[1,64,56,56]
-        var func = new Function("main", v13, new[] { v8 });
+        var func = new Function("main", new IRBlock(v13, v8));
         var module = new IRModule(func);
 
         var passes = CompileSession.CreatePassManager("passes");
@@ -188,7 +188,7 @@ public class UnitTestEGraphRewrite : TestClassBase
 
         await passes.RunAsync(module);
         var post = (Function)module.Entry!;
-        Assert.True(post.Body is Call { Target: IR.NN.Conv2D });
+        Assert.True(post.Body.Body is Call { Target: IR.NN.Conv2D });
     }
 
     [Fact]
@@ -207,7 +207,7 @@ public class UnitTestEGraphRewrite : TestClassBase
         var v11 = IR.F.NN.Conv2D(v10_11 + v10_22, Testing.Rand<float>(64, 64, 1, 1), Testing.Rand<float>(64), new[] { 1, 1 }, new[,] { { 0, 0 }, { 0, 0 } }, new[] { 1, 1 }, PadMode.Constant, 1, new[] { float.NegativeInfinity, float.PositiveInfinity });
         var v12 = IR.F.Math.RangeOfMarker(v11, new[] { -14.803145, 40.543793 }); // f32[1,64,56,56]
         var v13 = IR.F.NN.Relu(v12); // f32[1,64,56,56]
-        var func = new Function("main", v13, new[] { v8 });
+        var func = new Function("main", new IRBlock(v13, v8));
         Assert.True(func.InferenceType());
 #if DEBUG
         CompilerServices.DumpDotIR(func, "pre", Dumpper.Directory);

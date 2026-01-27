@@ -177,13 +177,15 @@ public class UnitTestTypeInfer : UnitTypeInferBase
         // 1. before the transform the dag is invalid type
         Var x = new("x");
         Const b = 2;
-        Function f = new("f", x + b, new[] { x });
+        var block = new IRBlock(x + b, new[] { x });
+        var f = new Function("f", block);
         CompilerServices.InferenceType(f);
         Assert.IsType<AnyType>(f.Body.CheckedType);
 
         // 2. after the  transfrom the dag is valid type
         var y = x.With(typeAnnotation: TensorType.Scalar(DataTypes.Int32));
-        var new_f = f.With(body: y + b, parameters: new[] { y });
+        var newBlock = new IRBlock(y + b, new[] { y });
+        var new_f = f.With(body: newBlock);
         Assert.True(CompilerServices.InferenceType(new_f));
     }
 

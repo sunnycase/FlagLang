@@ -8,7 +8,6 @@ using System.Collections.Immutable;
 using System.Linq;
 using Nncase;
 using Nncase.CodeGen;
-using Nncase.IR;
 using Xunit;
 
 namespace Nncase.Tests.CoreTest;

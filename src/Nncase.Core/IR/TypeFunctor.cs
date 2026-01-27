@@ -30,6 +30,7 @@ public abstract class TypeFunctor<TResult, TContext>
             NoneType t => VisitType(t, context),
             InvalidType t => VisitType(t, context),
             TensorType t => VisitType(t, context),
+            PointerType t => VisitType(t, context),
             TupleType t => VisitType(t, context),
             CallableType t => VisitType(t, context),
             DistributedType t => VisitType(t, context),

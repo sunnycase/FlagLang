@@ -54,7 +54,7 @@ public class UnitTestCombineQuantize : TransformTestBase
             feedDict.Add(v, IR.F.Random.Uniform(DataTypes.Float32, 1.0f, -1.0f, i, inShapes[i]).Evaluate());
         }
 
-        var rootPre = new IR.Function(IR.F.Math.Quantize(Tensors.Concat(new IR.Tuple(parameters.ToArray()), axis), quantParam, destType), parameters.ToArray());
+        var rootPre = new Function(new IRBlock(IR.F.Math.Quantize(Tensors.Concat(new IR.Tuple(parameters.ToArray()), axis), quantParam, destType), parameters.ToArray()));
         TestMatched<CombineQuantizeConcat>(rootPre, feedDict);
     }
 
@@ -68,7 +68,7 @@ public class UnitTestCombineQuantize : TransformTestBase
         var v255 = ReduceWindow2D(ReduceOp.Max, v253, -3.4028235E+38, new[] { 5L, 5L }, new[] { 1L, 1L }, new[,] { { 2L, 2L }, { 2L, 2L } }, new[] { 1L, 1L }, false, false); // f32[1,256,20,20]
         var body = IR.F.Math.Quantize(IR.F.Tensors.Concat(new IR.Tuple(v253, v255), 1), new QuantParam(1, 0.323f), DataTypes.UInt8);
         _ = new Dictionary<IVar, IValue>() { { input, IR.F.Random.Uniform(DataTypes.Float32, 1.0f, -1.0f, 0, new[] { 1, 256, 20, 20 }).Evaluate() }, };
-        var rootPre = new Function(body, input);
+        var rootPre = new Function(new IRBlock(body, input));
         TestNotMatch<CombineQuantizeConcat>(rootPre);
     }
 
@@ -82,7 +82,7 @@ public class UnitTestCombineQuantize : TransformTestBase
         parameters.Add(v);
         feedDict.Add(v, IR.F.Random.Uniform(DataTypes.Float32, 1.0f, -1.0f, 0, shapes[0]).Evaluate());
 
-        var rootPre = new IR.Function(Math.Quantize(Tensors.Reshape(v, shapes[1]), quantParam, destType), parameters.ToArray());
+        var rootPre = new Function(new IRBlock(Math.Quantize(Tensors.Reshape(v, shapes[1]), quantParam, destType), parameters.ToArray()));
         TestMatched<CombineQuantizeReshape>(rootPre, feedDict);
     }
 
@@ -96,7 +96,7 @@ public class UnitTestCombineQuantize : TransformTestBase
         parameters.Add(v);
         feedDict.Add(v, IR.F.Random.Uniform(DataTypes.Float32, 1.0f, -1.0f, 0, shapes[0]).Evaluate());
 
-        var rootPre = new IR.Function(Tensors.Reshape(Math.Quantize(v, quantParam, destType), shapes[1]), parameters.ToArray());
+        var rootPre = new Function(new IRBlock(Tensors.Reshape(Math.Quantize(v, quantParam, destType), shapes[1]), parameters.ToArray()));
         TestMatched<CombineReshapeQuantize>(rootPre, feedDict);
     }
 
@@ -106,7 +106,7 @@ public class UnitTestCombineQuantize : TransformTestBase
         var input = new Var("input", new TensorType(DataTypes.Float32, new[] { 1, 256, 20, 20 })); // f32[1,256,20,20]
         var v = Tensors.Reshape(input, new[] { 1, 256, 20, 20 }); // f32[1,256,20,20]
         var body = Math.Add(IR.F.Math.Quantize(v, new QuantParam(1, 0.323f), DataTypes.UInt8), IR.F.Math.Quantize(v, new QuantParam(1, 0.323f), DataTypes.UInt8));
-        var rootPre = new Function(body, input);
+        var rootPre = new Function(new IRBlock(body, input));
         TestNotMatch<CombineQuantizeReshape>(rootPre);
     }
 
@@ -116,7 +116,7 @@ public class UnitTestCombineQuantize : TransformTestBase
         var input = new Var("input", new TensorType(DataTypes.Float32, new[] { 1, 256, 20, 20 })); // f32[1,256,20,20]
         var v = IR.F.Math.Quantize(input, new QuantParam(1, 0.323f), DataTypes.UInt8); // f32[1,256,20,20]
         var body = Math.Add(Tensors.Reshape(v, new[] { 1, 256, 20, 20 }), Tensors.Reshape(v, new[] { 1, 256, 20, 20 }));
-        var rootPre = new Function(body, input);
+        var rootPre = new Function(new IRBlock(body, input));
         TestNotMatch<CombineQuantizeReshape>(rootPre);
     }
 
@@ -130,7 +130,7 @@ public class UnitTestCombineQuantize : TransformTestBase
         parameters.Add(v);
         feedDict.Add(v, Random.Uniform(DataTypes.Float32, 1.0f, -1.0f, 0, shape_and_perm[0]).Evaluate());
 
-        var rootPre = new IR.Function(Math.Quantize(Tensors.Transpose(v, shape_and_perm[1]), quantParam, destType), parameters.ToArray());
+        var rootPre = new Function(new IRBlock(Math.Quantize(Tensors.Transpose(v, shape_and_perm[1]), quantParam, destType), parameters.ToArray()));
         TestMatched<CombineQuantizeTranspose>(rootPre, feedDict);
     }
 
@@ -140,7 +140,7 @@ public class UnitTestCombineQuantize : TransformTestBase
         var input = new Var("input", new TensorType(DataTypes.Float32, new[] { 1, 256, 20, 20 })); // f32[1,256,20,20]
         var v = Tensors.Transpose(input, new[] { 0, 3, 2, 1 }); // f32[1,256,20,20]
         var body = Math.Add(Math.Quantize(v, new QuantParam(1, 0.323f), DataTypes.UInt8), IR.F.Math.Quantize(v, new QuantParam(1, 0.323f), DataTypes.UInt8));
-        var rootPre = new Function(body, input);
+        var rootPre = new Function(new IRBlock(body, input));
         TestNotMatch<CombineQuantizeTranspose>(rootPre);
     }
 }

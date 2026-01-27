@@ -85,7 +85,7 @@ public class UnitTestDistributeSchema : TestClassBase
             input.Metadata.OutputNames = new string[] { "hidden_in" };
             var leaky = IR.F.Math.Unary(UnaryOp.Cos, input);
             var output = leaky;
-            func = new("main", "cpu", output, default);
+            func = new("main", "cpu", new IRBlock(output, input));
         }
 
         var pass = new AutoDistributedPass(true, "cpu", CompileOptions);
@@ -94,6 +94,6 @@ public class UnitTestDistributeSchema : TestClassBase
 
         Dumpper.DumpIR(result, "result");
 
-        Assert.True(result is Function { Body: Call { Target: IR.Distributed.Boxing } boxing } && boxing.Arguments[0] is Call { Target: IR.Math.Unary { UnaryOp: UnaryOp.Cos } } unary && unary.CheckedType is DistributedType dt && dt == new DistributedType(new(DataTypes.Float32, new[] { 1, 512, 8192 }), new[] { (SBP)SBP.B, SBP.S(new[] { 0 }), SBP.S(new[] { 1, 2 }) }, new(new[] { 8, 8, 4 }, "cbt")));
+        Assert.True(result is Function { Body: IRBlock { Body: Call { Target: IR.Distributed.Boxing } boxing } } && boxing.Arguments[0] is Call { Target: IR.Math.Unary { UnaryOp: UnaryOp.Cos } } unary && unary.CheckedType is DistributedType dt && dt == new DistributedType(new(DataTypes.Float32, new[] { 1, 512, 8192 }), new[] { (SBP)SBP.B, SBP.S(new[] { 0 }), SBP.S(new[] { 1, 2 }) }, new(new[] { 8, 8, 4 }, "cbt")));
     }
 }

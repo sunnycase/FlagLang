@@ -91,11 +91,11 @@ public class UnitTestAddMarker : TestClassBase
         var r = DataGenerator.DefaultRandom([numberDirections, 4 * hiddenSize, hiddenSize]);
         var p = new float[numberDirections, 3 * hiddenSize];
         var lstm = IR.F.RNN.LSTM(LSTMDirection.Forward, LSTMLayout.Zero, new[] { "Sigmoid", "Tanh", "Tanh" }, x, w, r, b, new[] { seqLength }, initH, initC, p, 0, 0, float.NaN, hiddenSize, 0, 3);
-        var main = new Function(lstm);
+        var main = new Function(new IRBlock(lstm));
 
         var module = new IRModule(main);
         await TestAddMarkerPasses(module);
-        Assert.True(((Function)module.Entry!).Body is Tuple t
+        Assert.True(module.Entry is Function { Body: IRBlock { Body: Tuple t } }
                     && CompilerServices.TryMatchRoot(t, IsWrappedLSTM(PatternMatch.F.RNN.IsLSTM("lstm", "lstmCall", _ => true), (x, _) => IsRangeOfMarker(x, IsWildcard())), out var result)
                     && result["lstmCall"] is Call call
                     && new[] { 0, 1, 2, 5, 6 }.All(i => call.Arguments[i] is Marker));
@@ -121,11 +121,11 @@ public class UnitTestAddMarker : TestClassBase
         var r = DataGenerator.DefaultRandom([numberDirections, 4 * hiddenSize, hiddenSize]);
         var p = new float[numberDirections, 3 * hiddenSize];
         var lstm = IR.F.RNN.LSTM(LSTMDirection.Forward, LSTMLayout.Zero, new[] { "Sigmoid", "Tanh", "Tanh" }, x, w, r, b, new[] { seqLength }, initH, initC, p, 0, 0, float.NaN, hiddenSize, 0, 2);
-        var main = new Function(lstm);
+        var main = new Function(new IRBlock(lstm));
 
         var module = new IRModule(main);
         await TestAddMarkerPasses(module);
-        Assert.True(((Function)module.Entry!).Body is Tuple t
+        Assert.True(module.Entry is Function { Body: IRBlock { Body: Tuple t } }
                     && CompilerServices.TryMatchRoot(t, IsWrappedLSTM(PatternMatch.F.RNN.IsLSTM("lstm", "lstmCall", _ => true), (x, _) => IsRangeOfMarker(x, IsWildcard())), out var result)
                     && result["lstmCall"] is Call call
                     && new[] { 0, 1, 2, 5, 6 }.All(i => call.Arguments[i] is Marker));
@@ -145,12 +145,12 @@ public class UnitTestAddMarker : TestClassBase
             var v124 = IR.F.Math.Add(v123, Testing.Rand<float>(2048)); // f32[1,7,7,2048]
             var v125 = IR.F.NN.Relu(v124); // f32[1,7,7,2048]
             var v126 = new IR.Tuple(new IR.Expr[] { v125 }); // (f32[1,7,7,2048])
-            main = new IR.Function(v126, new[] { v121 });
+            main = new IR.Function(new IRBlock(v126, v121));
         }
 
         var module = new IR.IRModule(main);
         await TestAddMarkerPasses(module);
-        Assert.True(((IR.Function)module.Entry!).Body is IR.Tuple tuple && tuple.Fields[0] is IR.Marker);
+        Assert.True(module.Entry is IR.Function { Body: IRBlock { Body: IR.Tuple tuple } } && tuple.Fields[0] is IR.Marker);
     }
 
     [Fact]
@@ -160,10 +160,10 @@ public class UnitTestAddMarker : TestClassBase
         CompileOptions.DumpFlags = Diagnostics.DumpFlags.Rewrite | Diagnostics.DumpFlags.EGraphCost;
 #endif
         var a = new IR.Var("a", new IR.TensorType(DataTypes.Float32, new[] { 1, 3, 8, 8 }));
-        var main = new IR.Function(new IR.Tuple(Relu(IR.F.Math.RangeOfMarker(a, new[] { -1.0f, 1.0f }))), new[] { a });
+        var main = new IR.Function(new IRBlock(new IR.Tuple(Relu(IR.F.Math.RangeOfMarker(a, new[] { -1.0f, 1.0f }))), a));
         var module = new IR.IRModule(main);
         await TestAddMarkerPasses(module);
-        Assert.True(((IR.Function)module.Entry!).Body is IR.Tuple tuple && tuple.Fields[0] is IR.Marker);
+        Assert.True(module.Entry is IR.Function { Body: IRBlock { Body: IR.Tuple tuple } } && tuple.Fields[0] is IR.Marker);
     }
 
     [Fact]
@@ -173,10 +173,10 @@ public class UnitTestAddMarker : TestClassBase
         CompileOptions.DumpFlags = Diagnostics.DumpFlags.Rewrite | Diagnostics.DumpFlags.EGraphCost;
 #endif
         var a = new IR.Var("a", new IR.TensorType(DataTypes.Float32, new[] { 1, 3, 8, 8 }));
-        var main = new IR.Function(new IR.Tuple(IR.F.Math.Unary(UnaryOp.LogicalNot, IR.F.Math.RangeOfMarker(a, new[] { -1.0f, 1.0f }))), new[] { a });
+        var main = new IR.Function(new IRBlock(new IR.Tuple(IR.F.Math.Unary(UnaryOp.LogicalNot, IR.F.Math.RangeOfMarker(a, new[] { -1.0f, 1.0f }))), a));
         var module = new IR.IRModule(main);
         await TestAddMarkerPasses(module);
-        Assert.True(((IR.Function)module.Entry!).Body is IR.Tuple tuple && tuple.Fields[0] is IR.Call);
+        Assert.True(module.Entry is IR.Function { Body: IRBlock { Body: IR.Tuple tuple } } && tuple.Fields[0] is IR.Call);
     }
 
     private async Task TestAddMarkerPasses(IR.IRModule module)

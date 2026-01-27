@@ -44,6 +44,11 @@ internal class TypeInferenceProvider : ITypeInferenceProvider
     /// <inheritdoc/>
     public bool InferenceType(BaseExpr expr, Dictionary<Type, ITypeInferencer> inferencer_cache)
     {
+        if (expr is null)
+        {
+            throw new ArgumentNullException(nameof(expr));
+        }
+
         var visitor = new TypeInferenceVisitor(inferencer_cache);
         visitor.Visit(expr);
         return visitor.IsFullyInferenced;

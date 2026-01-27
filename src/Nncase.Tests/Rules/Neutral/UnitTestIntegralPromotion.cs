@@ -45,12 +45,12 @@ public class UnitTestIntegralPromotion : TestClassBase
     {
         var expr = Tensors.Cast(1, aType) + Tensors.Cast(2, bType);
         expr.InferenceType();
-        var f = new Function(expr);
+        var f = new Function(new IRBlock(expr));
         var result = CompilerServices.InferenceType(f);
         Assert.False(result);
         var post = await new ShapeInferPass { Name = "TypePromotion" }.RunAsync(f, new());
         Assert.True(CompilerServices.InferenceType(post));
-        Assert.Equal(Value.FromTensor(3L), ((Function)post).Body.Evaluate());
+        Assert.Equal(Value.FromTensor(3L), ((Function)post).Body.Body.Evaluate());
     }
 
     [Theory]
@@ -59,11 +59,11 @@ public class UnitTestIntegralPromotion : TestClassBase
     {
         var expr = Tensors.Cast(1, aType) + Tensors.Cast(2, bType);
         expr.InferenceType();
-        var f = new Function(expr);
+        var f = new Function(new IRBlock(expr));
         var result = CompilerServices.InferenceType(f);
         Assert.True(result);
         var post = await new ShapeInferPass { Name = "TypePromotion" }.RunAsync(f, new());
         Assert.True(CompilerServices.InferenceType(post));
-        Assert.Equal(Value.FromTensor(3L), ((Function)post).Body.Evaluate());
+        Assert.Equal(Value.FromTensor(3L), ((Function)post).Body.Body.Evaluate());
     }
 }
