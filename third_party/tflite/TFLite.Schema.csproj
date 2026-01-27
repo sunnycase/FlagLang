@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);ENABLE_SPAN_T</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nncase.FlatBuffers" />
+  </ItemGroup>
+
+</Project>

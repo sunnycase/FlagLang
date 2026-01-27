@@ -1,0 +1,39 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Nncase.Evaluator;
+using Nncase.IR;
+using Nncase.Passes.Transforms;
+using Nncase.Tests.TestFixture;
+using OrtKISharp;
+using Xunit;
+using Tuple = Nncase.IR.Tuple;
+
+namespace Nncase.Tests.ImporterTest;
+
+public class UnitTestUtil
+{
+    [Fact]
+    public void TestZeroTensor()
+    {
+        Assert.Equal(new TensorConst(Tensor.From<int>(new[] { 0 })), Util.ZeroTensor());
+    }
+
+    [Fact]
+    public void TestComputeSplit()
+    {
+        var input = OrtKI.Random(1, 2, 4, 8).ToTensor();
+        var outputSize = 4;
+        var axis = -1L;
+        var expr = Util.ComputeSplit(input, outputSize, axis);
+
+        var expect = Shape.Repeat(Util.ShapeIndex(input, (int)axis) / outputSize, outputSize);
+        Assert.Equal(expr, expect);
+    }
+}

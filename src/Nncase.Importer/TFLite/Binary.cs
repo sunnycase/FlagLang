@@ -1,0 +1,45 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Nncase.IR;
+using F = Nncase.IR.F;
+
+namespace Nncase.Importer.TFLite
+{
+    public partial class TFLiteImporter
+    {
+        private Expr VisitBinary(in tflite.Operator op, BinaryOp binaryOp, tflite.ActivationFunctionType activation = tflite.ActivationFunctionType.NONE)
+        {
+            (var lhs, var rhs) = GetInputExprs<Expr, Expr>(op, 0, 1);
+
+            var node = F.Math.Binary(binaryOp, lhs, rhs);
+            List<string> outputNames = new();
+
+            var outputsLength = op.GetOutputsArray().Length;
+            for (int i = 0; i < outputsLength; i++)
+            {
+                outputNames.Add(GetOutputTensor(op, i).Name + "_FusedBinary");
+            }
+
+            node.Metadata.OutputNames = outputNames;
+            return Activate(node, activation);
+        }
+
+        private Expr VisitFloorDiv(in tflite.Operator op)
+        {
+            (var lhs, var rhs) = GetInputExprs<Expr, Expr>(op, 0, 1);
+            return F.Math.FloorDiv(lhs, rhs);
+        }
+
+        private Expr VisitFloorMod(in tflite.Operator op)
+        {
+            (var lhs, var rhs) = GetInputExprs<Expr, Expr>(op, 0, 1);
+            return F.Math.FloorMod(lhs, rhs);
+        }
+    }
+}

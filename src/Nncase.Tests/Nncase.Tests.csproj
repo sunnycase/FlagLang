@@ -1,0 +1,55 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Fody">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="MethodBoundaryAspect.Fody" />
+    <PackageReference Include="Microsoft.TestPlatform.ObjectModel" />
+    <PackageReference Include="System.Linq.Async" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="CommunityToolkit.HighPerformance" />
+    <PackageReference Include="xunit.analyzers" />
+    <PackageReference Include="Xunit.Combinatorial" />
+    <PackageReference Include="xunit.core" />
+    <PackageReference Include="Xunit.DependencyInjection" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="xunit.v3.assert" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nncase.Compiler\Nncase.Compiler.csproj" />
+    <ProjectReference Include="..\Nncase.EGraph\Nncase.EGraph.csproj" /> 
+    <ProjectReference Include="..\Nncase.Graph\Nncase.Graph.csproj" /> 
+    <ProjectReference Include="..\Nncase.Schedule\Nncase.Schedule.csproj" /> 
+    <ProjectReference Include="..\Nncase.Tests.TestFixture\Nncase.Tests.TestFixture.csproj" />
+    <ProjectReference Include="..\Nncase.Passes\Nncase.Passes.csproj" />
+    <ProjectReference Include="..\Nncase.Core\Nncase.Core.csproj" />
+    <ProjectReference Include="..\Nncase.Evaluator\Nncase.Evaluator.csproj" />
+    <ProjectReference Include="..\Nncase.Importer\Nncase.Importer.csproj" />
+    <ProjectReference Include="..\Nncase.CodeGen\Nncase.CodeGen.csproj" />
+    <ProjectReference Include="..\Nncase.IO\Nncase.IO.csproj" />
+    <ProjectReference Include="..\Nncase.Simulator\Nncase.Simulator.csproj" />
+    <ProjectReference Include="..\modules\Nncase.Modules.NTT\Nncase.Modules.NTT.csproj" />
+    <!--<ProjectReference Include="..\..\modules\Nncase.Modules.K210\Nncase.Modules.K210.csproj" />-->
+    <!--<ProjectReference Include="..\..\targets\Nncase.Targets.CSource\Nncase.Targets.CSource.csproj" />-->
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Quant\leaky_relu.quant.json" />
+    <EmbeddedResource Include="Quant\conv2d.quant.json" />
+  </ItemGroup>
+
+</Project>

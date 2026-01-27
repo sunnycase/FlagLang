@@ -1,0 +1,108 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Threading.Tasks;
+using Nncase.Diagnostics;
+using Nncase.IR;
+using Nncase.IR.F;
+using Nncase.IR.Tensors;
+using Nncase.Passes;
+using Nncase.Passes.Rules.Neutral;
+using Nncase.Tests.TestFixture;
+using Xunit;
+using Math = Nncase.IR.F.Math;
+using Random = Nncase.IR.F.Random;
+
+namespace Nncase.Tests.Rules.NeutralTest;
+
+[AutoSetupTestMethod(InitSession = true)]
+public class UnitTestMatMulToConv2D : TransformTestBase
+{
+    public static IEnumerable<object[]> TestMatMulToConv2DPositiveData =>
+        new[]
+        {
+            new object[] { 0, new long[] { 5, 4 }, new long[] { 4, 6 } },
+            new object[] { 1, new long[] { 1, 7 }, new long[] { 7, 12 } },
+        };
+
+    [Theory]
+    [MemberData(nameof(TestMatMulToConv2DPositiveData))]
+    public void TestMatMulToConv2DPositive(int count, long[] aShape, long[] bShape)
+    {
+        var a = Random.Normal(DataTypes.Float32, 0, 1, 0, aShape);
+        var b = Random.Normal(DataTypes.Float32, 0, 1, 0, bShape).Evaluate();
+        var rootPre = Math.MatMul(a, b.AsTensor());
+        TestMatched<MatMulToConv2D>(rootPre);
+    }
+}
+
+[AutoSetupTestMethod(InitSession = true)]
+public class UnitTestBroadcastMatMulToConv2D : TransformTestBase
+{
+    public static IEnumerable<object[]> TestBroadcastMatMulToConv2DPositiveData =>
+        new[]
+        {
+            new object[] { new long[] { 3, 5, 4 }, new long[] { 4, 6 } },
+            new object[] { new long[] { 6, 1, 7 }, new long[] { 7, 12 } },
+        };
+
+    [Theory]
+    [MemberData(nameof(TestBroadcastMatMulToConv2DPositiveData))]
+    public void TestBroadcastMatMulToConv2DPositive(long[] aShape, long[] bShape)
+    {
+        var a = Random.Normal(DataTypes.Float32, 0, 1, 0, aShape);
+        var b = Random.Normal(DataTypes.Float32, 0, 1, 0, bShape).Evaluate().AsTensor();
+        var rootPre = Math.MatMul(a, b);
+        TestMatched<BroadcastMatMulToConv2D>(rootPre);
+    }
+}
+
+[AutoSetupTestMethod(InitSession = true)]
+public class UnitTestSplitBatchMatMul : TransformTestBase
+{
+    public static IEnumerable<object[]> SplitBatchMatMulPositiveData =>
+        new[]
+        {
+            new object[] { 0, new long[] { 3, 5, 4 }, new long[] { 3, 4, 6 } },
+            new object[] { 1, new long[] { 6, 1, 7 }, new long[] { 6, 7, 12 } },
+        };
+
+    [Theory]
+    [MemberData(nameof(SplitBatchMatMulPositiveData))]
+    public void TestSplitBatchMatMulPositive(int count, long[] aShape, long[] bShape)
+    {
+        SetupTestMethod(true);
+        var a = Random.Normal(DataTypes.Float32, 0, 1, 0, aShape);
+        var b = Random.Normal(DataTypes.Float32, 0, 1, 0, bShape).Evaluate().AsTensor();
+        var rootPre = Math.MatMul(a, b);
+        TestMatched<SplitBatchMatMul>(rootPre);
+    }
+}
+
+[AutoSetupTestMethod(InitSession = true)]
+public class UnitTestBroadcastMatMul : TransformTestBase
+{
+    public static IEnumerable<object[]> BroadcastMatMulPositiveData =>
+        new[]
+        {
+            new object[] { 1, new long[] { 2, 6, 1, 7 }, new long[] { 1, 6, 7, 12 } },
+            new object[] { 1, new long[] { 3, 2, 6, 1, 7 }, new long[] { 1, 1, 6, 7, 12 } },
+        };
+
+    [Theory]
+    [MemberData(nameof(BroadcastMatMulPositiveData))]
+    public void TestBroadcastMatMulPositive(int count, long[] aShape, long[] bShape)
+    {
+        SetupTestMethod(true);
+        var a = Random.Normal(DataTypes.Float32, 0, 1, 0, aShape);
+        var b = Random.Normal(DataTypes.Float32, 0, 1, 0, bShape).Evaluate().AsTensor();
+        var rootPre = IR.F.Tensors.Reshape(Math.MatMul(a, b), new long[] { -1, aShape[^2], bShape[^1] });
+        TestMatched<BroadcastMatMul>(rootPre);
+    }
+}

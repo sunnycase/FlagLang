@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Nncase</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+	<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OrtKISharp" />
+    <PackageReference Include="System.Linq.Async" />
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+    
+  <ItemGroup>
+    <ProjectReference Include="..\Nncase.Core\Nncase.Core.csproj" />
+    <ProjectReference Include="..\Nncase.Passes\Nncase.Passes.csproj" />
+  </ItemGroup>
+
+</Project>

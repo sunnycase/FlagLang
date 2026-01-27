@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Clawfoot.Extensions.Newtonsoft" />
+    <PackageReference Include="LanguageExt.Core" PrivateAssets="compile" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\third_party\tflite\TFLite.Schema.csproj" />
+    <ProjectReference Include="..\..\third_party\onnx\Onnx.Protobuf.csproj" />
+    <ProjectReference Include="..\Nncase.Core\Nncase.Core.csproj" />
+  </ItemGroup>
+
+</Project>

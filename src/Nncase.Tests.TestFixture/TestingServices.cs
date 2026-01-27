@@ -1,0 +1,356 @@
+﻿// Copyright (c) SunnyCase. All rights reserved.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+
+using System;
+using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Nncase.CodeGen;
+using Nncase.Diagnostics;
+using Nncase.IR;
+using Nncase.Passes;
+using Xunit;
+
+namespace Nncase.Tests;
+
+public static class Testing
+{
+    /// <summary>
+    /// the fixed rand generator, maybe need impl by each module.
+    /// </summary>
+    public static readonly Random RandGenerator = new System.Random(123);
+
+    /// <summary>
+    /// fixup the seq rand tensor into gived range.
+    /// </summary>
+    public static ValueRange<float> FixupRange(ValueRange<float> range, bool symmetric = false)
+    {
+        if (symmetric)
+        {
+            var r = Math.Max(Math.Max(Math.Abs(range.Min), Math.Abs(range.Max)), 0.01f);
+            return new() { Min = -r, Max = r };
+        }
+        else
+        {
+            if (range.Min < -1e3f)
+            {
+                range.Min = -1e3f;
+            }
+
+            if (range.Max > 1e3f)
+            {
+                range.Max = 1e3f;
+            }
+
+            var r = range.Max - range.Min;
+            if (r == 0)
+            {
+                r = 0.1f;
+            }
+            else if (r < 0.01f)
+            {
+                r = 0.01f;
+            }
+
+            range.Max = range.Min + r;
+
+            if (range.Max < 0)
+            {
+                range.Max = 0;
+            }
+
+            if (range.Min > 0)
+            {
+                range.Min = 0;
+            }
+        }
+
+        return range;
+    }
+
+    /// <summary>
+    /// create the rand value by gived datatype.
+    /// </summary>
+    public static Tensor Rand(DataType dataType, params long[] shape)
+    {
+        return IR.F.Random.Normal(dataType, 0, 1, 1, shape).Evaluate().AsTensor();
+    }
+
+    /// <summary>
+    /// create the rand value by gived datatype.
+    /// </summary>
+    public static Tensor<T> Rand<T>(params long[] shape)
+        where T : unmanaged, IEquatable<T>
+    {
+        return IR.F.Random.Normal(DataType.FromType<T>(), 0, 1, 1, shape).Evaluate().AsTensor().Cast<T>();
+    }
+
+    /// <summary>
+    /// create the seq value by gived datatype.
+    /// </summary>
+    public static Tensor Seq(DataType dataType, params long[] shape)
+    {
+        return (Tensor)typeof(Testing).GetMethod("Seq", new[] { typeof(int[]) })!.MakeGenericMethod(dataType.CLRType).Invoke(null, new object[] { shape })!;
+    }
+
+    /// <summary>
+    /// create the seq value by gived datatype.
+    /// </summary>
+    public static Tensor<T> Seq<T>(params long[] shape)
+        where T : unmanaged, IEquatable<T>
+    {
+        return Tensor.FromArray(Enumerable.Range(0, (int)TensorUtilities.GetProduct(shape)).ToArray())
+            .Cast<T>(CastMode.KDefault).Reshape(shape);
+    }
+
+    /// <summary>
+    /// NOTE 映射一个sequence到新的range.
+    /// </summary>
+    public static Tensor<T> ReArangeSeq<T>(Tensor<T> t, ValueRange<float> range)
+      where T : unmanaged, System.IEquatable<T>
+    {
+        var scale = (range.Max - range.Min) / t.Length;
+        return Tensor.FromArray(t.Cast<float>(CastMode.KDefault).Select(i => (i * scale) + range.Min).ToArray())
+                .Cast<T>()
+                .Reshape(t.Shape);
+    }
+
+    /// <summary>
+    /// check all value close.
+    /// </summary>
+    public static int AllClose(Tensor a, Tensor b, float tol = .003f)
+    {
+        if (a.Shape != b.Shape)
+        {
+            throw new InvalidOperationException();
+        }
+
+        if (a.ElementType != b.ElementType)
+        {
+            throw new InvalidOperationException();
+        }
+
+        int err_count = 0;
+
+        // int offset = 0;
+        foreach (var (first, second) in a.Cast<float>().Zip(b.Cast<float>()))
+        {
+            if (Math.Abs(first - second) > tol)
+            {
+                err_count++;
+            }
+        }
+
+        return err_count;
+    }
+
+    /// <summary>
+    /// dump value.
+    /// </summary>
+    public static void DumpValue(IValue v, StreamWriter writer)
+    {
+        switch (v)
+        {
+            case TensorValue t:
+                writer.WriteLine(t.AsTensor().GetArrayString());
+                break;
+            case TupleValue tp:
+                foreach (var f in tp)
+                {
+                    DumpValue(f, writer);
+                }
+
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(v));
+        }
+    }
+
+    /// <summary>
+    /// dump value.
+    /// </summary>
+    public static void DumpValue(IValue v, string path)
+    {
+        using (var sw = new StreamWriter(File.Open(path, FileMode.Create, FileAccess.Write)))
+        {
+            DumpValue(v, sw);
+        }
+    }
+
+    /// <summary>
+    /// build kmodel.
+    /// </summary>
+    /// <param name="name">the dumped kmodel name.</param>
+    /// <param name="module">Module.</param>
+    /// <param name="compileSession">Compile session.</param>
+    /// <param name="readBytes">bool for readbytes.</param>
+    /// <returns>kmodel_path and kmodel bytes.</returns>
+    public static (string KModelPath, byte[] KModel) BuildKModel(string name, IR.IRModule module, CompileSession compileSession, bool readBytes = true)
+    {
+        var modelBuilder = compileSession.GetRequiredService<IModelBuilder>();
+        var linkedModel = modelBuilder.Build(module);
+
+        var kmodelDir = DumpScope.Current.Directory;
+        Directory.CreateDirectory(kmodelDir);
+        var kmodelPath = Path.Combine(kmodelDir, $"{name}.kmodel");
+        using (var output = System.IO.File.Open(kmodelPath, System.IO.FileMode.Create))
+        {
+            linkedModel.Serialize(output);
+        }
+
+        return (kmodelPath, readBytes ? File.ReadAllBytes(kmodelPath) : Array.Empty<byte>());
+    }
+
+    /// <summary>
+    /// dump kmodel args and bin for cli interp.
+    /// </summary>
+    public static void DumpInterpModel(string kmodel_path, Tensor[] input_tensors, string dumpDir)
+    {
+        if (!Directory.Exists(dumpDir))
+        {
+            Directory.CreateDirectory(dumpDir);
+        }
+
+        string input_pool_path = Path.Join(dumpDir, "input_pool.bin");
+        string output_pool_path = Path.Join(dumpDir, "output_pool.bin");
+        using var args_writer = new StreamWriter(File.OpenWrite(Path.Join(dumpDir, "args.txt")));
+        args_writer.WriteLine(kmodel_path);
+        args_writer.WriteLine(input_pool_path);
+        args_writer.WriteLine(output_pool_path);
+
+        uint start = 0;
+        uint size = 0;
+        args_writer.WriteLine(input_tensors.Length);
+        using (var pool_writer = new BinaryWriter(File.OpenWrite(input_pool_path)))
+        {
+            foreach (var in_tensor in input_tensors)
+            {
+                pool_writer.Write(in_tensor.BytesBuffer);
+                size = checked((uint)in_tensor.BytesBuffer.Length);
+                byte dt_code = in_tensor.ElementType switch
+                {
+                    var x when x == DataTypes.Boolean => 0x00,
+                    var x when x == DataTypes.Int8 => 0x02,
+                    var x when x == DataTypes.Int16 => 0x03,
+                    var x when x == DataTypes.Int32 => 0x04,
+                    var x when x == DataTypes.Int64 => 0x05,
+                    var x when x == DataTypes.UInt8 => 0x06,
+                    var x when x == DataTypes.UInt16 => 0x07,
+                    var x when x == DataTypes.UInt32 => 0x08,
+                    var x when x == DataTypes.UInt64 => 0x09,
+                    var x when x == DataTypes.Float16 => 0x0A,
+                    var x when x == DataTypes.Float32 => 0x0B,
+                    var x when x == DataTypes.Float64 => 0x0C,
+                    var x when x == DataTypes.BFloat16 => 0x0D,
+                    var x => throw new NotSupportedException($"Data type {x} is not supported."),
+                };
+                args_writer.WriteLine($"{dt_code}");
+                args_writer.WriteLine(in_tensor.Shape.Count);
+                args_writer.WriteLine($"{string.Join(' ', in_tensor.Shape)}");
+                args_writer.WriteLine($"{start} {size}");
+                start += size;
+            }
+        }
+    }
+
+    public static IValue RunKModel(string kmodel_path, string dump_path, Tensor[] input_tensors)
+    {
+        using (var interp = Nncase.Runtime.Interop.RTInterpreter.Create())
+        {
+            interp.SetDumpRoot(dump_path);
+            interp.LoadModel(kmodel_path);
+            var entry = interp.Entry!;
+
+            var rtInputs = input_tensors.Select(Runtime.Interop.RTTensor.FromTensor).ToArray();
+            return entry.Invoke(rtInputs).ToValue();
+        }
+    }
+
+    public static IValue RunKModel(string kmodel_path, string dump_path, Runtime.Interop.RTTensor[] input_tensors)
+    {
+        using (var interp = Nncase.Runtime.Interop.RTInterpreter.Create())
+        {
+            interp.SetDumpRoot(dump_path);
+            interp.LoadModel(kmodel_path);
+            var entry = interp.Entry!;
+            return entry.Invoke(input_tensors).ToValue();
+        }
+    }
+
+    public static async Task CompileAndRun(ModuleCase moduleCase, CompileOptions compileOptions, CompileSession compileSession, Func<IRModule, Task> compile)
+    {
+        compileOptions.DumpDir = Path.Join(compileOptions.DumpDir, moduleCase.Name);
+        using var dumpScope = new DumpScope(string.Empty, compileOptions.DumpFlags);
+
+        var module = moduleCase.Module;
+        var inputs = moduleCase.Inputs.ToArray();
+        if (module.Entry is not Function func || func.Body.CheckedType is InvalidType)
+        {
+            throw new ArgumentException("the module case is invalid!");
+        }
+
+        var outputs = func.Body.Evaluate(moduleCase.Vars.Zip(inputs).ToDictionary(p => p.First, p => (IValue)Value.FromTensor(p.Second))).AsTensors();
+
+        if (DumpScope.Current.IsEnabled(DumpFlags.CodeGen))
+        {
+            for (var i = 0; i < inputs.Length; i++)
+            {
+                using (var fs = DumpScope.Current.OpenFile($"input_{i}.bin"))
+                {
+                    fs.Write(inputs[i].BytesBuffer);
+                }
+            }
+
+            for (int i = 0; i < outputs.Length; i++)
+            {
+                using (var fs = DumpScope.Current.OpenFile($"output_{i}.bin"))
+                {
+                    fs.Write(outputs[i].BytesBuffer);
+                }
+            }
+        }
+
+        await compile(module);
+        var (kmodel_path, _) = BuildKModel("test", module, compileSession, false);
+        var actuals = RunKModel(kmodel_path, DumpScope.Current.Directory, inputs).AsTensors();
+        if (DumpScope.Current.IsEnabled(DumpFlags.CodeGen))
+        {
+            for (int i = 0; i < actuals.Length; i++)
+            {
+                using (var fs = DumpScope.Current.OpenFile($"actual_{i}.bin"))
+                {
+                    fs.Write(actuals[i].BytesBuffer);
+                }
+            }
+        }
+
+        for (int i = 0; i < outputs.Length; i++)
+        {
+            var cos = Comparator.CosSimilarity(outputs[i], actuals[i]);
+            Assert.True(cos > 0.999, $"the {compileOptions.DumpDir} output {i} cos: {cos} ");
+        }
+    }
+}
+
+public class ModuleCase
+{
+    public ModuleCase(string name, IRModule module, Var[] vars, Tensor[] inputs)
+    {
+        Name = name;
+        Module = module;
+        Vars = vars;
+        Inputs = inputs;
+    }
+
+    public string Name { get; }
+
+    public IRModule Module { get; }
+
+    public IReadOnlyList<IVar> Vars { get; }
+
+    public IReadOnlyList<Tensor> Inputs { get; }
+}
