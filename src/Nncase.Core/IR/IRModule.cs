@@ -101,6 +101,12 @@ public sealed class IRModule : BaseExpr
     {
         CompilerServices.InferenceType(function);
         var old = Functions[index];
+        if (ReferenceEquals(old, function))
+        {
+            return;
+        }
+
+        old.ReplaceAllUsesWith(function);
         var isOldEntry = object.ReferenceEquals(old, _entry);
         ReplaceOperandAt(index, function);
         if (isOldEntry)

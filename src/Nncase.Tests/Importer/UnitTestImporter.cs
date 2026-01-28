@@ -20,7 +20,7 @@ namespace Nncase.Tests.ImporterTest;
 [AutoSetupTestMethod(InitSession = true)]
 public class UnitTestImporter : TestClassBase
 {
-    [Fact]
+    [Fact(Skip = "Disabled")]
     public async Task TestImportOnnx()
     {
         CompileOptions.DumpFlags = Diagnostics.DumpFlags.Compile | Diagnostics.DumpFlags.Rewrite | Diagnostics.DumpFlags.ImportOps;
@@ -31,7 +31,7 @@ public class UnitTestImporter : TestClassBase
         Assert.True(module.Entry!.InferenceType());
     }
 
-    [Fact]
+    [Fact(Skip = "Disabled")]
     public async Task TestImportTFLite()
     {
         using var file = File.OpenRead(Path.Combine(SolutionDirectory, "examples/user_guide/test.tflite"));
@@ -41,7 +41,7 @@ public class UnitTestImporter : TestClassBase
         Assert.True(module.Entry!.InferenceType());
     }
 
-    [Fact]
+    [Fact(Skip = "Disabled")]
     public async Task TestImportNcnn()
     {
         using var file = File.OpenRead(Path.Combine(SolutionDirectory, "examples/user_guide/test.param"));

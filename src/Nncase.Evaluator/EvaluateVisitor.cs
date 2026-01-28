@@ -72,9 +72,16 @@ internal sealed partial class EvaluateVisitor : ExprVisitor<IValue, Unit>, IDisp
     /// <inheritdoc/>
     protected override IValue VisitLeafNone(None expr) => NoneValue.Default;
 
-    protected override IValue VisitIRBlock(IRBlock expr) => VisitLeafIRBlock(expr);
+    protected override IValue VisitIRBlock(IRBlock expr)
+    {
+        if (HasVisited(expr, out var cached))
+        {
+            return cached;
+        }
 
-    protected override IValue VisitLeafIRBlock(IRBlock expr) => NoneValue.Default;
+        var value = Visit(expr.Body);
+        return MarkVisited(expr, value);
+    }
 
     /// <inheritdoc/>
     protected override IValue VisitLeafTuple(IR.Tuple expr)
@@ -117,7 +124,7 @@ internal sealed partial class EvaluateVisitor : ExprVisitor<IValue, Unit>, IDisp
                                     if (!_dimVarsValues.ContainsKey(dimVar))
                                     {
                                         _dimVarsValues.Add(dimVar, Value.FromConst(valueShape[i].FixedValue));
-                                        _logger.LogInformation("Bind DimVar {DimVar} from Var {Var} with value {Value}", dimVar.Name, expr.Name, valueShape[i].FixedValue);
+                                        _logger.LogTrace("Bind DimVar {DimVar} from Var {Var} with value {Value}", dimVar.Name, expr.Name, valueShape[i].FixedValue);
                                     }
 
                                     break;

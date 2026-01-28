@@ -52,6 +52,11 @@ public sealed partial class CombineQuantizeConcat : RewriteRule<Pattern>
                 {
                     foreach (var user in userAnalysis[e])
                     {
+                        if (user is IRBlock)
+                        {
+                            continue;
+                        }
+
                         if (user is Call { Target: Nncase.IR.Math.Quantize } userCall)
                         {
                             var quantUser = userCall.Arguments[Nncase.IR.Math.Quantize.QuantParam.Index];

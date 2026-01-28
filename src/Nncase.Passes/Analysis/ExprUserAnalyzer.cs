@@ -22,17 +22,13 @@ public interface IExprUserAnalysisResult : IAnalysisResult
 
 internal sealed class ExprUserAnalysisResult : IExprUserAnalysisResult
 {
+    private static bool IsExternalUser(BaseExpr user) => user is not (BaseFunction or IRBlock);
+
     public IEnumerable<BaseExpr> this[BaseExpr expr]
     {
         get
         {
-            // If expr is Var, exclude the use in function's parameters.
-            if (expr is Var)
-            {
-                return expr.Users.Where(x => x is not BaseFunction);
-            }
-
-            return expr.Users;
+            return expr.Users.Where(IsExternalUser);
         }
     }
 }

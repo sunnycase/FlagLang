@@ -24,29 +24,29 @@ public class UnitTestEvaluatorTypeInference
     [Fact]
     public void TestCommonType()
     {
-        var actual1 = TypeInference.CommonType(DataTypes.Boolean, DataTypes.Float16);
+        var actual1 = TypeInference.CommonType(TensorType.Scalar(DataTypes.Boolean), TensorType.Scalar(DataTypes.Float16));
         var expect1 = new InvalidType($"Inputs DType of if should be same, then: bool, else: f16");
-        Assert.Equal(actual1, expect1);
+        Assert.Equal(expect1, actual1);
 
-        var actual2 = TypeInference.CommonType(DataTypes.Boolean, DataTypes.Boolean);
-        var expect2 = new TensorType(DataTypes.Boolean, Array.Empty<int>());
-        Assert.Equal(actual2, expect2);
+        var actual2 = TypeInference.CommonType(TensorType.Scalar(DataTypes.Boolean), TensorType.Scalar(DataTypes.Boolean));
+        var expect2 = TensorType.Scalar(DataTypes.Boolean);
+        Assert.Equal(expect2, actual2);
 
         var thenType3 = new TensorType(DataTypes.Float32, new RankedShape(1, 3, 16, 16));
         var elseType3 = new TensorType(DataTypes.Float32, new RankedShape(1, 3, 16, 16));
         var actual3 = TypeInference.CommonType(thenType3, elseType3);
         var expect3 = thenType3;
-        Assert.Equal(actual3, expect3);
+        Assert.Equal(expect3, actual3);
 
         var typeArray1 = new List<IRType>();
-        typeArray1.Add(DataTypes.Int8);
-        typeArray1.Add(DataTypes.Float16);
+        typeArray1.Add(TensorType.Scalar(DataTypes.Int8));
+        typeArray1.Add(TensorType.Scalar(DataTypes.Float16));
         var tupleType1 = new TupleType(typeArray1);
         var actual4 = TypeInference.CommonType(tupleType1, tupleType1);
         Assert.Equal(tupleType1, actual4);
 
         var typeArray2 = new List<IRType>();
-        typeArray2.Add(DataTypes.Int8);
+        typeArray2.Add(TensorType.Scalar(DataTypes.Int8));
         var tupleType2 = new TupleType(typeArray2);
         var actual5 = TypeInference.CommonType(tupleType1, tupleType2);
         var expect5 = new InvalidType($"tuple Inputs of if should be same count, then: {tupleType1.Count}, else: {@tupleType2.Count}");

@@ -109,8 +109,8 @@ public sealed class ModulePartitionPass : ModulePass
                         Var var => $"%{var.Name}#{var.GlobalVarIndex})",
                         Op op => $"op({op.GetType().Name})",
                         BaseFunction f => $"func({f.Name})",
-                        Expr e => $"{e.GetType().Name}",
-                        _ => throw new NotImplementedException(),
+                        BaseExpr e => $"{e.GetType().Name}",
+                        _ => "unknown",
                     };
                 };
             });

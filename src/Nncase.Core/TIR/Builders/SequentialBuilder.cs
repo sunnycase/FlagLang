@@ -56,7 +56,7 @@ internal class SequentialBuilder<T> : ISequentialBuilder<T>
         var l = new List<object>();
         l.AddRange(_body);
         l.AddRange(_tail);
-        return _creator(Sequential.Flatten(CollectionsMarshal.AsSpan(l)));
+        return _creator(Sequential.Flatten(CollectionsMarshal.AsSpan(l), _parameters));
     }
 
     public ISequentialBuilder<T> Tail(params object[] exprOrBuilders)

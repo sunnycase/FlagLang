@@ -69,9 +69,9 @@ public class RewriteFixtrue : TestClassBase
     public async Task<BaseExpr> RunShapeInferPass(string name, BaseExpr expr, params Var[] parameters)
     {
         var f = new Function(new IRBlock(expr, parameters));
-        var result = ((Function)await new ShapeInferPass { Name = $"ShapeInfer_{name}" }.RunAsync(f, new())).Body;
+        var result = (Function)await new ShapeInferPass { Name = $"ShapeInfer_{name}" }.RunAsync(f, new());
         Assert.True(CompilerServices.InferenceType(f));
-        return result;
+        return result.Body.Body;
     }
 
     public BaseExpr ApplyFoldConstCallRewrite(BaseExpr expr) =>

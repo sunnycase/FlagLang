@@ -269,6 +269,86 @@ public sealed class TensorValue : IValue, IEquatable<TensorValue?>
 }
 
 /// <summary>
+/// Scalar value represented by a DataType.
+/// </summary>
+public sealed class ScalarValue : IValue, IEquatable<ScalarValue?>
+{
+    private readonly Tensor _value;
+    private readonly DataType _dataType;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ScalarValue"/> class.
+    /// </summary>
+    /// <param name="tensor">Scalar tensor backing the value.</param>
+    public ScalarValue(Tensor tensor)
+    {
+        if (!tensor.Shape.IsScalar)
+        {
+            throw new ArgumentException("ScalarValue requires a scalar tensor.", nameof(tensor));
+        }
+
+        _value = tensor;
+        _dataType = tensor.ElementType;
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ScalarValue"/> class.
+    /// </summary>
+    /// <param name="tensor">Scalar tensor backing the value.</param>
+    /// <param name="dataType">Expected data type.</param>
+    public ScalarValue(Tensor tensor, DataType dataType)
+        : this(tensor)
+    {
+        if (tensor.ElementType != dataType)
+        {
+            throw new ArgumentException("Scalar tensor element type mismatch.", nameof(dataType));
+        }
+
+        _dataType = dataType;
+    }
+
+    /// <inheritdoc/>
+    public IRType Type => _dataType;
+
+    /// <inheritdoc/>
+    public int Count => 1;
+
+    /// <inheritdoc/>
+    public IValue this[int index] => index == 0 ? this : throw new ArgumentOutOfRangeException(nameof(index));
+
+    /// <inheritdoc/>
+    public Tensor AsTensor() => _value;
+
+    /// <inheritdoc/>
+    public Tensor[] AsTensors() => new[] { _value };
+
+    /// <inheritdoc/>
+    public IEnumerator<IValue> GetEnumerator()
+    {
+        yield break;
+    }
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj) => Equals(obj as ScalarValue);
+
+    /// <inheritdoc/>
+    public bool Equals(ScalarValue? other)
+    {
+        return other is not null && EqualityComparer<Tensor>.Default.Equals(_value, other._value);
+    }
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => HashCode.Combine(_value);
+
+    /// <inheritdoc/>
+    public override string ToString() => _value.GetArrayString(false);
+
+    T IValue.AsObjectRef<T>() => throw new NotImplementedException();
+}
+
+/// <summary>
 /// Tuple value.
 /// </summary>
 public sealed class TupleValue : IValue, IEquatable<TupleValue?>

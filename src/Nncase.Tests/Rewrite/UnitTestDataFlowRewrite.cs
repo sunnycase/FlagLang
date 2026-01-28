@@ -497,7 +497,11 @@ public class UnitTestDataFlowRewriteAndInferIntegrate : RewriteFixtrue
             var userAnalysis = options.GetAnalysis<IExprUserAnalysisResult>();
             var x = (Expr)result["x"];
             var y = (Expr)result["y"];
-            if (userAnalysis[x].Count() == 1 && userAnalysis[y].Count() == 1)
+
+            static int CountExternalUsers(IEnumerable<BaseExpr> users)
+                => users.Count(u => u is not IRBlock);
+
+            if (CountExternalUsers(userAnalysis[x]) == 1 && CountExternalUsers(userAnalysis[y]) == 1)
             {
                 return x - y;
             }
