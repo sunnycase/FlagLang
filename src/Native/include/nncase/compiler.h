@@ -259,8 +259,8 @@ typedef struct {
 
     void (*pass_manager_add_optimize_ttir)(clr_object_handle_t pass_manager,
                                            int capability);
-    void (*pass_manager_run)(clr_object_handle_t pass_manager,
-                             clr_object_handle_t module);
+    clr_object_handle_t (*pass_manager_run)(clr_object_handle_t pass_manager,
+                                            clr_object_handle_t module);
 
     // IR functions.
     clr_object_handle_t (*file_location_create)(const char *file_path,
@@ -366,6 +366,14 @@ typedef struct {
 
     clr_object_handle_t (*tuple_create)(const clr_object_handle_t *field_ptrs,
                                         size_t field_count);
+
+    size_t (*base_expr_print)(clr_object_handle_t expr, char *buffer,
+                              size_t buffer_length);
+    size_t (*ir_module_get_entry_name)(clr_object_handle_t module,
+                                       char *buffer, size_t buffer_length);
+    size_t (*ir_module_describe_vector_add)(clr_object_handle_t module,
+                                            char *buffer,
+                                            size_t buffer_length);
 } nncase_api_mt_t;
 
 NNCASE_API nncase_api_mt_t *nncase_clr_api();
@@ -667,6 +675,16 @@ class expr : public clr_object_base {
   public:
     using clr_object_base::clr_object_base;
 
+    std::string to_text() const {
+        auto length = nncase_clr_api()->base_expr_print(obj_.get(), nullptr, 0);
+        std::string text(length, '\0');
+        if (length != 0) {
+            nncase_clr_api()->base_expr_print(obj_.get(), text.data(),
+                                              text.size());
+        }
+        return text;
+    }
+
     void set_int32_attribute(std::string_view name, int value) {
         nncase_clr_api()->base_expr_set_int32_attribute(obj_.get(), name.data(),
                                                         name.length(), value);
@@ -881,6 +899,28 @@ class ir_module : public expr {
         return {std::in_place, nncase_clr_api()->ir_module_get_function_by_name(
                                    obj_.get(), name.data(), name.length())};
     }
+
+    std::string get_entry_func_name() const {
+        auto length =
+            nncase_clr_api()->ir_module_get_entry_name(obj_.get(), nullptr, 0);
+        std::string text(length, '\0');
+        if (length != 0) {
+            nncase_clr_api()->ir_module_get_entry_name(obj_.get(), text.data(),
+                                                       text.size());
+        }
+        return text;
+    }
+
+    std::string describe_vector_add() const {
+        auto length = nncase_clr_api()->ir_module_describe_vector_add(
+            obj_.get(), nullptr, 0);
+        std::string text(length, '\0');
+        if (length != 0) {
+            nncase_clr_api()->ir_module_describe_vector_add(
+                obj_.get(), text.data(), text.size());
+        }
+        return text;
+    }
 };
 
 struct compiler_services {
@@ -903,8 +943,9 @@ class pass_manager : public clr_object_base {
                                                          capability);
     }
 
-    void run(const ir_module &module) {
-        nncase_clr_api()->pass_manager_run(obj_.get(), module.get());
+    void run(ir_module &module) {
+        module = {std::in_place,
+                  nncase_clr_api()->pass_manager_run(obj_.get(), module.get())};
     }
 };
 } // namespace nncase::clr

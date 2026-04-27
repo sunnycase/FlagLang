@@ -62,8 +62,23 @@ def test_name_only_add_kernel_is_rejected_before_ptxas():
         def get_entry_func_name(self):
             return "add_kernel"
 
-    with pytest.raises(TypeError, match="structurally recognized vector-add"):
+    with pytest.raises(TypeError, match="actual post-TTIR native module inspection"):
         backend.make_ptx(NamedOnlyModule(), {}, options, 80)
+
+
+def test_fake_vector_add_descriptor_is_rejected_before_ptxas():
+    backend = _cuda_backend()
+    options = backend.parse_options({})
+
+    class FakeDescriptorModule:
+        _flaglang_vector_add = {"kind": "flaglang.vector_add", "version": 1}
+        _flaglang_validated_vector_add = {"kind": "flaglang.vector_add", "version": 1}
+
+        def get_entry_func_name(self):
+            return "add_kernel"
+
+    with pytest.raises(TypeError, match="actual post-TTIR native module inspection"):
+        backend.make_ptx(FakeDescriptorModule(), {}, options, 80)
 
 
 def test_compiled_kernel_rejects_missing_launcher_metadata(tmp_path):
@@ -161,14 +176,16 @@ def test_vector_add_compile_metadata_and_text_dumps_for_non_default_block_size(m
     assert kernel.metadata.cluster_dims == (1, 1, 1)
     assert hasattr(kernel.metadata, "flaglang_kernel")
     assert kernel.metadata.flaglang_kernel["block_size"] == 128
+    assert kernel.metadata.flaglang_kernel["entry_name"]
     assert "mad.lo.u32 %r5, %r2, 128, %r3;" in kernel.asm["ptx"]
 
     for stage in ("ttir", "ttgir", "llir"):
         text = kernel.asm[stage]
         assert "<triton._C.libtriton.ir.module object" not in text
-        assert "entry: _vector_add_kernel" in text
-        assert "ntt.affine.gather" in text
-        assert "ntt.affine.scatter" in text
+        assert kernel.metadata.flaglang_kernel["entry_name"] in text
+        assert "Gather((d0)[s0, s1]" in text
+        assert "Scatter((d0)[s0, s1]" in text
+        assert "descriptor_json" not in text
 
 
 def test_non_vector_add_named_add_kernel_is_rejected(monkeypatch):

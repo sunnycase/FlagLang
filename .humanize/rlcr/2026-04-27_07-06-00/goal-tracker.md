@@ -35,19 +35,21 @@ Source plan: docs/plan/01-vector-add.md
 ## MUTABLE SECTION
 <!-- Update each round with justification for changes -->
 
-### Plan Version: 1 (Updated: Round 0)
+### Plan Version: 2 (Updated: Round 1)
 
 #### Plan Evolution Log
 <!-- Document any changes to the plan with justification -->
 | Round | Change | Reason | Impact on AC |
 |-------|--------|--------|--------------|
 | 0 | Initial plan | - | - |
+| 1 | Accepted task10 re-verification; rejected task12/task13 completion request | Round 1 adds full/tail masked affine IO lowering tests, but the CUDA backend still trusts an AST-created descriptor rather than validating the post-`add_optimize_ttir` native/affine/NTT IR, and current review could not reproduce CUDA runtime availability | AC-5 re-verified; AC-6 remains active; AC-2/AC-6 GPU validation remains blocked in the current review environment |
 
 #### Active Tasks
 <!-- Map each task to its target Acceptance Criterion and routing tag -->
 | Task | Target AC | Status | Tag | Owner | Notes |
 |------|-----------|--------|-----|-------|-------|
-| - | - | none | - | - | No active tasks remain in round 0 |
+| task12 | AC-6 | active | coding | Claude | Rework CUDA `cubin` emission so PTX is generated only after inspecting the actual post-`make_ttir`/native module structure for two affine gathers, one fadd, one affine scatter, shared `program_id(0) * BLOCK_SIZE + d0` relation, mask constraint, pointer roles, dtype, and default semantics. Do not accept a descriptor that was fabricated solely from the Python AST. |
+| task13 | AC-1, AC-2, AC-4, AC-6 | active | analyze | Claude via ask-codex | Re-run final validation after task12, including forced tutorial unit test and benchmark with CUDA available, plus dump checks that prove `.ttir`, `.ttgir`, and `.llir` are actual stage output rather than descriptor summaries. |
 
 ### Completed and Verified
 <!-- Only move tasks here after Codex verification -->
@@ -62,10 +64,8 @@ Source plan: docs/plan/01-vector-add.md
 | AC-4 | task7: Fix checked type and inference behavior for affine load/store rewrites | 0 | 0 | `LoadToAffineGather` now uses the matched call shape/type; `StoreToAffineScatter` inherits call metadata and checked type; `dotnet build` passed; `dotnet test src/Nncase.Tests/Nncase.Tests.csproj -s test.runsettings --filter "FullyQualifiedName~UnitTestTensorizeIO"` passed; forced tutorial progressed to backend `make_cubin` receiving a native IR module |
 | AC-4 | task8: Extend Triton affine domain/symbol/range modeling and relation assertions | 0 | 0 | BitLesson selector returned `NONE`; scalar problem sizes now become affine symbols while `tl.arange` lanes become bounded domains; relation assertions cover vector-add `program_id(0) * BLOCK_SIZE + d0`, `n_elements`, pointer base preservation, multi pointer base rejection, nonlinear mask rejection, and unbounded dynamic lane rejection; `dotnet test src/Nncase.Tests/Nncase.Tests.csproj -s test.runsettings --filter "FullyQualifiedName~UnitTestTensorizeIO"` passed 6 tests |
 | AC-5 | task9: Determine whether existing TIR builder favors direct masked loops or mask peeling | 0 | 0 | BitLesson selector returned `NONE`; ask-codex output `.humanize/skill/2026-04-27_08-03-01-1899926-a73994ce/output.md` recommended direct `T.If`-guarded per-lane loops using existing `T.Serial`, `T.Load`, `T.Store`, and buffer load/store APIs |
-| AC-5 | task10: Implement masked symbolic affine gather/scatter lowering | 0 | 0 | BitLesson selector returned `NONE`; `NTTAffineIOLoweringPass` now binds affine symbols, lowers constraints into per-lane `T.If`, stores gather default values on false masks, makes scatter false masks no-op, and rejects symbol payload mismatches; `NTTTIRSelectionPass` passes selected data buffers; `CSourceConvertVisitor` handles logical constraints and `program_id(0)`; `dotnet test src/Nncase.Tests/Nncase.Tests.csproj -s test.runsettings --filter "FullyQualifiedName~UnitTestNTTAffineIOLowering"` passed 3 tests |
+| AC-5 | task10: Implement masked symbolic affine gather/scatter lowering | 0 | 1 | BitLesson selector returned `NONE`; `NTTAffineIOLoweringPass` now binds affine symbols, lowers constraints into per-lane `T.If`, stores gather default values on false masks, makes scatter false masks no-op, and rejects symbol payload mismatches; round 1 added full-block and tail-block semantic checks for gather/scatter and mismatch message assertions; `dotnet test src/Nncase.Tests/Nncase.Tests.csproj -s test.runsettings --filter "FullyQualifiedName~UnitTestNTTAffineIOLowering"` passed 5 tests in review |
 | AC-6 | task11: Define CUDA `cubin` artifact/launcher contract and affected Python call path | 0 | 0 | BitLesson selector returned `NONE`; ask-codex output `.humanize/skill/2026-04-27_08-13-34-1918390-d7fc9941/output.md` defined the PTX-to-cubin stage boundary and required launcher metadata keys |
-| AC-6 | task12: Implement `cubin` contract and fill CUDA launcher metadata | 0 | 0 | BitLesson selector returned `NONE`; `make_ptx` now emits vector-add PTX for `add_kernel`, fills `name`, `shared`, `num_warps`, `num_ctas`, `cluster_dims`, and scratch metadata; `make_cubin` rejects non-PTX inputs; compile context shutdown is conditional; forced `01-vector-add.py --only_unit_test` passed with max error `0.0` |
-| AC-1, AC-2, AC-4, AC-6 | task13: Run forced tutorial unit test, full benchmark, and targeted C# tests; summarize dumps/logs | 0 | 0 | BitLesson selector returned `NONE`; ask-codex output `.humanize/skill/2026-04-27_08-18-23-1925740-6229f45a/output.md`; `dotnet build`, targeted C# tests, native binding pytest, import/ldd checks, CUDA PyTorch check, forced `01-vector-add.py --only_unit_test`, and forced full `01-vector-add.py` benchmark all passed; dump directory contains fresh `.ttir`, `.ttgir`, `.llir`, `.ptx`, `.cubin`, and `.sass` for `add_kernel` |
 
 ### Explicitly Deferred
 <!-- Items here require strong justification -->
@@ -76,3 +76,6 @@ Source plan: docs/plan/01-vector-add.md
 <!-- Issues discovered during implementation -->
 | Issue | Discovered Round | Blocking AC | Resolution Path |
 |-------|-----------------|-------------|-----------------|
+| CUDA backend validates an AST-created `_flaglang_vector_add` descriptor instead of the actual post-optimization native/affine/NTT IR before PTX emission | 1 | AC-6 | Move recognition into/after `make_ttir` and inspect the actual module/stage output for vector-add affine gather/scatter structure; only then attach or derive the emission contract consumed by `make_ptx`. Add tests proving a fake descriptor or mismatched lowered module cannot emit PTX. |
+| `.ttir`, `.ttgir`, and `.llir` dumps are deterministic descriptor summaries, not textual dumps of the actual stage output | 1 | AC-6 | Implement or call a native module serializer/dump API for each stage, and make dump tests assert real stage text plus affine/NTT markers from the module, not markers copied from descriptor JSON. |
+| Current review environment cannot reproduce CUDA acceptance because `torch.cuda.is_available()` is `False` and `nvidia-smi` cannot communicate with the NVIDIA driver | 1 | AC-2, AC-6 | Restore CUDA driver/runtime availability for the `flaglang` environment, then rerun the import, CUDA PyTorch, forced tutorial unit test, full benchmark, and dump validation commands from task13. |

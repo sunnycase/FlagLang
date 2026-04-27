@@ -140,36 +140,13 @@ def parse(full_name, ext, context):
         return Path(full_name).read_bytes()
 
 
-def _format_flaglang_ir(module, ext):
-    descriptor = getattr(module, "_flaglang_vector_add", None)
-    if not isinstance(descriptor, dict):
-        return None
-
-    lines = [
-        f"flaglang.native_module stage={ext}",
-        f"entry: {descriptor['entry_name']}",
-        f"kind: {descriptor['kind']}",
-        f"dtype: {descriptor['dtype']}",
-        f"block_size: {descriptor['block_size']}",
-        f"parameters: {', '.join(descriptor['parameter_order'])}",
-        f"lane_domain: {descriptor['lane_domain']}",
-        f"affine_relation: {descriptor['relation']}",
-        f"mask_constraint: {descriptor['constraint']}",
-        "ops:",
-        f"  ntt.affine.gather source={descriptor['loads'][0]['source']} default={descriptor['loads'][0]['default']}",
-        f"  ntt.affine.gather source={descriptor['loads'][1]['source']} default={descriptor['loads'][1]['default']}",
-        f"  math.{descriptor['compute']}",
-        f"  ntt.affine.scatter dest={descriptor['store']['dest']}",
-        f"descriptor_json: {json.dumps(descriptor, sort_keys=True)}",
-        "",
-    ]
-    return "\n".join(lines)
-
-
 def _serialize_ir_for_storage(module, ext):
     if isinstance(module, (str, bytes)):
         return module
-    return _format_flaglang_ir(module, ext) or str(module)
+    to_text = getattr(module, "to_text", None)
+    if callable(to_text):
+        return to_text()
+    return str(module)
 
 
 def filter_traceback(e: BaseException):

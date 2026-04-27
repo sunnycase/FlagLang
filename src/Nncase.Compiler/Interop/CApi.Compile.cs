@@ -68,11 +68,12 @@ public static unsafe partial class CApi
     }
 
     [UnmanagedCallersOnly]
-    private static void PassManagerRun(IntPtr pmHandle, IntPtr moduleHandle)
+    private static IntPtr PassManagerRun(IntPtr pmHandle, IntPtr moduleHandle)
     {
         var pm = Get<IPassManager>(pmHandle);
         var module = Get<IR.IRModule>(moduleHandle);
-        pm.RunAsync(module).ConfigureAwait(false).GetAwaiter().GetResult();
+        var result = pm.RunAsync(module).ConfigureAwait(false).GetAwaiter().GetResult();
+        return GCHandle.ToIntPtr(GCHandle.Alloc(result));
     }
 
     private static void TargetIndependentPass(IPassManager passManager)

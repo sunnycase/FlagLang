@@ -7,8 +7,14 @@ using System.Data;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
 using CommunityToolkit.HighPerformance;
 using Nncase.IR;
+using Nncase.IR.Affine;
+using Nncase.IR.Distributed;
+using Nncase.IR.Logics;
+using Nncase.IR.Math;
 using Nncase.TIR;
 using Nncase.Utilities;
 
@@ -55,6 +61,32 @@ public static unsafe partial class CApi
         var name = ToString(namePtr, nameLength);
         var function = module.Functions.IndexOf(f => f.Name == name);
         return function == -1 ? IntPtr.Zero : GCHandle.ToIntPtr(GCHandle.Alloc(module.Functions[function]));
+    }
+
+    [UnmanagedCallersOnly]
+    private static nuint BaseExprPrint(IntPtr exprPtr, byte* buffer, nuint bufferLength)
+    {
+        var expr = Get<IR.BaseExpr>(exprPtr);
+        var text = expr is IR.IRModule module
+            ? PrintModule(module)
+            : SafePrint(expr, PrintFlagsFor(expr));
+        return WriteUtf8(text, buffer, bufferLength);
+    }
+
+    [UnmanagedCallersOnly]
+    private static nuint IRModuleGetEntryName(IntPtr modulePtr, byte* buffer, nuint bufferLength)
+    {
+        var module = Get<IR.IRModule>(modulePtr);
+        var name = SelectEntryBaseFunction(module)?.Name ?? string.Empty;
+        return WriteUtf8(name, buffer, bufferLength);
+    }
+
+    [UnmanagedCallersOnly]
+    private static nuint IRModuleDescribeVectorAdd(IntPtr modulePtr, byte* buffer, nuint bufferLength)
+    {
+        var module = Get<IR.IRModule>(modulePtr);
+        var result = DescribeVectorAddModule(module);
+        return WriteUtf8(JsonSerializer.Serialize(result), buffer, bufferLength);
     }
 
     [UnmanagedCallersOnly]
@@ -455,5 +487,275 @@ public static unsafe partial class CApi
         }
 
         return GCHandle.ToIntPtr(GCHandle.Alloc(tuple));
+    }
+
+    private static nuint WriteUtf8(string text, byte* buffer, nuint bufferLength)
+    {
+        var bytes = Encoding.UTF8.GetBytes(text);
+        if (buffer != null && bufferLength > 0)
+        {
+            var copyLength = Math.Min((int)bufferLength, bytes.Length);
+            bytes.AsSpan(0, copyLength).CopyTo(new Span<byte>(buffer, copyLength));
+        }
+
+        return (nuint)bytes.Length;
+    }
+
+    private static Dictionary<string, object?> DescribeVectorAddModule(IR.IRModule module)
+    {
+        try
+        {
+            var descriptor = BuildVectorAddDescriptor(module);
+            return new()
+            {
+                ["valid"] = true,
+                ["descriptor"] = descriptor,
+                ["text"] = SafePrint(module, Diagnostics.PrinterFlags.Script | Diagnostics.PrinterFlags.Normal),
+            };
+        }
+        catch (Exception ex)
+        {
+            return new()
+            {
+                ["valid"] = false,
+                ["reason"] = ex.Message,
+                ["text"] = SafePrint(module, Diagnostics.PrinterFlags.Script | Diagnostics.PrinterFlags.Normal),
+            };
+        }
+    }
+
+    private static string SafePrint(BaseExpr expr, Diagnostics.PrinterFlags flags)
+    {
+        try
+        {
+            return CompilerServices.Print(expr, flags);
+        }
+        catch (Exception ex)
+        {
+            return $"{expr.GetType().FullName}: print failed: {ex.Message}";
+        }
+    }
+
+    private static string PrintModule(IR.IRModule module)
+    {
+        var functions = module.Functions.ToArray();
+        if (functions.Length == 0)
+        {
+            return SafePrint(module, Diagnostics.PrinterFlags.Script | Diagnostics.PrinterFlags.Normal);
+        }
+
+        return string.Join(
+            Environment.NewLine + Environment.NewLine,
+            functions.Select(function => SafePrint(function, PrintFlagsFor(function))));
+    }
+
+    private static Diagnostics.PrinterFlags PrintFlagsFor(BaseExpr expr)
+    {
+        return expr is TIR.PrimFunction
+            ? Diagnostics.PrinterFlags.Script | Diagnostics.PrinterFlags.Normal
+            : Diagnostics.PrinterFlags.Detailed;
+    }
+
+    private static Dictionary<string, object?> BuildVectorAddDescriptor(IR.IRModule module)
+    {
+        var function = SelectEntryFunction(module)
+            ?? throw new InvalidOperationException("Module does not contain a lowered Function entry.");
+        var parameters = function.Parameters.ToArray();
+        if (parameters.Length != 4)
+        {
+            throw new InvalidOperationException($"Vector-add module must have four parameters, got {parameters.Length}.");
+        }
+
+        for (int i = 0; i < 3; i++)
+        {
+            RequirePointerF32(parameters[i], $"parameter {i}");
+        }
+
+        RequireProblemSize(parameters[3]);
+
+        var calls = ExprCollector.Collect(function.Body.Body).OfType<Call>().ToArray();
+        var gatherCalls = calls.Where(call => call.Target is IR.Affine.Gather).ToArray();
+        if (gatherCalls.Length != 2)
+        {
+            throw new InvalidOperationException($"Vector-add module must contain exactly two affine gathers, got {gatherCalls.Length}.");
+        }
+
+        var xGather = RequireSingleGather(gatherCalls, parameters[0], "x");
+        var yGather = RequireSingleGather(gatherCalls, parameters[1], "y");
+        var addCall = RequireSingleVectorAdd(calls, xGather, yGather);
+        var scatter = RequireSingleScatter(calls, addCall, parameters[2]);
+
+        var xGatherOp = (IR.Affine.Gather)xGather.Target;
+        var yGatherOp = (IR.Affine.Gather)yGather.Target;
+        var scatterOp = (IR.Affine.Scatter)scatter.Target;
+        var blockSize = ValidateRelation(xGatherOp.Relation, xGatherOp.Symbols, xGatherOp.Shape, parameters[3], "x gather");
+        var yBlockSize = ValidateRelation(yGatherOp.Relation, yGatherOp.Symbols, yGatherOp.Shape, parameters[3], "y gather");
+        var scatterBlockSize = ValidateRelation(scatterOp.Relation, scatterOp.Symbols, null, parameters[3], "scatter");
+        if (yBlockSize != blockSize || scatterBlockSize != blockSize)
+        {
+            throw new InvalidOperationException("Vector-add affine IO operations do not share the same lane block size.");
+        }
+
+        var xDefault = DescribeDefaultValue(xGather[IR.Affine.Gather.DefaultValue]);
+        var yDefault = DescribeDefaultValue(yGather[IR.Affine.Gather.DefaultValue]);
+        var parameterOrder = parameters.Select(p => p.Name).ToArray();
+        var parameterTypes = parameters.Select(p => ((Expr)p).CheckedType.ToString()).ToArray();
+        return new()
+        {
+            ["kind"] = "flaglang.vector_add",
+            ["version"] = 1,
+            ["ir_source"] = "post_ttir_native_module",
+            ["entry_name"] = function.Name,
+            ["parameter_order"] = parameterOrder,
+            ["parameter_types"] = parameterTypes,
+            ["pointers"] = parameterOrder.Take(3).ToArray(),
+            ["n_elements_arg"] = parameterOrder[3],
+            ["block_size"] = blockSize,
+            ["dtype"] = "float32",
+            ["element_size"] = 4,
+            ["program_id_axis"] = 0,
+            ["lane_domain"] = $"0 <= d0 < {blockSize}",
+            ["relation"] = $"s0 * {blockSize} + d0",
+            ["constraint"] = $"s0 * {blockSize} + d0 < s1",
+            ["loads"] = new[]
+            {
+                new Dictionary<string, object?> { ["source"] = parameterOrder[0], ["default"] = xDefault },
+                new Dictionary<string, object?> { ["source"] = parameterOrder[1], ["default"] = yDefault },
+            },
+            ["compute"] = "fadd",
+            ["store"] = new Dictionary<string, object?> { ["dest"] = parameterOrder[2] },
+        };
+    }
+
+    private static BaseFunction? SelectEntryBaseFunction(IR.IRModule module)
+    {
+        if (module.Entry is not null)
+        {
+            return module.Entry;
+        }
+
+        var functions = module.Functions.ToArray();
+        return functions.Length == 1 ? functions[0] : null;
+    }
+
+    private static Function? SelectEntryFunction(IR.IRModule module)
+    {
+        if (module.Entry is Function entry)
+        {
+            return entry;
+        }
+
+        var functions = module.Functions.ToArray().OfType<Function>().ToArray();
+        return functions.Length == 1 ? functions[0] : null;
+    }
+
+    private static void RequirePointerF32(IVar parameter, string role)
+    {
+        if (((Expr)parameter).CheckedType is not TensorType { DType: PointerType { ElemType: var elemType }, Shape.IsScalar: true }
+            || !Equals(elemType, DataTypes.Float32))
+        {
+            throw new InvalidOperationException($"Vector-add {role} must be a scalar float32 pointer, got {((Expr)parameter).CheckedType}.");
+        }
+    }
+
+    private static void RequireProblemSize(IVar parameter)
+    {
+        if (((Expr)parameter).CheckedType is not TensorType { Shape.IsScalar: true } tensorType
+            || (!Equals(tensorType.DType, DataTypes.Int32) && !Equals(tensorType.DType, DataTypes.UInt32)))
+        {
+            throw new InvalidOperationException($"Vector-add problem-size parameter must be scalar i32/u32, got {((Expr)parameter).CheckedType}.");
+        }
+    }
+
+    private static Call RequireSingleGather(IReadOnlyList<Call> gathers, IVar source, string role)
+    {
+        var matches = gathers.Where(call => ReferenceEquals(call[IR.Affine.Gather.Source], source)).ToArray();
+        return matches.Length == 1
+            ? matches[0]
+            : throw new InvalidOperationException($"Vector-add module must contain one affine gather for {role} input, got {matches.Length}.");
+    }
+
+    private static Call RequireSingleVectorAdd(IReadOnlyList<Call> calls, Call xGather, Call yGather)
+    {
+        var matches = calls.Where(call =>
+            call.Target is Binary { BinaryOp: BinaryOp.Add }
+            && ReferenceEquals(call[Binary.Lhs], xGather)
+            && ReferenceEquals(call[Binary.Rhs], yGather)).ToArray();
+        return matches.Length == 1
+            ? matches[0]
+            : throw new InvalidOperationException($"Vector-add module must contain one floating add from the two affine gathers, got {matches.Length}.");
+    }
+
+    private static Call RequireSingleScatter(IReadOnlyList<Call> calls, Call addCall, IVar dest)
+    {
+        var matches = calls.Where(call =>
+            call.Target is IR.Affine.Scatter
+            && ReferenceEquals(call[IR.Affine.Scatter.Source], addCall)
+            && ReferenceEquals(call[IR.Affine.Scatter.Dest], dest)).ToArray();
+        return matches.Length == 1
+            ? matches[0]
+            : throw new InvalidOperationException($"Vector-add module must contain one affine scatter of the add result to the output pointer, got {matches.Length}.");
+    }
+
+    private static int ValidateRelation(AffineRelation relation, RankedShape symbols, Shape? shape, IVar problemSize, string role)
+    {
+        if (relation.Domains.Length != 1 || relation.Symbols.Length != 2 || relation.Results.Length != 1)
+        {
+            throw new InvalidOperationException($"Vector-add {role} relation must have one domain, two symbols, and one result.");
+        }
+
+        if (relation.Domains[0].Metadata.Range is not { Min: 0, Max: >= 0 } range || range.Max % 1 != 0)
+        {
+            throw new InvalidOperationException($"Vector-add {role} lane domain must have range [0, BLOCK_SIZE - 1].");
+        }
+
+        var blockSize = checked((int)range.Max + 1);
+        var expectedWithoutConstraint = $"(d0)[s0, s1] -> (((s0 * {blockSize}) + d0))";
+        if (relation.With(constraint: LogicalExpr.True).ToString() != expectedWithoutConstraint)
+        {
+            throw new InvalidOperationException($"Vector-add {role} relation does not match program_id(0) * BLOCK_SIZE + d0.");
+        }
+
+        if (relation.Constraint is LogicalConst { Value: true }
+            || !relation.Constraint.ToString().Contains($"< {problemSize.Name}", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Vector-add {role} relation must be guarded by the problem-size parameter.");
+        }
+
+        if (symbols.Count != 2
+            || symbols[0] is not ProgramIdDim { Axis: 0 }
+            || symbols[1] is not DimVar problemSymbol
+            || problemSymbol.Name != problemSize.Name)
+        {
+            throw new InvalidOperationException($"Vector-add {role} symbols must be program_id(0) and the problem-size parameter.");
+        }
+
+        if (shape is not null)
+        {
+            if (shape is not RankedShape rankedShape
+                || rankedShape.Rank != 1
+                || !rankedShape[0].IsFixed
+                || rankedShape[0].FixedValue != blockSize)
+            {
+                throw new InvalidOperationException($"Vector-add {role} shape must be a one-dimensional BLOCK_SIZE vector.");
+            }
+        }
+
+        return blockSize;
+    }
+
+    private static string DescribeDefaultValue(BaseExpr defaultValue)
+    {
+        if (defaultValue is IR.None)
+        {
+            return "implicit_zero";
+        }
+
+        if (defaultValue is TensorConst tensorConst && tensorConst.Value.BytesBuffer.ToArray().All(b => b == 0))
+        {
+            return "implicit_zero";
+        }
+
+        throw new InvalidOperationException("Vector-add masked loads must use implicit-zero defaults.");
     }
 }

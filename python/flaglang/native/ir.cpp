@@ -157,6 +157,7 @@ void nncase::init_triton_ir(py::module &&m) {
 
     // Exprs
     py::class_<clr::expr>(m, "expr")
+        .def("to_text", &clr::expr::to_text)
         .def("get_loc", &clr::expr::get_location)
         .def("set_loc", &clr::expr::set_location);
 
@@ -175,6 +176,9 @@ void nncase::init_triton_ir(py::module &&m) {
              [](clr::ir_module &self, clr::base_function func) {
                  self.add(std::move(func));
              })
+        .def("__str__", &clr::ir_module::to_text)
+        .def("get_entry_func_name", &clr::ir_module::get_entry_func_name)
+        .def("describe_vector_add", &clr::ir_module::describe_vector_add)
         .def("verify_with_diagnostics", [](clr::ir_module &self) {
             return clr::compiler_services::inference_type(self);
         });

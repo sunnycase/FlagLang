@@ -56,7 +56,7 @@ public unsafe struct CApiMT
     public delegate* unmanaged<IntPtr, byte> CompilerServices_InferenceTypePtr;
 
     public delegate* unmanaged<IntPtr, int, void> PassManagerAddOptimizeTTIRPtr;
-    public delegate* unmanaged<IntPtr, IntPtr, void> PassManagerRunPtr;
+    public delegate* unmanaged<IntPtr, IntPtr, IntPtr> PassManagerRunPtr;
 
     // IR functions.
     public delegate* unmanaged<byte*, nuint, int, int, int, int, IntPtr> FileLocationCreatePtr;
@@ -123,6 +123,10 @@ public unsafe struct CApiMT
     public delegate* unmanaged<IntPtr, IntPtr> PrimFunctionGetBodyPtr;
 
     public delegate* unmanaged<IntPtr*, nuint, IntPtr> TupleCreatePtr;
+
+    public delegate* unmanaged<IntPtr, byte*, nuint, nuint> BaseExprPrintPtr;
+    public delegate* unmanaged<IntPtr, byte*, nuint, nuint> IRModuleGetEntryNamePtr;
+    public delegate* unmanaged<IntPtr, byte*, nuint, nuint> IRModuleDescribeVectorAddPtr;
 }
 
 /// <summary>
@@ -221,6 +225,10 @@ public static unsafe partial class CApi
         mt->PrimFunctionGetBodyPtr = &PrimFunctionGetBody;
 
         mt->TupleCreatePtr = &TupleCreate;
+
+        mt->BaseExprPrintPtr = &BaseExprPrint;
+        mt->IRModuleGetEntryNamePtr = &IRModuleGetEntryName;
+        mt->IRModuleDescribeVectorAddPtr = &IRModuleDescribeVectorAdd;
     }
 
     [UnmanagedCallersOnly]

@@ -1,5 +1,5 @@
 ---
-current_round: 1
+current_round: 2
 max_iterations: 42
 codex_model: gpt-5.5
 codex_effort: xhigh

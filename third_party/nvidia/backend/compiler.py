@@ -7,6 +7,7 @@ from triton.runtime.errors import PTXASError
 
 from dataclasses import dataclass
 import functools
+import json
 from typing import Any, Dict, Tuple, Optional
 from types import ModuleType
 import hashlib
@@ -134,18 +135,37 @@ class VectorAddKernel:
     parameter_order: Tuple[str, str, str, str]
 
 
-def _recognize_vector_add_native_module(src) -> VectorAddKernel:
-    descriptor = getattr(src, "_flaglang_vector_add", None)
-    if not isinstance(descriptor, dict):
+def _inspect_vector_add_native_module(src) -> Dict[str, Any]:
+    describe = getattr(src, "describe_vector_add", None)
+    if not callable(describe):
         entry = _module_entry_name(src)
         raise TypeError(
-            "Unsupported native module for CUDA cubin emission: expected a structurally recognized "
-            f"vector-add module descriptor, got entry {entry!r} without descriptor."
+            "Unsupported native module for CUDA cubin emission: expected actual post-TTIR native "
+            f"module inspection support, got entry {entry!r} of type {type(src).__name__}."
         )
+
+    try:
+        result = json.loads(describe())
+    except Exception as exc:
+        raise TypeError("Native module vector-add inspection did not return valid JSON.") from exc
+
+    if not isinstance(result, dict) or not result.get("valid"):
+        reason = result.get("reason", "unknown validation failure") if isinstance(result, dict) else "malformed validation result"
+        raise TypeError(f"Unsupported native module for CUDA cubin emission: {reason}")
+
+    descriptor = result.get("descriptor")
+    if not isinstance(descriptor, dict):
+        raise TypeError("Native module vector-add inspection did not return a descriptor.")
+    return descriptor
+
+
+def _recognize_vector_add_native_module(src) -> VectorAddKernel:
+    descriptor = _inspect_vector_add_native_module(src)
 
     required = {
         "kind",
         "version",
+        "ir_source",
         "entry_name",
         "parameter_order",
         "pointers",
@@ -166,6 +186,8 @@ def _recognize_vector_add_native_module(src) -> VectorAddKernel:
 
     if descriptor["kind"] != "flaglang.vector_add" or descriptor["version"] != 1:
         raise TypeError(f"Unsupported vector-add descriptor kind/version: {descriptor.get('kind')!r}/{descriptor.get('version')!r}.")
+    if descriptor["ir_source"] != "post_ttir_native_module":
+        raise TypeError(f"Vector-add descriptor must come from post-TTIR native module inspection, got {descriptor['ir_source']!r}.")
 
     name = descriptor["entry_name"]
     module_entry = _module_entry_name(src)
@@ -406,6 +428,7 @@ class CUDABackend(BaseBackend):
         # passes.common.add_symbol_dce(pm)
         # passes.ttir.add_loop_unroll(pm)
         pm.run(mod)
+        mod._flaglang_validated_vector_add = _inspect_vector_add_native_module(mod)
         return mod
 
     @staticmethod
@@ -593,6 +616,7 @@ class CUDABackend(BaseBackend):
             _initialize_cuda_kernel_metadata(metadata, kernel.name, opt)
             metadata["flaglang_kernel"] = {
                 "kind": "vector_add",
+                "entry_name": kernel.name,
                 "block_size": kernel.block_size,
                 "dtype": kernel.dtype,
                 "parameter_order": kernel.parameter_order,
