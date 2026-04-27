@@ -253,39 +253,44 @@ public static class TritonAffineUtility
 
         protected override AffineExpr? VisitLeafDimProduct(DimProduct expr)
         {
-            AffineExpr? result = null;
+            AffineExpr? linearFactor = null;
+            long scale = 1;
             foreach (var factor in expr.Operands)
             {
-                if (Visit(factor) is AffineConstantOrSymbol affineFactor)
-                {
-                    if (result is null)
-                    {
-                        result = affineFactor;
-                    }
-                    else
-                    {
-                        result *= affineFactor;
-                    }
-                }
-                else
+                var affineFactor = Visit(factor);
+                if (affineFactor is null)
                 {
                     return null;
                 }
+
+                if (affineFactor is AffineConstant constant)
+                {
+                    scale *= constant.Value;
+                    continue;
+                }
+
+                if (linearFactor is not null)
+                {
+                    return null;
+                }
+
+                linearFactor = affineFactor;
             }
 
-            if (expr.Scale != 1)
+            if (linearFactor is null)
             {
-                if (result is null)
-                {
-                    result = expr.Scale;
-                }
-                else
-                {
-                    result *= expr.Scale;
-                }
+                linearFactor = scale;
+                scale = 1;
             }
 
-            return result!;
+            scale *= expr.Scale;
+
+            if (scale != 1)
+            {
+                linearFactor = linearFactor * scale;
+            }
+
+            return linearFactor;
         }
 
         private AffineSymbol AddSymbol(Dimension value)

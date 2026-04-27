@@ -158,6 +158,11 @@ public partial class NTT
         return new Call(new Gather(axis), input, indcies, ret);
     }
 
+    public static Call AffineGather(Expr source, Expr defaultValue, Expr output, IR.Affine.AffineRelation relation, RankedShape symbols, Shape shape)
+    {
+        return new Call(new TIR.NTT.AffineGather(relation, symbols, shape), source, defaultValue, output);
+    }
+
     public static Expr GetItem(Expr input, BaseExpr index, Expr ret)
     {
         return new Call(new GetItem(), input, index, ret);
@@ -236,6 +241,11 @@ public partial class NTT
     public static Call ScatterND(Expr input, Expr indices, Expr updates, Expr output)
     {
         return new Call(new TIR.NTT.ScatterND(), input, indices, updates, output);
+    }
+
+    public static Call AffineScatter(Expr source, Expr dest, IR.Affine.AffineRelation relation, RankedShape symbols)
+    {
+        return new Call(new TIR.NTT.AffineScatter(relation, symbols), source, dest);
     }
 
     public static Expr Stack(Expr[] inputs, Expr ret, int axis)

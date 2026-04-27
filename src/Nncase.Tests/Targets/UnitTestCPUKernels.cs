@@ -14,6 +14,7 @@ using System.Threading.Tasks;
 using NetFabric.Hyperlinq;
 using Nncase.CodeGen;
 using Nncase.IR;
+using Nncase.IR.Affine;
 using Nncase.IR.Math;
 using Nncase.IR.NN;
 using Nncase.IR.Tensors;
@@ -2210,6 +2211,127 @@ public sealed class UnitTestCPUKernels : TestClassBase
         await RunCases($"Theory{count}", feedDict, posts);
     }
 
+    [Fact]
+    public async Task TestAffineGatherKernelMatchesEvaluator()
+    {
+        var ptrBase = new Var("ptr_base", TensorType.Pointer(DataTypes.Float32));
+        var lane = new Var("lane", TensorType.Scalar(DataTypes.Int32));
+
+        var offsets = IR.F.Tensors.Range((Const)0, (Const)4, (Const)1);
+        var addrDelta = IR.F.Math.Binary(BinaryOp.Add, offsets, lane);
+        var ptrExpr = IR.F.Math.Binary(BinaryOp.Add, ptrBase, addrDelta);
+        var mask = IR.F.Math.Compare(CompareOp.LowerThan, addrDelta, (Const)64);
+        var defaultValue = Const.FromTensor(Tensor.Zeros(DataTypes.Float32, new long[] { 4 }));
+        var load = IR.F.Triton.Load(ptrExpr, mask, defaultValue);
+
+        var backing = Tensor.From<float>(Enumerable.Range(0, 64).Select(i => (float)i).ToArray(), new long[] { 64 });
+
+        using var pinned = backing.PinBuffer();
+        ulong pointerValue;
+        unsafe
+        {
+            pointerValue = (ulong)pinned.Pointer;
+        }
+
+        var pointerTensor = Tensor.FromPointer(pointerValue, DataTypes.Float32);
+        var feedDict = new Dictionary<IVar, IValue>
+        {
+            { ptrBase, Value.FromTensor(pointerTensor) },
+            { lane, Value.FromTensor(Tensor.FromScalar(3)) },
+        };
+
+        await RunCases(nameof(TestAffineGatherKernelMatchesEvaluator), feedDict, new BaseExpr[] { load });
+    }
+
+    [Fact]
+    public async Task TestAffineGatherStridedKernelMatchesEvaluator()
+    {
+        var ptrBase = new Var("ptr_base_strided", TensorType.Pointer(DataTypes.Float32));
+        var lane = new Var("lane", TensorType.Scalar(DataTypes.Int32));
+
+        var offsets = IR.F.Tensors.Range((Const)0, (Const)16, (Const)4);
+        var stride = IR.F.Math.Binary(BinaryOp.Mul, lane, (Const)8);
+        var addrDelta = IR.F.Math.Binary(BinaryOp.Add, offsets, stride);
+        var ptrExpr = IR.F.Math.Binary(BinaryOp.Add, ptrBase, addrDelta);
+        var mask = IR.F.Math.Compare(CompareOp.LowerThan, addrDelta, (Const)96);
+        var defaultValue = Const.FromTensor(Tensor.Zeros(DataTypes.Float32, new long[] { 4 }));
+        var load = IR.F.Triton.Load(ptrExpr, mask, defaultValue);
+
+        var backing = Tensor.From<float>(Enumerable.Range(0, 96).Select(i => (float)(i + 1)).ToArray(), new long[] { 96 });
+
+        using var pinned = backing.PinBuffer();
+        ulong pointerValue;
+        unsafe
+        {
+            pointerValue = (ulong)pinned.Pointer;
+        }
+
+        var pointerTensor = Tensor.FromPointer(pointerValue, DataTypes.Float32);
+        var feedDict = new Dictionary<IVar, IValue>
+        {
+            { ptrBase, Value.FromTensor(pointerTensor) },
+            { lane, Value.FromTensor(Tensor.FromScalar(2)) },
+        };
+
+        await RunCases(nameof(TestAffineGatherStridedKernelMatchesEvaluator), feedDict, new BaseExpr[] { load });
+    }
+
+    [Fact]
+    public async Task TestAffineScatterKernelMatchesEvaluator()
+    {
+        var ptrBase = new Var("ptr_base_scatter", TensorType.Pointer(DataTypes.Float32));
+        var lane = new Var("lane_scatter", TensorType.Scalar(DataTypes.Int32));
+        var valueVar = new Var("value", new TensorType(DataTypes.Float32, new RankedShape(4)));
+
+        var offsets = IR.F.Tensors.Range((Const)0, (Const)4, (Const)1);
+        var addrDelta = IR.F.Math.Binary(BinaryOp.Add, offsets, lane);
+        var ptrExpr = IR.F.Math.Binary(BinaryOp.Add, ptrBase, addrDelta);
+        var mask = IR.F.Math.Compare(CompareOp.LowerThan, addrDelta, (Const)64);
+        var store = IR.F.Triton.Store(ptrExpr, valueVar, mask);
+
+        var valueTensor = Tensor.From<float>(new float[] { 10f, 20f, 30f, 40f }, new long[] { 4 });
+        var evalBacking = Tensor.From<float>(Enumerable.Repeat(0f, 64).ToArray(), new long[] { 64 });
+        var rtBacking = Tensor.From<float>(Enumerable.Repeat(0f, 64).ToArray(), new long[] { 64 });
+
+        using var evalPinned = evalBacking.PinBuffer();
+        using var rtPinned = rtBacking.PinBuffer();
+        ulong evalPointer;
+        ulong rtPointer;
+        unsafe
+        {
+            evalPointer = (ulong)evalPinned.Pointer;
+            rtPointer = (ulong)rtPinned.Pointer;
+        }
+
+        var laneValue = Value.FromTensor(Tensor.FromScalar(5));
+        var valueInput = Value.FromTensor(valueTensor);
+        var feedDict = new Dictionary<IVar, IValue>
+        {
+            { ptrBase, Value.FromTensor(Tensor.FromPointer(evalPointer, DataTypes.Float32)) },
+            { lane, laneValue },
+            { valueVar, valueInput },
+        };
+
+        var rtFeedDict = new Dictionary<IVar, IValue>
+        {
+            { ptrBase, Value.FromTensor(Tensor.FromPointer(rtPointer, DataTypes.Float32)) },
+            { lane, laneValue },
+            { valueVar, valueInput },
+        };
+
+        await RunCases(nameof(TestAffineScatterKernelMatchesEvaluator), feedDict, new BaseExpr[] { store }, rtFeedDict);
+
+        var expected = Enumerable.Repeat(0f, 64).ToArray();
+        var values = valueTensor.ToArray<float>();
+        for (int i = 0; i < values.Length; i++)
+        {
+            expected[5 + i] = values[i];
+        }
+
+        Assert.Equal(expected, evalBacking.ToArray<float>());
+        Assert.Equal(expected, rtBacking.ToArray<float>());
+    }
+
     internal async Task RunCases(string dumpDir, Dictionary<IVar, IValue> feedDict, IEnumerable<BaseExpr> posts, Dictionary<IVar, IValue>? feedDictRT = null, bool enableAutoDist = true)
     {
         var postArray = posts.ToArray();
@@ -2235,12 +2357,52 @@ public sealed class UnitTestCPUKernels : TestClassBase
             return;
         }
 
-        var main = new Function(new IRBlock(fusion.Body, kernelCase.Vars.ToArray()));
+        if (!CompilerServices.InferenceType((Expr)fusion.Body))
+        {
+            throw new InvalidOperationException("Kernel body type inference failed before affine rewrite.");
+        }
+
+        var inputs = kernelCase.Inputs.ToArray();
+        var evalValue = ((Expr)fusion.Body).EvaluateUnwrapped(kernelCase.Vars.Zip(inputs).ToDictionary(p => p.First, p => (IValue)Value.FromTensor(p.Second)));
+        var outputs = ValueToTensors(evalValue);
+
+        var rewriteContext = new Passes.RunPassContext();
+        var runtimeBody = CompilerServices.Rewrite(
+            (Expr)fusion.Body,
+            [
+                new Passes.Rules.Triton.LoadToAffineGather(),
+                new Passes.Rules.Triton.StoreToAffineScatter(),
+            ],
+            rewriteContext);
+
+        if (ContainsTritonIO(runtimeBody))
+        {
+#if DEBUG
+            System.Console.WriteLine("[UnitTestCPUKernels] Triton load/store rewrite failed. Body:");
+            System.Console.WriteLine(CompilerServices.Print(runtimeBody));
+#endif
+        }
+
+        if (ContainsTritonIO(runtimeBody))
+        {
+            throw new InvalidOperationException("Affine rewrite did not eliminate Triton load/store ops.");
+        }
+
+        if (!CompilerServices.InferenceType(runtimeBody))
+        {
+            throw new InvalidOperationException("Kernel body type inference failed after affine rewrite.");
+        }
+
+    #if DEBUG
+        DumpAffineRuntimeBody(runtimeBody);
+        System.Console.WriteLine($"[UnitTestCPUKernels] Runtime body:\n{CompilerServices.Print(runtimeBody)}");
+    #endif
+
+        var runtimeFusion = fusion.With(body: runtimeBody, parameters: kernelCase.Vars.ToArray());
+        var main = new Function(new IRBlock(runtimeFusion.Body, kernelCase.Vars.ToArray()));
         main.Metadata = fusion.Body.Metadata;
 
         var module = new IR.IRModule(main);
-        var inputs = kernelCase.Inputs.ToArray();
-        var outputs = ((Expr)fusion.Body).EvaluateUnwrapped(kernelCase.Vars.Zip(inputs).ToDictionary(p => p.First, p => (IValue)Value.FromTensor(p.Second))).AsTensors();
 
 #if DEBUG
         for (var i = 0; i < inputs.Length; i++)
@@ -2264,11 +2426,13 @@ public sealed class UnitTestCPUKernels : TestClassBase
         Tensor[] actuals;
         if (kernelCase.RTInputs.Any())
         {
-            actuals = Testing.RunKModel(kmodel_path, Diagnostics.DumpScope.Current.Directory, kernelCase.RTInputs.ToArray()).AsTensors();
+            var value = Testing.RunKModel(kmodel_path, Diagnostics.DumpScope.Current.Directory, kernelCase.RTInputs.ToArray());
+            actuals = ValueToTensors(value);
         }
         else
         {
-            actuals = Testing.RunKModel(kmodel_path, Diagnostics.DumpScope.Current.Directory, inputs).AsTensors();
+            var value = Testing.RunKModel(kmodel_path, Diagnostics.DumpScope.Current.Directory, inputs);
+            actuals = ValueToTensors(value);
         }
 #if DEBUG
         for (int i = 0; i < actuals.Length; i++)
@@ -2301,4 +2465,52 @@ public sealed class UnitTestCPUKernels : TestClassBase
         compiler.TIRPass(pmgr);
         await pmgr.RunAsync(module);
     }
+
+    private bool ContainsTritonIO(BaseExpr expr)
+    {
+        if (expr is Call call && (call.Target is IR.Triton.Load || call.Target is IR.Triton.Store))
+        {
+            return true;
+        }
+
+        foreach (var operand in expr.Operands)
+        {
+            if (ContainsTritonIO(operand))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private Tensor[] ValueToTensors(IValue value)
+    {
+        return value switch
+        {
+            NoneValue => Array.Empty<Tensor>(),
+            _ => value.AsTensors(),
+        };
+    }
+
+#if DEBUG
+    private void DumpAffineRuntimeBody(BaseExpr runtimeBody)
+    {
+        if (runtimeBody is Call call && call.Target is IR.Affine.Gather)
+        {
+            var sourceType = call[IR.Affine.Gather.Source].CheckedType;
+            var defaultType = call[IR.Affine.Gather.DefaultValue].CheckedType;
+            System.Console.WriteLine($"[UnitTestCPUKernels] Gather return type: {call.CheckedType}, source: {sourceType}, default: {defaultType}");
+        }
+
+        foreach (var operand in runtimeBody.Operands)
+        {
+            if (operand is Expr expr)
+            {
+                DumpAffineRuntimeBody(expr);
+            }
+        }
+    }
+#endif
+
 }

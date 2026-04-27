@@ -118,6 +118,7 @@ public abstract class NTTTarget : Target
     {
         passManager.Add<Passes.Transforms.FlattenIRBlockPass>();
         passManager.Add<NTTTIRSelectionPass>(NTTModuleCompiler.ModuleKind);
+        passManager.Add<NTTAffineIOLoweringPass>();
     }
 
     public override void RegisterPostAutoVectorizePass(IPassManager passManager, CompileOptions options)

@@ -87,6 +87,17 @@ public partial class BinaryEvaluator : IEvaluator<Binary>, ITypeInferencer<Binar
     {
         var lhs = context.GetArgumentValueAsTensor(binary, Binary.Lhs);
         var rhs = context.GetArgumentValueAsTensor(binary, Binary.Rhs);
+
+        if (lhs.ElementType is PointerType || rhs.ElementType is PointerType)
+        {
+            if (context.GetReturnType() is not TensorType returnType)
+            {
+                throw new InvalidOperationException("Binary evaluator requires tensor return type for pointer ops");
+            }
+
+            return Value.FromTensor(EvaluatePointerBinary(binary, lhs, rhs, returnType));
+        }
+
         var originDtype = lhs.ElementType;
         IValue result;
         if (lhs.Shape.IsScalar && rhs.Shape.IsScalar)
@@ -110,14 +121,6 @@ public partial class BinaryEvaluator : IEvaluator<Binary>, ITypeInferencer<Binar
             else if (lhs.ElementType == DataTypes.UInt32 && rhs.ElementType == DataTypes.UInt32)
             {
                 result = Value.FromTensor(Tensor.FromScalar(Compute(binary.BinaryOp, lhs.ToScalar<uint>(), rhs.ToScalar<uint>())));
-            }
-            else if (lhs.ElementType is PointerType && (rhs.ElementType == DataTypes.UInt32 || rhs.ElementType == DataTypes.UInt64))
-            {
-                result = Value.FromTensor(Tensor.FromScalar(Compute(binary.BinaryOp, lhs.ToScalar<ulong>(), rhs.ToScalar<ulong>())));
-            }
-            else if ((lhs.ElementType == DataTypes.UInt32 || lhs.ElementType == DataTypes.UInt64) && rhs.ElementType is PointerType)
-            {
-                result = Value.FromTensor(Tensor.FromScalar(Compute(binary.BinaryOp, lhs.ToScalar<ulong>(), rhs.ToScalar<ulong>())));
             }
             else
             {
@@ -311,6 +314,79 @@ public partial class BinaryEvaluator : IEvaluator<Binary>, ITypeInferencer<Binar
         BinaryOp.Pow => System.MathF.Pow(a, b),
         _ => throw new ArgumentOutOfRangeException(nameof(op)),
     };
+
+    private Tensor EvaluatePointerBinary(Binary binary, Tensor lhs, Tensor rhs, TensorType resultType)
+    {
+        if (resultType.DType is not PointerType pointerType)
+        {
+            throw new InvalidOperationException("Pointer binary expects a pointer return type");
+        }
+
+        var lhsUInt = ConvertPointerOperandToUInt64Tensor(lhs);
+        var rhsUInt = ConvertPointerOperandToUInt64Tensor(rhs);
+        var lhsShape = lhsUInt.Shape.ToValueArray();
+        var rhsShape = rhsUInt.Shape.ToValueArray();
+        var lhsStrides = lhsUInt.Strides.ToArray();
+        var rhsStrides = rhsUInt.Strides.ToArray();
+        var resultShape = resultType.Shape.ToValueArray();
+        var resultTensor = resultShape.Length == 0 ? new Tensor<ulong>(Array.Empty<long>()) : new Tensor<ulong>(resultShape);
+        var resultSpan = resultTensor.Buffer.Span;
+        var lhsSpan = lhsUInt.Buffer.Span;
+        var rhsSpan = rhsUInt.Buffer.Span;
+        var totalElements = resultShape.Length == 0 ? 1 : TensorUtilities.GetProduct(resultShape);
+        var outIndices = resultShape.Length == 0 ? Array.Empty<long>() : new long[resultShape.Length];
+        var lhsIndices = lhsShape.Length == 0 ? Array.Empty<long>() : new long[lhsShape.Length];
+        var rhsIndices = rhsShape.Length == 0 ? Array.Empty<long>() : new long[rhsShape.Length];
+        for (long linear = 0; linear < totalElements; linear++)
+        {
+            if (outIndices.Length > 0)
+            {
+                TensorUtilities.UnravelIndex(linear, resultShape, outIndices);
+            }
+
+            var lhsOffset = GetBroadcastOffset(outIndices, lhsShape, lhsStrides, lhsIndices);
+            var rhsOffset = GetBroadcastOffset(outIndices, rhsShape, rhsStrides, rhsIndices);
+            var lhsValue = lhsSpan[(int)lhsOffset];
+            var rhsValue = rhsSpan[(int)rhsOffset];
+            resultSpan[(int)linear] = Compute(binary.BinaryOp, lhsValue, rhsValue);
+        }
+
+        return resultTensor.CastElementTo(pointerType, CastMode.Reinterpret);
+    }
+
+    private Tensor<ulong> ConvertPointerOperandToUInt64Tensor(Tensor operand)
+    {
+        Tensor converted = operand.ElementType switch
+        {
+            PointerType => operand.CastElementTo(DataTypes.UInt64, CastMode.Reinterpret),
+            _ when operand.ElementType.IsIntegral() => operand.CastElementTo(DataTypes.UInt64),
+            _ => throw new InvalidOperationException("Pointer arithmetic only supports pointer or integral operands"),
+        };
+
+        return (Tensor<ulong>)converted;
+    }
+
+    private long GetBroadcastOffset(long[] outIndices, long[] operandShape, long[] operandStrides, long[] scratch)
+    {
+        if (operandShape.Length == 0)
+        {
+            return 0;
+        }
+
+        if (outIndices.Length < operandShape.Length)
+        {
+            throw new InvalidOperationException("Broadcast rank mismatch");
+        }
+
+        var rankDiff = outIndices.Length - operandShape.Length;
+        for (int i = 0; i < operandShape.Length; i++)
+        {
+            var sourceIndex = operandShape[i] == 1 ? 0 : outIndices[i + rankDiff];
+            scratch[i] = sourceIndex;
+        }
+
+        return TensorUtilities.GetLinearOffset(operandStrides, scratch);
+    }
 
     private Tensor Ort_compute(Binary binary, Tensor lhs, Tensor rhs, DataType dataType)
     {

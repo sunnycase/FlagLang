@@ -55,6 +55,8 @@ public sealed partial class LoadToAffineGather : IRewriteRule
             return null;
         }
 
-        return IR.F.Affine.Gather(ptrBaseAndReadDim.PtrBase, relation, symbols, ptr.CheckedShape, other);
+        var gatherCall = IR.F.Affine.Gather(ptrBaseAndReadDim.PtrBase, relation, symbols, load.CheckedShape, other).InheritMetaData(call);
+        gatherCall.CheckedType = load.CheckedType;
+        return gatherCall;
     }
 }

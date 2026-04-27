@@ -1,6 +1,7 @@
 ﻿// Copyright (c) SunnyCase. All rights reserved.
 // Licensed under the Apache license. See LICENSE file in the project root for full license information.
 
+using Nncase.CostModel;
 using Nncase.Diagnostics;
 using Nncase.IR;
 using Nncase.IR.Affine;
@@ -11,7 +12,7 @@ namespace Nncase.Evaluator.Affine;
 /// Evaluator for <see cref="Scatter"/>.
 /// </summary>
 [TypeInferGenerator]
-public partial class ScatterEvaluator : ITypeInferencer<Scatter>, IOpPrinter<Scatter>
+public partial class ScatterEvaluator : ITypeInferencer<Scatter>, IOpPrinter<Scatter>, ICostEvaluator<Scatter>
 {
     public string Visit(IPrintOpContext context, Scatter target)
     {
@@ -21,6 +22,18 @@ public partial class ScatterEvaluator : ITypeInferencer<Scatter>, IOpPrinter<Sca
         }
 
         return context.GetDefault(target);
+    }
+
+    public Cost Visit(ICostEvaluateContext context, Scatter target)
+    {
+        var sourceType = context.GetArgumentType<TensorType>(target, Scatter.Source);
+        var bytes = CostUtility.GetMemoryAccess(sourceType);
+        return new()
+        {
+            [CostFactorNames.MemoryLoad] = bytes,
+            [CostFactorNames.MemoryStore] = bytes,
+            [CostFactorNames.CPUCycles] = bytes,
+        };
     }
 
     private IRType Visit(Scatter target, TensorType source, TensorType dest)
