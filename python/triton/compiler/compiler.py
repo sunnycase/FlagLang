@@ -273,6 +273,7 @@ def compile(src, target=None, options=None, _env_vars=None):
     metadata = {
         "hash": hash,
         "target": target,
+        "name": src.name,
         **options.__dict__,
         **env_vars,
     }
@@ -348,7 +349,7 @@ def compile(src, target=None, options=None, _env_vars=None):
     # this is likely due to the llvm-symbolizer forking a process
     # TODO: Reconcile the difference here between the ASAN and non-ASAN path with enabling
     # multithreading in the MLIR context
-    if not knobs.compilation.enable_asan:
+    if not knobs.compilation.enable_asan and hasattr(context, "disable_multithreading"):
         context.disable_multithreading()
 
     # notify any listener

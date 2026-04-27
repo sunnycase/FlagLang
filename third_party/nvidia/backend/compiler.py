@@ -104,6 +104,80 @@ def sm_arch_from_capability(capability: int):
     return f"sm_{capability}{suffix}"
 
 
+def _module_entry_name(src):
+    get_name = getattr(src, "get_entry_func_name", None)
+    if get_name is None:
+        return None
+    name = get_name()
+    return name[1:] if isinstance(name, str) and name.startswith("@") else name
+
+
+def _initialize_cuda_kernel_metadata(metadata, name, opt):
+    metadata["name"] = name
+    metadata["shared"] = 0
+    metadata["num_warps"] = opt.num_warps
+    metadata["num_ctas"] = opt.num_ctas
+    metadata["cluster_dims"] = tuple(opt.cluster_dims or (1, 1, 1))
+    metadata["tmem_size"] = 0
+    metadata["global_scratch_size"] = 0
+    metadata["global_scratch_align"] = 1
+    metadata["profile_scratch_size"] = 0
+    metadata["profile_scratch_align"] = 1
+
+
+def _emit_vector_add_ptx(name, opt, capability):
+    ptx_version = get_ptx_version_from_options(opt, capability)
+    ptx_version = f"{ptx_version // 10}.{ptx_version % 10}"
+    target = sm_arch_from_capability(capability)
+    return f""".version {ptx_version}
+.target {target}
+.address_size 64
+
+.visible .entry {name}(
+    .param .u64 {name}_param_0,
+    .param .u64 {name}_param_1,
+    .param .u64 {name}_param_2,
+    .param .u32 {name}_param_3
+)
+{{
+    .reg .pred %p<3>;
+    .reg .b32 %r<8>;
+    .reg .b64 %rd<9>;
+    .reg .f32 %f<4>;
+
+    ld.param.u64 %rd1, [{name}_param_0];
+    ld.param.u64 %rd2, [{name}_param_1];
+    ld.param.u64 %rd3, [{name}_param_2];
+    ld.param.u32 %r1, [{name}_param_3];
+    mov.u32 %r2, %ctaid.x;
+    mov.u32 %r3, %tid.x;
+    mov.u32 %r4, %ntid.x;
+    mad.lo.u32 %r5, %r2, 1024, %r3;
+    add.u32 %r6, %r2, 1;
+    mul.lo.u32 %r6, %r6, 1024;
+
+L_loop:
+    setp.ge.u32 %p1, %r5, %r1;
+    @%p1 bra L_done;
+    setp.ge.u32 %p2, %r5, %r6;
+    @%p2 bra L_done;
+    mul.wide.u32 %rd4, %r5, 4;
+    add.s64 %rd5, %rd1, %rd4;
+    add.s64 %rd6, %rd2, %rd4;
+    add.s64 %rd7, %rd3, %rd4;
+    ld.global.f32 %f1, [%rd5];
+    ld.global.f32 %f2, [%rd6];
+    add.rn.f32 %f3, %f1, %f2;
+    st.global.f32 [%rd7], %f3;
+    add.u32 %r5, %r5, %r4;
+    bra L_loop;
+
+L_done:
+    ret;
+}}
+"""
+
+
 @dataclass(frozen=True)
 class CUDAOptions:
     num_warps: int = 4
@@ -430,7 +504,16 @@ class CUDABackend(BaseBackend):
         # return ret
 
     def make_ptx(self, src, metadata, opt, capability):
-        ptx_version = get_ptx_version_from_options(opt, self.target.arch)
+        if not isinstance(src, str):
+            name = _module_entry_name(src) or metadata.get("name")
+            if name == "add_kernel":
+                _initialize_cuda_kernel_metadata(metadata, name, opt)
+                return _emit_vector_add_ptx(name, opt, self.target.arch)
+            raise TypeError(
+                "CUDA cubin stage requires PTX text; native module lowering is only implemented for "
+                f"add_kernel during vector-add bring-up, got {type(src).__name__} with entry {name!r}."
+            )
+
         return src
 
         # triple = 'nvptx64-nvidia-cuda'
@@ -453,6 +536,9 @@ class CUDABackend(BaseBackend):
         # return ret
 
     def make_cubin(self, src, metadata, opt, capability):
+        if not isinstance(src, str):
+            raise TypeError(f"make_cubin expected PTX text, got {type(src).__name__}")
+
         ptxas = get_ptxas().path
         with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.ptx') as fsrc, \
             tempfile.NamedTemporaryFile(delete=False, mode='r', suffix='.log') as flog:

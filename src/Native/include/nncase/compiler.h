@@ -658,9 +658,9 @@ class tensor_type : public ir_type {
   public:
     using ir_type::ir_type;
 
-    tensor_type(datatype element_type, clr::shape shape);
+    NNCASE_API tensor_type(datatype element_type, clr::shape shape);
 
-    clr::shape shape();
+    NNCASE_API clr::shape shape();
 };
 
 class expr : public clr_object_base {
@@ -681,7 +681,7 @@ class expr : public clr_object_base {
         nncase_clr_api()->base_expr_set_location(obj_.get(), loc.get());
     }
 
-    shape get_shape();
+    NNCASE_API shape get_shape();
 };
 
 class ir_tuple : public expr {

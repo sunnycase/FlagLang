@@ -18,9 +18,9 @@ namespace Nncase.Passes.Rules.Triton;
 
 public static class TritonAffineUtility
 {
-    public static (AffineRelation? Relation, RankedShape? Symbols) GenerateReadMap(Dimension readDim, LogicalExpr constraint)
+    public static (AffineRelation? Relation, RankedShape? Symbols) GenerateReadMap(Dimension readDim, LogicalExpr constraint, IReadOnlyList<DimVar> domains)
     {
-        var generator = new AffineAddressGenerator();
+        var generator = new AffineAddressGenerator(domains);
         return generator.Generate(readDim, constraint);
     }
 
@@ -28,10 +28,13 @@ public static class TritonAffineUtility
     {
         private readonly List<(DimVar Dim, Expr Value)> _ptrBases = new();
         private readonly List<DimVar> _domains = new();
+        private readonly Dictionary<Var, DimVar> _scalarSymbols = new();
 
         public ReadDimGenerator()
         {
         }
+
+        public IReadOnlyList<DimVar> Domains => _domains;
 
         public PtrBaseAndReadDim? GeneratePtrBaseAndReadDim(Expr ptr)
         {
@@ -103,13 +106,20 @@ public static class TritonAffineUtility
         {
             if (expr.CheckedType is TensorType tt && tt.Shape.IsScalar && (tt.DType.IsIntegral() || tt.DType.IsPointer()))
             {
-                var dimVar = new DimVar(expr.Name);
                 if (tt.DType.IsPointer())
                 {
+                    var dimVar = new DimVar(expr.Name);
                     _ptrBases.Add((dimVar, expr));
+                    return dimVar;
                 }
 
-                return dimVar;
+                if (!_scalarSymbols.TryGetValue(expr, out var symbolDim))
+                {
+                    symbolDim = new DimVar(expr.Name);
+                    _scalarSymbols.Add(expr, symbolDim);
+                }
+
+                return symbolDim;
             }
 
             return null;
@@ -161,9 +171,10 @@ public static class TritonAffineUtility
                 && Visit(expr[Range.Step]) is Dimension step)
             {
                 var offset = AddDomain();
-                if (Visit(expr[Range.End]) is DimConst end)
+                if (Visit(expr[Range.End]) is DimConst end && step is DimConst stepConst && stepConst.Value > 0)
                 {
-                    offset.Metadata.Range = new(start.Value, end.Value - 1);
+                    var length = (end.Value - start.Value + stepConst.Value - 1) / stepConst.Value;
+                    offset.Metadata.Range = new(0, length - 1);
                 }
 
                 return start + (offset * step);
@@ -184,13 +195,21 @@ public static class TritonAffineUtility
 
     private class AffineAddressGenerator : ExprVisitor<AffineExpr?, Unit>
     {
+        private readonly IReadOnlyList<DimVar> _sourceDomains;
+        private readonly Dictionary<DimVar, AffineDim> _domainMap = new();
+        private readonly Dictionary<Dimension, AffineSymbol> _symbolMap = new();
         private readonly List<AffineDim> _domains = new();
         private readonly List<(AffineSymbol Symbol, Dimension Value)> _symbols = new();
+
+        public AffineAddressGenerator(IReadOnlyList<DimVar> sourceDomains)
+        {
+            _sourceDomains = sourceDomains;
+        }
 
         public (AffineRelation? Relation, RankedShape? Symbols) Generate(Dimension dim, LogicalExpr constraint)
         {
             var affineExpr = Visit(dim);
-            if (affineExpr is null)
+            if (affineExpr is null || !CollectSymbols(constraint))
             {
                 return (null, null);
             }
@@ -204,11 +223,27 @@ public static class TritonAffineUtility
 
         protected override AffineExpr VisitLeafProgramIdDim(ProgramIdDim expr) => AddSymbol(expr);
 
-        protected override AffineExpr VisitLeafDimVar(DimVar expr)
+        protected override AffineExpr? VisitLeafDimVar(DimVar expr)
         {
-            var domain = IR.F.Affine.Dim(_domains.Count);
-            _domains.Add(domain);
-            return domain;
+            if (_sourceDomains.Contains(expr))
+            {
+                if (expr.Metadata.Range is not { IsFull: false })
+                {
+                    return null;
+                }
+
+                if (!_domainMap.TryGetValue(expr, out var domain))
+                {
+                    domain = IR.F.Affine.Dim(_domains.Count);
+                    domain.Metadata.Range = expr.Metadata.Range;
+                    _domainMap.Add(expr, domain);
+                    _domains.Add(domain);
+                }
+
+                return domain;
+            }
+
+            return AddSymbol(expr);
         }
 
         protected override AffineExpr VisitLeafDimConst(DimConst expr) => expr.Value;
@@ -295,9 +330,27 @@ public static class TritonAffineUtility
 
         private AffineSymbol AddSymbol(Dimension value)
         {
+            if (_symbolMap.TryGetValue(value, out var existing))
+            {
+                return existing;
+            }
+
             var symbol = IR.F.Affine.Symbol(_symbols.Count);
+            _symbolMap.Add(value, symbol);
             _symbols.Add((symbol, value));
             return symbol;
+        }
+
+        private bool CollectSymbols(LogicalExpr constraint)
+        {
+            return constraint switch
+            {
+                LogicalConst => true,
+                DimCompare compare => Visit(compare.Lhs) is not null && Visit(compare.Rhs) is not null,
+                LogicalAnd logicalAnd => logicalAnd.Operands.ToArray().All(CollectSymbols),
+                LogicalOr logicalOr => logicalOr.Operands.ToArray().All(CollectSymbols),
+                _ => false,
+            };
         }
     }
 }

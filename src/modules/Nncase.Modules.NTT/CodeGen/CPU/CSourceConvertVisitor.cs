@@ -17,6 +17,7 @@ using NetFabric.Hyperlinq;
 using Nncase.CodeGen.NTT;
 using Nncase.IR;
 using Nncase.IR.Distributed;
+using Nncase.IR.Logics;
 using Nncase.IR.Shapes;
 using Nncase.Runtime;
 using Nncase.Targets;
@@ -347,6 +348,71 @@ public abstract class CSourceConvertVisitor : ExprFunctor<CSymbol, Unit>
         }
 
         symbol = new("dim_t", "ntt::distributed::program_id<topology::thread>()");
+        _exprMemo.Add(expr, symbol);
+        return symbol;
+    }
+
+    protected override CSymbol VisitProgramIdDim(ProgramIdDim expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var symbol))
+        {
+            return symbol;
+        }
+
+        if (expr.Axis != 0)
+        {
+            throw new NotSupportedException($"Only program_id(0) is supported by NTT C source codegen, got axis {expr.Axis}.");
+        }
+
+        symbol = new("dim_t", "ntt::distributed::program_id<topology::thread>()");
+        _exprMemo.Add(expr, symbol);
+        return symbol;
+    }
+
+    protected override CSymbol VisitLogicalConst(LogicalConst expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var symbol))
+        {
+            return symbol;
+        }
+
+        symbol = new("bool", expr.Value ? "true" : "false");
+        _exprMemo.Add(expr, symbol);
+        return symbol;
+    }
+
+    protected override CSymbol VisitDimCompare(DimCompare expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var symbol))
+        {
+            return symbol;
+        }
+
+        symbol = new("bool", $"({Visit(expr.Lhs).Name} {expr.Op.ToC()} {Visit(expr.Rhs).Name})");
+        _exprMemo.Add(expr, symbol);
+        return symbol;
+    }
+
+    protected override CSymbol VisitLogicalAnd(LogicalAnd expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var symbol))
+        {
+            return symbol;
+        }
+
+        symbol = new("bool", $"({StringUtility.Join(" && ", expr.Operands.ToArray().Select(x => Visit(x).Name))})");
+        _exprMemo.Add(expr, symbol);
+        return symbol;
+    }
+
+    protected override CSymbol VisitLogicalOr(LogicalOr expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var symbol))
+        {
+            return symbol;
+        }
+
+        symbol = new("bool", $"({StringUtility.Join(" || ", expr.Operands.ToArray().Select(x => Visit(x).Name))})");
         _exprMemo.Add(expr, symbol);
         return symbol;
     }

@@ -49,12 +49,14 @@ public sealed partial class StoreToAffineScatter : IRewriteRule
             return null;
         }
 
-        var (relation, symbols) = TritonAffineUtility.GenerateReadMap(ptrBaseAndReadDim.ReadDim, constraintExpr);
+        var (relation, symbols) = TritonAffineUtility.GenerateReadMap(ptrBaseAndReadDim.ReadDim, constraintExpr, generator.Domains);
         if (relation is null || symbols is null)
         {
             return null;
         }
 
-        return IR.F.Affine.Scatter(value, ptrBaseAndReadDim.PtrBase, relation, symbols);
+        var scatterCall = IR.F.Affine.Scatter(value, ptrBaseAndReadDim.PtrBase, relation, symbols).InheritMetaData(call);
+        scatterCall.CheckedType = call.CheckedType;
+        return scatterCall;
     }
 }

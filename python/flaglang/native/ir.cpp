@@ -37,15 +37,20 @@ class triton_op_builder {
 
     clr::ir_module create_module() { return clr::ir_module(); }
 
-    clr::sequential get_insertion_block() { return insertion_point_.block; }
+    std::optional<clr::sequential> get_insertion_block() {
+        if (insertion_point_.block.empty()) {
+            return std::nullopt;
+        }
+
+        return insertion_point_.block;
+    }
     void set_insertion_point_to_start(clr::sequential block) {
         insertion_point_.block = std::move(block);
         insertion_point_.index = 0;
     }
 
     void set_insertion_point_to_end(clr::sequential block) {
-        insertion_point_.index =
-            insertion_point_.block.fields_count(); // after last
+        insertion_point_.index = block.fields_count(); // after last
         insertion_point_.block = std::move(block);
     }
 

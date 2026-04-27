@@ -45,6 +45,11 @@ install(TARGETS nncaseruntime EXPORT nncaseTargets
         RUNTIME DESTINATION bin
         INCLUDES DESTINATION include
         )
+install(TARGETS nncaseruntime
+        COMPONENT flaglang-python
+        LIBRARY DESTINATION "_C"
+        RUNTIME DESTINATION "_C"
+        )
 install(EXPORT nncaseTargets DESTINATION lib/cmake/nncase)
 configure_file(${CMAKE_CURRENT_LIST_DIR}/../../../cmake/nncaseConfig.cmake.in nncaseConfig.cmake @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/nncaseConfig.cmake DESTINATION lib/cmake/nncase)

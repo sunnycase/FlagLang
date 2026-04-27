@@ -137,7 +137,7 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             case IR.Tensors.Gather gather:
                 return TIR.F.NTT.Gather((Expr)arguments[0], (Expr)arguments[1], output, gather.Axis);
             case IR.Affine.Gather affineGather:
-                return TIR.F.NTT.AffineGather((Expr)call[IR.Affine.Gather.Source], (Expr)call[IR.Affine.Gather.DefaultValue], output, affineGather.Relation, affineGather.Symbols, affineGather.Shape);
+                return TIR.F.NTT.AffineGather((Expr)arguments[0], (Expr)arguments[1], output, affineGather.Relation, affineGather.Symbols, affineGather.Shape);
             case IR.NN.Pad pad:
                 var paddings = (Paddings)call[IR.NN.Pad.Pads];
                 var actualPadAxes = Enumerable.Range(0, paddings.Count).Where(i => !(paddings[i] is { IsFixed: true } pad && pad.Sum() == 0)).ToArray();
@@ -174,7 +174,7 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             case IR.Tensors.ScatterND scatterND:
                 return TIR.F.NTT.ScatterND((Expr)arguments[0], (Expr)arguments[1], (Expr)arguments[2], output);
             case IR.Affine.Scatter affineScatter:
-                return TIR.F.NTT.AffineScatter((Expr)call[IR.Affine.Scatter.Source], (Expr)call[IR.Affine.Scatter.Dest], affineScatter.Relation, affineScatter.Symbols);
+                return TIR.F.NTT.AffineScatter((Expr)arguments[0], (Expr)arguments[1], affineScatter.Relation, affineScatter.Symbols);
             case IR.Tensors.Stack stack:
                 return TIR.F.NTT.Stack(((IR.Tuple)arguments[0]).Fields.AsValueEnumerable().Select(x => (Expr)x).ToArray(), output, ((TensorConst)call[IR.Tensors.Stack.Axis]).Value.ToScalar<int>());
             case IR.Tensors.Unsqueeze:

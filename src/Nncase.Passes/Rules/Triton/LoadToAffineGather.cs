@@ -49,14 +49,14 @@ public sealed partial class LoadToAffineGather : IRewriteRule
             return null;
         }
 
-        var (relation, symbols) = TritonAffineUtility.GenerateReadMap(ptrBaseAndReadDim.ReadDim, constraintExpr);
+        var (relation, symbols) = TritonAffineUtility.GenerateReadMap(ptrBaseAndReadDim.ReadDim, constraintExpr, generator.Domains);
         if (relation is null || symbols is null)
         {
             return null;
         }
 
-        var gatherCall = IR.F.Affine.Gather(ptrBaseAndReadDim.PtrBase, relation, symbols, load.CheckedShape, other).InheritMetaData(call);
-        gatherCall.CheckedType = load.CheckedType;
+        var gatherCall = IR.F.Affine.Gather(ptrBaseAndReadDim.PtrBase, relation, symbols, call.CheckedShape, other).InheritMetaData(call);
+        gatherCall.CheckedType = call.CheckedType;
         return gatherCall;
     }
 }

@@ -8,6 +8,7 @@ using System.Reactive;
 using System.Threading.Tasks;
 using Nncase.IR;
 using Nncase.IR.Affine;
+using Nncase.IR.Distributed;
 using Nncase.IR.Logics;
 using Nncase.IR.Shapes;
 using Nncase.TIR;
@@ -58,7 +59,7 @@ namespace Nncase.Passes
             private Expr LowerGather(Call call, TIR.NTT.AffineGather gather, Unit context)
             {
                 var source = (Expr)Visit(call[TIR.NTT.AffineGather.Source], context);
-                _ = Visit(call[TIR.NTT.AffineGather.DefaultValue], context);
+                var defaultValue = (Expr)Visit(call[TIR.NTT.AffineGather.DefaultValue], context);
                 var output = RequireBuffer(Visit(call[TIR.NTT.AffineGather.Output], context));
 
                 ValidateRelation(gather.Relation, output.Dimensions.Length);
@@ -69,7 +70,16 @@ namespace Nncase.Passes
                 {
                     var address = EvaluateAddress(gather.Relation, loopVars, extents, symbolMap);
                     var loaded = T.Load(source, address);
-                    return T.BufferStore(output, loopVars.AsExprs(), loaded);
+                    var indices = loopVars.AsExprs();
+                    var storeLoaded = T.BufferStore(output, indices, loaded);
+                    if (gather.Relation.Constraint == LogicalExpr.True)
+                    {
+                        return storeLoaded;
+                    }
+
+                    var fallback = ReadDefaultValue(defaultValue, indices);
+                    var storeFallback = T.BufferStore(output, indices, fallback);
+                    return T.If(EvaluateConstraint(gather.Relation.Constraint, loopVars)).Then(storeLoaded).Else(storeFallback).Build();
                 });
             }
 
@@ -86,7 +96,10 @@ namespace Nncase.Passes
                 {
                     var value = T.BufferLoad(source, loopVars.AsExprs());
                     var address = EvaluateAddress(scatter.Relation, loopVars, extents, symbolMap);
-                    return T.Store(dest, address, value);
+                    var store = T.Store(dest, address, value);
+                    return scatter.Relation.Constraint == LogicalExpr.True
+                        ? store
+                        : T.If(EvaluateConstraint(scatter.Relation.Constraint, loopVars)).Then(store).Build();
                 });
             }
 
@@ -111,14 +124,9 @@ namespace Nncase.Passes
 
             private void ValidateRelation(AffineRelation relation, int expectedRank)
             {
-                if (relation.Constraint != LogicalExpr.True)
+                if (relation.Results.Length != 1)
                 {
-                    throw new NotSupportedException("Masked affine IO is not supported yet.");
-                }
-
-                if (relation.Symbols.Length != 0)
-                {
-                    throw new NotSupportedException("Symbolic affine IO is not supported yet.");
+                    throw new NotSupportedException($"Affine IO lowering expects one address result, got {relation.Results.Length}.");
                 }
 
                 if (relation.Domains.Length != expectedRank)
@@ -127,7 +135,7 @@ namespace Nncase.Passes
                 }
             }
 
-            private Dimension EvaluateAddress(AffineRelation relation, DimVar[] loopVars, IReadOnlyList<Dimension> extents, IReadOnlyDictionary<AffineSymbol, Dimension>? symbolMap)
+            private Dimension EvaluateAddress(AffineRelation relation, DimVar[] loopVars, IReadOnlyList<Dimension> extents, IReadOnlyDictionary<int, Dimension>? symbolMap)
             {
                 var domainValues = new Dimension[loopVars.Length];
                 for (int i = 0; i < loopVars.Length; i++)
@@ -138,14 +146,86 @@ namespace Nncase.Passes
                 return EvaluateAffineExpr(relation.Results[0], domainValues, extents, symbolMap);
             }
 
-            private Dimension EvaluateAffineExpr(AffineExpr expr, IReadOnlyList<Dimension> dims, IReadOnlyList<Dimension> extents, IReadOnlyDictionary<AffineSymbol, Dimension>? symbols)
+            private Expr ReadDefaultValue(Expr defaultValue, Expr[] indices)
+            {
+                return defaultValue switch
+                {
+                    TIR.Buffer buffer => T.BufferLoad(buffer, indices),
+                    None => throw new NotSupportedException("Masked affine gather requires a default value."),
+                    Expr expr when expr.CheckedType is TensorType { Shape.IsScalar: true } => expr,
+                    _ => throw new NotSupportedException($"Unsupported affine gather default value {defaultValue.GetType().Name}."),
+                };
+            }
+
+            private LogicalExpr EvaluateConstraint(LogicalExpr constraint, DimVar[] loopVars)
+            {
+                return constraint switch
+                {
+                    LogicalConst logicalConst => logicalConst,
+                    DimCompare compare => new DimCompare(compare.Op, EvaluateDimension(compare.Lhs, loopVars), EvaluateDimension(compare.Rhs, loopVars)),
+                    LogicalAnd logicalAnd => new LogicalAnd(logicalAnd.Operands.ToArray().Select(x => EvaluateConstraint(x, loopVars)).ToArray()),
+                    LogicalOr logicalOr => new LogicalOr(logicalOr.Operands.ToArray().Select(x => EvaluateConstraint(x, loopVars)).ToArray()),
+                    _ => throw new NotSupportedException($"Unsupported affine IO constraint node {constraint.GetType().Name}."),
+                };
+            }
+
+            private Dimension EvaluateDimension(Dimension dim, DimVar[] loopVars)
+            {
+                return dim switch
+                {
+                    DimConst constant => constant,
+                    DimVar dimVar when TryGetDomainIndex(dimVar, loopVars.Length, out var index) => loopVars[index],
+                    DimVar dimVar => dimVar,
+                    ProgramIdDim programId => programId,
+                    DimSum sum => EvaluateDimSum(sum, loopVars),
+                    DimProduct product => EvaluateDimProduct(product, loopVars),
+                    DimFraction fraction => new DimFraction(fraction.DivMode, EvaluateDimension(fraction.Numerator, loopVars), EvaluateDimension(fraction.Denominator, loopVars)),
+                    DimRemainder remainder => new DimRemainder(EvaluateDimension(remainder.Numerator, loopVars), EvaluateDimension(remainder.Denominator, loopVars)),
+                    _ => throw new NotSupportedException($"Unsupported affine IO constraint dimension {dim.GetType().Name}."),
+                };
+            }
+
+            private Dimension EvaluateDimSum(DimSum sum, DimVar[] loopVars)
+            {
+                Dimension result = sum.Bias;
+                foreach (var operand in sum.Operands)
+                {
+                    result += EvaluateDimension(operand, loopVars);
+                }
+
+                return result;
+            }
+
+            private Dimension EvaluateDimProduct(DimProduct product, DimVar[] loopVars)
+            {
+                Dimension result = product.Scale;
+                foreach (var operand in product.Operands)
+                {
+                    result *= EvaluateDimension(operand, loopVars);
+                }
+
+                return result;
+            }
+
+            private bool TryGetDomainIndex(DimVar dimVar, int rank, out int index)
+            {
+                if (dimVar.Name.Length > 1 && dimVar.Name[0] == 'd' && int.TryParse(dimVar.Name[1..], out index) && index >= 0 && index < rank)
+                {
+                    return true;
+                }
+
+                index = -1;
+                return false;
+            }
+
+            private Dimension EvaluateAffineExpr(AffineExpr expr, IReadOnlyList<Dimension> dims, IReadOnlyList<Dimension> extents, IReadOnlyDictionary<int, Dimension>? symbols)
             {
                 return expr switch
                 {
                     AffineConstant constant => constant.Value,
                     AffineDim dim => dims[dim.Position],
                     AffineExtent extent => extents[extent.Position],
-                    AffineSymbol symbol => symbols is null ? throw new NotSupportedException("Symbolic relations require bound symbol map.") : symbols[symbol],
+                    AffineSymbol symbol => symbols is null ? throw new NotSupportedException("Symbolic relations require bound symbol map.") : symbols[symbol.Position],
                     AffineAddBinary add => EvaluateAffineExpr(add.Lhs, dims, extents, symbols) + EvaluateAffineExpr(add.Rhs, dims, extents, symbols),
                     AffineMulBinary mul => EvaluateAffineExpr(mul.Lhs, dims, extents, symbols) * EvaluateAffineExpr(mul.Rhs, dims, extents, symbols),
                     AffineDivBinary div => ApplyDivBinary(div.BinaryOp, EvaluateAffineExpr(div.Lhs, dims, extents, symbols), EvaluateAffineExpr(div.Rhs, dims, extents, symbols)),
@@ -161,7 +241,7 @@ namespace Nncase.Passes
                 _ => throw new ArgumentOutOfRangeException(nameof(op), $"Unsupported affine division operator {op}"),
             };
 
-            private IReadOnlyDictionary<AffineSymbol, Dimension>? BuildSymbolMap(AffineRelation relation, RankedShape symbols)
+            private IReadOnlyDictionary<int, Dimension>? BuildSymbolMap(AffineRelation relation, RankedShape symbols)
             {
                 if (relation.Symbols.Length == 0)
                 {
@@ -174,10 +254,10 @@ namespace Nncase.Passes
                     throw new InvalidOperationException("Symbol payload does not match relation requirement.");
                 }
 
-                var map = new Dictionary<AffineSymbol, Dimension>(dims.Length, ReferenceEqualityComparer.Instance);
+                var map = new Dictionary<int, Dimension>(dims.Length);
                 for (int i = 0; i < dims.Length; i++)
                 {
-                    map.Add(relation.Symbols[i], dims[i]);
+                    map.Add(relation.Symbols[i].Position, dims[i]);
                 }
 
                 return map;
