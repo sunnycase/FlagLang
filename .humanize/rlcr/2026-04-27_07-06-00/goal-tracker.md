@@ -35,7 +35,7 @@ Source plan: docs/plan/01-vector-add.md
 ## MUTABLE SECTION
 <!-- Update each round with justification for changes -->
 
-### Plan Version: 3 (Updated: Round 2)
+### Plan Version: 4 (Updated: Round 3)
 
 #### Plan Evolution Log
 <!-- Document any changes to the plan with justification -->
@@ -44,13 +44,13 @@ Source plan: docs/plan/01-vector-add.md
 | 0 | Initial plan | - | - |
 | 1 | Accepted task10 re-verification; rejected task12/task13 completion request | Round 1 adds full/tail masked affine IO lowering tests, but the CUDA backend still trusts an AST-created descriptor rather than validating the post-`add_optimize_ttir` native/affine/NTT IR, and current review could not reproduce CUDA runtime availability | AC-5 re-verified; AC-6 remains active; AC-2/AC-6 GPU validation remains blocked in the current review environment |
 | 2 | Partially accepted native module serialization changes; rejected task12/task13 completion request | Round 2 removes the AST recognizer and descriptor-generated fake dumps, but `make_ptx` still accepts any Python object that forges `describe_vector_add()` JSON instead of proving the object is a real native `ir.module`; current review also still cannot reproduce CUDA availability | AC-6 remains active; AC-2/AC-6 GPU validation remains blocked in the current review environment |
+| 3 | Accepted task12 code fixes; rejected task13 completion in this review environment | Round 3 requires `make_ptx` inspection to start from an actual native `triton._C.libtriton.ir.module`, adds forged-descriptor negative coverage, and tightens descriptor validation for exact add/scatter count and exact mask structure. Current review still cannot reproduce CUDA availability, so forced tutorial and benchmark acceptance remain blocked. | AC-6 code contract re-verified for task12; AC-2/AC-6 end-to-end CUDA validation remains active |
 
 #### Active Tasks
 <!-- Map each task to its target Acceptance Criterion and routing tag -->
 | Task | Target AC | Status | Tag | Owner | Notes |
 |------|-----------|--------|-----|-------|-------|
-| task12 | AC-6 | active | coding | Claude | Rework CUDA `cubin` emission so PTX is generated only after inspecting an actual native `triton._C.libtriton.ir.module` from the post-`make_ttir` pipeline. Reject forged Python objects that merely implement `describe_vector_add()` and add a negative test for that case. Tighten native validation to enforce the exact supported shape: exactly two affine gathers, exactly one fadd, exactly one affine scatter, shared relation/constraint, pointer roles, dtype, and default semantics. |
-| task13 | AC-1, AC-2, AC-4, AC-6 | active | analyze | Claude via ask-codex | Re-run final validation after task12, including forced tutorial unit test and benchmark with CUDA available, plus dump checks that prove `.ttir`, `.ttgir`, and `.llir` are actual stage output from the current checkout. |
+| task13 | AC-1, AC-2, AC-4, AC-6 | active | analyze | Claude via ask-codex | Re-run final validation in a reviewer environment with CUDA available. Current review reproduced import/linking and targeted non-CUDA tests, but `torch.cuda.is_available()` is `False`, `nvidia-smi` cannot communicate with the driver, CUDA pytest cases skip, and the forced tutorial exits before compilation with `0 active drivers`. |
 
 ### Completed and Verified
 <!-- Only move tasks here after Codex verification -->
@@ -67,6 +67,7 @@ Source plan: docs/plan/01-vector-add.md
 | AC-5 | task9: Determine whether existing TIR builder favors direct masked loops or mask peeling | 0 | 0 | BitLesson selector returned `NONE`; ask-codex output `.humanize/skill/2026-04-27_08-03-01-1899926-a73994ce/output.md` recommended direct `T.If`-guarded per-lane loops using existing `T.Serial`, `T.Load`, `T.Store`, and buffer load/store APIs |
 | AC-5 | task10: Implement masked symbolic affine gather/scatter lowering | 0 | 1 | BitLesson selector returned `NONE`; `NTTAffineIOLoweringPass` now binds affine symbols, lowers constraints into per-lane `T.If`, stores gather default values on false masks, makes scatter false masks no-op, and rejects symbol payload mismatches; round 1 added full-block and tail-block semantic checks for gather/scatter and mismatch message assertions; `dotnet test src/Nncase.Tests/Nncase.Tests.csproj -s test.runsettings --filter "FullyQualifiedName~UnitTestNTTAffineIOLowering"` passed 5 tests in review |
 | AC-6 | task11: Define CUDA `cubin` artifact/launcher contract and affected Python call path | 0 | 0 | BitLesson selector returned `NONE`; ask-codex output `.humanize/skill/2026-04-27_08-13-34-1918390-d7fc9941/output.md` defined the PTX-to-cubin stage boundary and required launcher metadata keys |
+| AC-6 | task12: Implement `cubin` contract and complete CUDA launcher metadata | 3 | 3 | `make_ptx` now rejects non-native objects before calling `describe_vector_add()`; forged Python descriptor JSON test is covered; native descriptor validation now requires exactly two gathers, exactly one add, exactly one scatter, add-result-to-output store, shared affine relation, and exact `< problem-size` mask structure; review ran `conda run -n flaglang python -m pytest python/test/unit/runtime/test_flaglang_cuda_backend.py python/test/unit/runtime/test_flaglang_native_ir.py -q` with `8 passed, 2 skipped` due unavailable CUDA and `dotnet test src/Nncase.Tests/Nncase.Tests.csproj -s test.runsettings --filter "FullyQualifiedName~UnitTestTensorizeIO"` with 8 passed |
 
 ### Explicitly Deferred
 <!-- Items here require strong justification -->
@@ -77,6 +78,4 @@ Source plan: docs/plan/01-vector-add.md
 <!-- Issues discovered during implementation -->
 | Issue | Discovered Round | Blocking AC | Resolution Path |
 |-------|-----------------|-------------|-----------------|
-| CUDA backend accepts forged `describe_vector_add()` JSON from non-native Python objects before PTX emission | 2 | AC-6 | In `_inspect_vector_add_native_module`, require the source object to be an actual `triton._C.libtriton.ir.module` before calling `describe_vector_add()`. Add a negative test with a fake object that returns a fully valid descriptor JSON and assert `make_ptx` rejects it. |
-| Native vector-add descriptor validation does not explicitly reject extra affine scatter calls or non-exact mask constraints | 2 | AC-6 | In `BuildVectorAddDescriptor`, count all affine scatter calls and require exactly one; validate the relation constraint structurally/exactly instead of using a substring check; add focused negative coverage for extra side effects and mismatched constraints. |
 | Current review environment cannot reproduce CUDA acceptance because `torch.cuda.is_available()` is `False` and `nvidia-smi` cannot communicate with the NVIDIA driver | 1 | AC-2, AC-6 | Restore CUDA driver/runtime availability for the `flaglang` environment, then rerun the import, CUDA PyTorch, forced tutorial unit test, full benchmark, and dump validation commands from task13. |
