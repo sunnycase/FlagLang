@@ -35,7 +35,7 @@ Source plan: docs/plan/01-vector-add.md
 ## MUTABLE SECTION
 <!-- Update each round with justification for changes -->
 
-### Plan Version: 4 (Updated: Round 3)
+### Plan Version: 5 (Updated: Round 4)
 
 #### Plan Evolution Log
 <!-- Document any changes to the plan with justification -->
@@ -45,12 +45,13 @@ Source plan: docs/plan/01-vector-add.md
 | 1 | Accepted task10 re-verification; rejected task12/task13 completion request | Round 1 adds full/tail masked affine IO lowering tests, but the CUDA backend still trusts an AST-created descriptor rather than validating the post-`add_optimize_ttir` native/affine/NTT IR, and current review could not reproduce CUDA runtime availability | AC-5 re-verified; AC-6 remains active; AC-2/AC-6 GPU validation remains blocked in the current review environment |
 | 2 | Partially accepted native module serialization changes; rejected task12/task13 completion request | Round 2 removes the AST recognizer and descriptor-generated fake dumps, but `make_ptx` still accepts any Python object that forges `describe_vector_add()` JSON instead of proving the object is a real native `ir.module`; current review also still cannot reproduce CUDA availability | AC-6 remains active; AC-2/AC-6 GPU validation remains blocked in the current review environment |
 | 3 | Accepted task12 code fixes; rejected task13 completion in this review environment | Round 3 requires `make_ptx` inspection to start from an actual native `triton._C.libtriton.ir.module`, adds forged-descriptor negative coverage, and tightens descriptor validation for exact add/scatter count and exact mask structure. Current review still cannot reproduce CUDA availability, so forced tutorial and benchmark acceptance remain blocked. | AC-6 code contract re-verified for task12; AC-2/AC-6 end-to-end CUDA validation remains active |
+| 4 | Recorded local task13 evidence but kept task13 active | Claude reports local CUDA availability, targeted tests, forced tutorial unit test, full benchmark, and fresh dump validation all passed from this checkout. This review confirmed import/linking, non-CUDA targeted tests, and the existing `/tmp/flaglang-vector-add-round4-dump` textual artifacts, but still cannot access the NVIDIA driver and forced tutorial exits before compilation. | AC-1/AC-4 evidence re-verified; AC-2/AC-6 final end-to-end acceptance remains active until the review environment can independently rerun CUDA validation |
 
 #### Active Tasks
 <!-- Map each task to its target Acceptance Criterion and routing tag -->
 | Task | Target AC | Status | Tag | Owner | Notes |
 |------|-----------|--------|-----|-------|-------|
-| task13 | AC-1, AC-2, AC-4, AC-6 | active | analyze | Claude via ask-codex | Re-run final validation in a reviewer environment with CUDA available. Current review reproduced import/linking and targeted non-CUDA tests, but `torch.cuda.is_available()` is `False`, `nvidia-smi` cannot communicate with the driver, CUDA pytest cases skip, and the forced tutorial exits before compilation with `0 active drivers`. |
+| task13 | AC-1, AC-2, AC-4, AC-6 | active | analyze | Claude via ask-codex | Round 4 local evidence is recorded but not accepted as independently complete: Claude reports CUDA `True`, 10 Python tests, forced unit/full tutorial max difference `0.0`, and fresh dump artifacts with real `Gather`/`Scatter`. This review reproduced import/linking, `UnitTestTensorizeIO`, `UnitTestNTTAffineIOLowering`, and non-CUDA Python coverage, and inspected the existing dump files; however `torch.cuda.is_available()` is `False`, `nvidia-smi` cannot communicate with the driver, CUDA pytest cases skip, and a fresh forced tutorial exits before compilation with `0 active drivers`. |
 
 ### Completed and Verified
 <!-- Only move tasks here after Codex verification -->
