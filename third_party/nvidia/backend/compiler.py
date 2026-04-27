@@ -125,10 +125,94 @@ def _initialize_cuda_kernel_metadata(metadata, name, opt):
     metadata["profile_scratch_align"] = 1
 
 
-def _emit_vector_add_ptx(name, opt, capability):
+@dataclass(frozen=True)
+class VectorAddKernel:
+    name: str
+    block_size: int
+    dtype: str
+    element_size: int
+    parameter_order: Tuple[str, str, str, str]
+
+
+def _recognize_vector_add_native_module(src) -> VectorAddKernel:
+    descriptor = getattr(src, "_flaglang_vector_add", None)
+    if not isinstance(descriptor, dict):
+        entry = _module_entry_name(src)
+        raise TypeError(
+            "Unsupported native module for CUDA cubin emission: expected a structurally recognized "
+            f"vector-add module descriptor, got entry {entry!r} without descriptor."
+        )
+
+    required = {
+        "kind",
+        "version",
+        "entry_name",
+        "parameter_order",
+        "pointers",
+        "n_elements_arg",
+        "block_size",
+        "dtype",
+        "element_size",
+        "program_id_axis",
+        "relation",
+        "constraint",
+        "loads",
+        "compute",
+        "store",
+    }
+    missing = sorted(required.difference(descriptor))
+    if missing:
+        raise TypeError(f"Malformed vector-add descriptor; missing fields: {', '.join(missing)}.")
+
+    if descriptor["kind"] != "flaglang.vector_add" or descriptor["version"] != 1:
+        raise TypeError(f"Unsupported vector-add descriptor kind/version: {descriptor.get('kind')!r}/{descriptor.get('version')!r}.")
+
+    name = descriptor["entry_name"]
+    module_entry = _module_entry_name(src)
+    if module_entry is not None and module_entry != name:
+        raise TypeError(f"Vector-add descriptor entry {name!r} does not match module entry {module_entry!r}.")
+
+    pointers = descriptor["pointers"]
+    parameter_order = tuple(descriptor["parameter_order"])
+    if len(pointers) != 3 or len(parameter_order) != 4:
+        raise TypeError("Vector-add descriptor must contain three pointer parameters and one problem-size parameter.")
+    if tuple(pointers) != parameter_order[:3] or descriptor["n_elements_arg"] != parameter_order[3]:
+        raise TypeError("Vector-add descriptor parameter order does not match pointer/problem-size roles.")
+
+    if descriptor["dtype"] != "float32" or descriptor["element_size"] != 4:
+        raise TypeError(f"Only float32 vector-add emission is supported, got {descriptor['dtype']!r}.")
+    if descriptor["program_id_axis"] != 0:
+        raise TypeError("Only program_id axis 0 is supported for vector-add emission.")
+    if descriptor["compute"] != "fadd":
+        raise TypeError(f"Vector-add descriptor must contain fadd compute, got {descriptor['compute']!r}.")
+    if len(descriptor["loads"]) != 2 or any(load.get("default") != "implicit_zero" for load in descriptor["loads"]):
+        raise TypeError("Vector-add descriptor must contain two masked loads with implicit-zero defaults.")
+    if descriptor["store"].get("dest") != pointers[2]:
+        raise TypeError("Vector-add descriptor store destination does not match output pointer.")
+
+    block_size = descriptor["block_size"]
+    if not isinstance(block_size, int) or block_size <= 0:
+        raise TypeError(f"Vector-add descriptor has invalid block size {block_size!r}.")
+    expected_relation = f"s0 * {block_size} + d0"
+    expected_constraint = f"s0 * {block_size} + d0 < s1"
+    if descriptor["relation"] != expected_relation or descriptor["constraint"] != expected_constraint:
+        raise TypeError("Vector-add descriptor relation/constraint does not match the expected affine lane mapping.")
+
+    return VectorAddKernel(
+        name=name,
+        block_size=block_size,
+        dtype=descriptor["dtype"],
+        element_size=descriptor["element_size"],
+        parameter_order=parameter_order,
+    )
+
+
+def _emit_vector_add_ptx(kernel: VectorAddKernel, opt, capability):
     ptx_version = get_ptx_version_from_options(opt, capability)
     ptx_version = f"{ptx_version // 10}.{ptx_version % 10}"
     target = sm_arch_from_capability(capability)
+    name = kernel.name
+    block_size = kernel.block_size
     return f""".version {ptx_version}
 .target {target}
 .address_size 64
@@ -152,9 +236,9 @@ def _emit_vector_add_ptx(name, opt, capability):
     mov.u32 %r2, %ctaid.x;
     mov.u32 %r3, %tid.x;
     mov.u32 %r4, %ntid.x;
-    mad.lo.u32 %r5, %r2, 1024, %r3;
+    mad.lo.u32 %r5, %r2, {block_size}, %r3;
     add.u32 %r6, %r2, 1;
-    mul.lo.u32 %r6, %r6, 1024;
+    mul.lo.u32 %r6, %r6, {block_size};
 
 L_loop:
     setp.ge.u32 %p1, %r5, %r1;
@@ -505,14 +589,15 @@ class CUDABackend(BaseBackend):
 
     def make_ptx(self, src, metadata, opt, capability):
         if not isinstance(src, str):
-            name = _module_entry_name(src) or metadata.get("name")
-            if name == "add_kernel":
-                _initialize_cuda_kernel_metadata(metadata, name, opt)
-                return _emit_vector_add_ptx(name, opt, self.target.arch)
-            raise TypeError(
-                "CUDA cubin stage requires PTX text; native module lowering is only implemented for "
-                f"add_kernel during vector-add bring-up, got {type(src).__name__} with entry {name!r}."
-            )
+            kernel = _recognize_vector_add_native_module(src)
+            _initialize_cuda_kernel_metadata(metadata, kernel.name, opt)
+            metadata["flaglang_kernel"] = {
+                "kind": "vector_add",
+                "block_size": kernel.block_size,
+                "dtype": kernel.dtype,
+                "parameter_order": kernel.parameter_order,
+            }
+            return _emit_vector_add_ptx(kernel, opt, self.target.arch)
 
         return src
 

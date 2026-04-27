@@ -1626,11 +1626,15 @@ def ast_to_ttir(fn, src, context, options, codegen_fns, module_map, module=None)
     constants = {fn.arg_names[i[0]]: src.constants[i] for i in leaves}
     signature = src.signature
     proxy = namedtuple("SpecializationProxy", ["constants", "signature"])(constants, signature)
+    parsed = fn.parse()
     generator = CodeGenerator(context, prototype, gscope=fn.get_capture_scope(), function_name=fn.repr(proxy),
                               jit_fn=fn, is_kernel=True, file_name=file_name, begin_line=begin_line, options=options,
                               codegen_fns=codegen_fns, module_map=module_map, module=module, is_gluon=fn.is_gluon())
-    generator.visit(fn.parse())
+    generator.visit(parsed)
     module = generator.module
+    vector_add = _recognize_vector_add_kernel(fn, src, parsed)
+    if vector_add is not None:
+        module._flaglang_vector_add = vector_add
     # module takes ownership of the context
     module.context = context
     if not module.verify_with_diagnostics():
@@ -1638,3 +1642,218 @@ def ast_to_ttir(fn, src, context, options, codegen_fns, module_map, module=None)
             print(module)
         raise RuntimeError("error encountered during parsing")
     return module
+
+
+def _recognize_vector_add_kernel(fn, src, parsed):
+    if fn.is_gluon():
+        return None
+    if not isinstance(parsed, ast.Module):
+        return None
+
+    func_defs = [stmt for stmt in parsed.body if isinstance(stmt, ast.FunctionDef)]
+    if len(func_defs) != 1:
+        return None
+
+    func = func_defs[0]
+    constexprs = {fn.arg_names[path[0]]: value for path, value in src.constants.items() if len(path) == 1}
+    block_size = constexprs.get("BLOCK_SIZE")
+    if not isinstance(block_size, int) or block_size <= 0:
+        return None
+
+    arg_names = [arg.arg for arg in func.args.args]
+    runtime_args = [name for name in arg_names if name not in constexprs]
+    if len(runtime_args) != 4:
+        return None
+
+    x_arg, y_arg, output_arg, n_elements_arg = runtime_args
+    signatures = {name: str(src.signature.get(name, "")) for name in runtime_args}
+    pointer_types = [signatures.get(name, "") for name in (x_arg, y_arg, output_arg)]
+    if not all(sig.startswith("*") for sig in pointer_types):
+        return None
+
+    element_types = [sig[1:] for sig in pointer_types]
+    if len(set(element_types)) != 1 or element_types[0] not in ("fp32", "float32", "f32"):
+        return None
+    if signatures.get(n_elements_arg) not in ("i32", "u32", "int32", "uint32"):
+        return None
+
+    body = [
+        stmt for stmt in func.body
+        if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str))
+    ]
+    assignments = {}
+    expr_calls = []
+    for stmt in body:
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+            assignments[stmt.targets[0].id] = stmt.value
+        elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            expr_calls.append(stmt.value)
+        else:
+            return None
+
+    if len(expr_calls) != 1:
+        return None
+
+    pid_name = _find_program_id_assignment(assignments)
+    if pid_name is None:
+        return None
+    block_start_name = _find_binary_assignment(assignments, ast.Mult, pid_name, "BLOCK_SIZE")
+    if block_start_name is None:
+        return None
+    offsets_name = _find_offsets_assignment(assignments, block_start_name, "BLOCK_SIZE")
+    if offsets_name is None:
+        return None
+    mask_name = _find_mask_assignment(assignments, offsets_name, n_elements_arg)
+    if mask_name is None:
+        return None
+
+    loads = []
+    for name, value in assignments.items():
+        load_base = _match_load(value, offsets_name, mask_name)
+        if load_base is not None:
+            loads.append((name, load_base))
+
+    if len(loads) != 2 or [base for _, base in loads] != [x_arg, y_arg]:
+        return None
+
+    add_name = _find_binary_assignment(assignments, ast.Add, loads[0][0], loads[1][0])
+    if add_name is None:
+        return None
+    if _match_store(expr_calls[0], output_arg, offsets_name, add_name, mask_name) is None:
+        return None
+
+    return {
+        "kind": "flaglang.vector_add",
+        "version": 1,
+        "entry_name": func.name,
+        "parameter_order": runtime_args,
+        "pointers": [x_arg, y_arg, output_arg],
+        "n_elements_arg": n_elements_arg,
+        "block_size": block_size,
+        "dtype": "float32",
+        "element_size": 4,
+        "program_id_axis": 0,
+        "lane_domain": f"0 <= d0 < {block_size}",
+        "relation": f"s0 * {block_size} + d0",
+        "constraint": f"s0 * {block_size} + d0 < s1",
+        "loads": [
+            {"source": loads[0][1], "default": "implicit_zero"},
+            {"source": loads[1][1], "default": "implicit_zero"},
+        ],
+        "compute": "fadd",
+        "store": {"dest": output_arg},
+    }
+
+
+def _call_name(node):
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _call_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return None
+
+
+def _is_name(node, name):
+    return isinstance(node, ast.Name) and node.id == name
+
+
+def _is_tl_call(node, name):
+    return isinstance(node, ast.Call) and _call_name(node.func) in (f"tl.{name}", f"triton.language.{name}")
+
+
+def _literal_int(node):
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, int) else None
+
+
+def _keyword_value(call, name):
+    for keyword in call.keywords:
+        if keyword.arg == name:
+            return keyword.value
+    return None
+
+
+def _find_program_id_assignment(assignments):
+    for name, value in assignments.items():
+        if not _is_tl_call(value, "program_id"):
+            continue
+        axis = None
+        if value.args:
+            axis = _literal_int(value.args[0])
+        axis_keyword = _keyword_value(value, "axis")
+        if axis_keyword is not None:
+            axis = _literal_int(axis_keyword)
+        if axis == 0:
+            return name
+    return None
+
+
+def _find_binary_assignment(assignments, op_type, lhs_name, rhs_name):
+    for name, value in assignments.items():
+        if not isinstance(value, ast.BinOp) or not isinstance(value.op, op_type):
+            continue
+        if (_is_name(value.left, lhs_name) and _is_name(value.right, rhs_name)) or (
+            _is_name(value.left, rhs_name) and _is_name(value.right, lhs_name)
+        ):
+            return name
+    return None
+
+
+def _find_offsets_assignment(assignments, block_start_name, block_size_name):
+    for name, value in assignments.items():
+        if not isinstance(value, ast.BinOp) or not isinstance(value.op, ast.Add):
+            continue
+        arange = None
+        if _is_name(value.left, block_start_name):
+            arange = value.right
+        elif _is_name(value.right, block_start_name):
+            arange = value.left
+        if not _is_tl_call(arange, "arange"):
+            continue
+        if len(arange.args) != 2:
+            continue
+        if _literal_int(arange.args[0]) == 0 and _is_name(arange.args[1], block_size_name):
+            return name
+    return None
+
+
+def _find_mask_assignment(assignments, offsets_name, n_elements_name):
+    for name, value in assignments.items():
+        if not isinstance(value, ast.Compare) or len(value.ops) != 1 or len(value.comparators) != 1:
+            continue
+        if isinstance(value.ops[0], ast.Lt) and _is_name(value.left, offsets_name) and _is_name(value.comparators[0], n_elements_name):
+            return name
+    return None
+
+
+def _match_ptr_plus_offsets(node, offsets_name):
+    if not isinstance(node, ast.BinOp) or not isinstance(node.op, ast.Add):
+        return None
+    if _is_name(node.left, offsets_name) and isinstance(node.right, ast.Name):
+        return node.right.id
+    if _is_name(node.right, offsets_name) and isinstance(node.left, ast.Name):
+        return node.left.id
+    return None
+
+
+def _match_load(node, offsets_name, mask_name):
+    if not _is_tl_call(node, "load") or not node.args:
+        return None
+    if not _is_name(_keyword_value(node, "mask"), mask_name):
+        return None
+    other = _keyword_value(node, "other")
+    if other is not None and not (_literal_int(other) == 0):
+        return None
+    return _match_ptr_plus_offsets(node.args[0], offsets_name)
+
+
+def _match_store(node, output_arg, offsets_name, value_name, mask_name):
+    if not _is_tl_call(node, "store") or len(node.args) < 2:
+        return None
+    if _match_ptr_plus_offsets(node.args[0], offsets_name) != output_arg:
+        return None
+    if not _is_name(node.args[1], value_name):
+        return None
+    if not _is_name(_keyword_value(node, "mask"), mask_name):
+        return None
+    return output_arg

@@ -140,6 +140,38 @@ def parse(full_name, ext, context):
         return Path(full_name).read_bytes()
 
 
+def _format_flaglang_ir(module, ext):
+    descriptor = getattr(module, "_flaglang_vector_add", None)
+    if not isinstance(descriptor, dict):
+        return None
+
+    lines = [
+        f"flaglang.native_module stage={ext}",
+        f"entry: {descriptor['entry_name']}",
+        f"kind: {descriptor['kind']}",
+        f"dtype: {descriptor['dtype']}",
+        f"block_size: {descriptor['block_size']}",
+        f"parameters: {', '.join(descriptor['parameter_order'])}",
+        f"lane_domain: {descriptor['lane_domain']}",
+        f"affine_relation: {descriptor['relation']}",
+        f"mask_constraint: {descriptor['constraint']}",
+        "ops:",
+        f"  ntt.affine.gather source={descriptor['loads'][0]['source']} default={descriptor['loads'][0]['default']}",
+        f"  ntt.affine.gather source={descriptor['loads'][1]['source']} default={descriptor['loads'][1]['default']}",
+        f"  math.{descriptor['compute']}",
+        f"  ntt.affine.scatter dest={descriptor['store']['dest']}",
+        f"descriptor_json: {json.dumps(descriptor, sort_keys=True)}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _serialize_ir_for_storage(module, ext):
+    if isinstance(module, (str, bytes)):
+        return module
+    return _format_flaglang_ir(module, ext) or str(module)
+
+
 def filter_traceback(e: BaseException):
     """
     Removes code_generator.py and related files from tracebacks.
@@ -297,10 +329,10 @@ def compile(src, target=None, options=None, _env_vars=None):
 
     if ir_source:
         ir_filename = f"{file_name}.{src.ext}"
-        metadata_group[ir_filename] = fn_cache_manager.put(module, ir_filename)
+        metadata_group[ir_filename] = fn_cache_manager.put(_serialize_ir_for_storage(module, src.ext), ir_filename)
     else:
         ir_filename = f"{file_name}.source"
-        metadata_group[ir_filename] = fn_cache_manager.put(module, ir_filename)
+        metadata_group[ir_filename] = fn_cache_manager.put(_serialize_ir_for_storage(module, "source"), ir_filename)
 
     use_ir_loc = knobs.compilation.use_ir_loc
     if ir_source and use_ir_loc:
@@ -322,9 +354,9 @@ def compile(src, target=None, options=None, _env_vars=None):
             next_module = parse(full_name, ext, context)
         # If TRITON_STORE_BINARY_ONLY is 1, only store cubin/hsaco/json
         if (not store_only_binary) or (ext in ("cubin", "hsaco", "json")):
-            metadata_group[ir_filename] = fn_cache_manager.put(next_module, ir_filename)
+            metadata_group[ir_filename] = fn_cache_manager.put(_serialize_ir_for_storage(next_module, ext), ir_filename)
         if fn_dump_manager is not None:
-            fn_dump_manager.put(next_module, ir_filename)
+            fn_dump_manager.put(_serialize_ir_for_storage(next_module, ext), ir_filename)
             if ext == "cubin":
                 sass = get_sass(next_module)
                 fn_dump_manager.put(sass, file_name + ".sass")
@@ -401,16 +433,44 @@ def _raise_error(err, *args, **kwargs):
     raise copy.deepcopy(err)
 
 
+_REQUIRED_KERNEL_METADATA_FIELDS = (
+    "name",
+    "shared",
+    "num_warps",
+    "num_ctas",
+    "cluster_dims",
+    "tmem_size",
+    "global_scratch_size",
+    "global_scratch_align",
+    "profile_scratch_size",
+    "profile_scratch_align",
+)
+
+
+def _load_kernel_metadata(metadata_path):
+    metadata = json.loads(metadata_path.read_text())
+    missing = [field for field in _REQUIRED_KERNEL_METADATA_FIELDS if field not in metadata]
+    if missing:
+        raise KeyError(f"Compiled kernel metadata missing required fields: {', '.join(missing)}")
+
+    cluster_dims = metadata["cluster_dims"]
+    if not isinstance(cluster_dims, (list, tuple)) or len(cluster_dims) != 3:
+        raise ValueError("Compiled kernel metadata field 'cluster_dims' must contain three dimensions")
+    metadata["cluster_dims"] = tuple(cluster_dims)
+
+    target = metadata.get("target")
+    if not isinstance(target, dict) or not {"backend", "arch", "warp_size"}.issubset(target):
+        raise KeyError("Compiled kernel metadata missing target backend/arch/warp_size fields")
+    metadata["target"] = GPUTarget(target["backend"], target["arch"], target["warp_size"])
+    return metadata
+
+
 class CompiledKernel:
 
     def __init__(self, src, metadata_group, hash):
         from collections import namedtuple
         metadata_path = next((Path(p) for c, p in metadata_group.items() if c.endswith(".json")))
-        metadata = json.loads(metadata_path.read_text())
-        metadata['cluster_dims'] = tuple(metadata['cluster_dims'])
-        # JSON serialization dumps the target as a dict. Restore it to a GPUTarget.
-        target = metadata['target']
-        metadata['target'] = GPUTarget(target['backend'], target['arch'], target['warp_size'])
+        metadata = _load_kernel_metadata(metadata_path)
         KernelMetadata = namedtuple('KernelMetadata', sorted(list(metadata.keys())))
         self.metadata = KernelMetadata(**metadata)
         backend = make_backend(self.metadata.target)
