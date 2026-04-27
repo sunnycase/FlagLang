@@ -1,7 +1,10 @@
 // Copyright (c) SunnyCase. All rights reserved.
 // Licensed under the Apache license. See LICENSE file in the project root for full license information.
 
+using System;
+using System.Text.Json;
 using Nncase;
+using Nncase.Compiler.Interop;
 using Nncase.IR;
 using Nncase.IR.Affine;
 using Nncase.IR.Distributed;
@@ -169,5 +172,69 @@ public sealed class UnitTestTensorizeIO : TransformTestBase
         var rule = new LoadToAffineGather();
         Assert.True(CompilerServices.TryMatchRoot(load, rule.Pattern, new MatchOptions(), out var match));
         Assert.Null(rule.GetReplace(match!, new RunPassContext { Driver = new DataflowPass() }));
+    }
+
+    [Fact]
+    public void VectorAddDescriptorRejectsExtraAffineScatter()
+    {
+        var module = BuildVectorAddDescriptorModule(extraScatter: true);
+        using var document = JsonDocument.Parse(CApi.DescribeVectorAddModuleForDiagnostics(module));
+
+        Assert.False(document.RootElement.GetProperty("valid").GetBoolean());
+        Assert.Contains("exactly one affine scatter", document.RootElement.GetProperty("reason").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void VectorAddDescriptorRejectsMismatchedMaskConstraint()
+    {
+        var module = BuildVectorAddDescriptorModule(maskOp: CompareOp.LowerOrEqual);
+        using var document = JsonDocument.Parse(CApi.DescribeVectorAddModuleForDiagnostics(module));
+
+        Assert.False(document.RootElement.GetProperty("valid").GetBoolean());
+        Assert.Contains("guarded exactly", document.RootElement.GetProperty("reason").GetString(), StringComparison.Ordinal);
+    }
+
+    private static IRModule BuildVectorAddDescriptorModule(bool extraScatter = false, CompareOp maskOp = CompareOp.LowerThan)
+    {
+        const int blockSize = 4;
+        var x = new Var("param_0", PointerF32);
+        var y = new Var("param_1", PointerF32);
+        var output = new Var("param_2", PointerF32);
+        var nElements = new Var("param_3", ScalarI32);
+
+        var lane = new DimVar("d0");
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var programId = new ProgramIdDim(0);
+        var problemSize = new DimVar(nElements.Name);
+        var constraintLhs = (programId * blockSize) + lane;
+        var constraint = maskOp switch
+        {
+            CompareOp.LowerThan => constraintLhs < problemSize,
+            CompareOp.LowerOrEqual => constraintLhs <= problemSize,
+            _ => throw new ArgumentOutOfRangeException(nameof(maskOp)),
+        };
+
+        var domain = Nncase.IR.F.Affine.Dim(0);
+        domain.Metadata.Range = new(0, blockSize - 1);
+        var programIdSymbol = Nncase.IR.F.Affine.Symbol(0);
+        var problemSizeSymbol = Nncase.IR.F.Affine.Symbol(1);
+        var relation = new AffineRelation(
+            [domain],
+            [programIdSymbol, problemSizeSymbol],
+            [new AffineMulBinary(programIdSymbol, new AffineConstant(blockSize)) + domain],
+            constraint);
+        var symbols = new RankedShape([programId, problemSize]);
+        var shape = new RankedShape(new Dimension[] { blockSize });
+
+        var xGather = Nncase.IR.F.Affine.Gather(x, relation, symbols, shape, None.Default);
+        var yGather = Nncase.IR.F.Affine.Gather(y, relation, symbols, shape, None.Default);
+        var add = Binary(BinaryOp.Add, xGather, yGather);
+        var scatter = Nncase.IR.F.Affine.Scatter(add, output, relation, symbols);
+        BaseExpr body = extraScatter
+            ? new IR.Tuple(scatter, Nncase.IR.F.Affine.Scatter(add, output, relation, symbols))
+            : scatter;
+        var function = new Function("primfunc_0", new IRBlock(body, x, y, output, nElements));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+        return new IRModule(function);
     }
 }

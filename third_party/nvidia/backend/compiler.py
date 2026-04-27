@@ -136,6 +136,14 @@ class VectorAddKernel:
 
 
 def _inspect_vector_add_native_module(src) -> Dict[str, Any]:
+    module_type = getattr(ir, "module", None)
+    if module_type is None or not isinstance(src, module_type):
+        entry = _module_entry_name(src)
+        raise TypeError(
+            "Unsupported native module for CUDA cubin emission: expected actual post-TTIR native "
+            f"ir.module inspection support, got entry {entry!r} of type {type(src).__name__}."
+        )
+
     describe = getattr(src, "describe_vector_add", None)
     if not callable(describe):
         entry = _module_entry_name(src)

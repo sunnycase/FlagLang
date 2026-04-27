@@ -46,6 +46,30 @@ def _torch_cuda():
     return torch
 
 
+def _valid_vector_add_descriptor():
+    return {
+        "kind": "flaglang.vector_add",
+        "version": 1,
+        "ir_source": "post_ttir_native_module",
+        "entry_name": "primfunc_0",
+        "parameter_order": ["param_0", "param_1", "param_2", "param_3"],
+        "pointers": ["param_0", "param_1", "param_2"],
+        "n_elements_arg": "param_3",
+        "block_size": 128,
+        "dtype": "float32",
+        "element_size": 4,
+        "program_id_axis": 0,
+        "relation": "s0 * 128 + d0",
+        "constraint": "s0 * 128 + d0 < s1",
+        "loads": [
+            {"source": "param_0", "default": "implicit_zero"},
+            {"source": "param_1", "default": "implicit_zero"},
+        ],
+        "compute": "fadd",
+        "store": {"dest": "param_2"},
+    }
+
+
 def test_make_cubin_rejects_non_ptx_artifact():
     backend = _cuda_backend()
     options = backend.parse_options({})
@@ -62,7 +86,7 @@ def test_name_only_add_kernel_is_rejected_before_ptxas():
         def get_entry_func_name(self):
             return "add_kernel"
 
-    with pytest.raises(TypeError, match="actual post-TTIR native module inspection"):
+    with pytest.raises(TypeError, match="actual post-TTIR native .*inspection"):
         backend.make_ptx(NamedOnlyModule(), {}, options, 80)
 
 
@@ -77,8 +101,23 @@ def test_fake_vector_add_descriptor_is_rejected_before_ptxas():
         def get_entry_func_name(self):
             return "add_kernel"
 
-    with pytest.raises(TypeError, match="actual post-TTIR native module inspection"):
+    with pytest.raises(TypeError, match="actual post-TTIR native .*inspection"):
         backend.make_ptx(FakeDescriptorModule(), {}, options, 80)
+
+
+def test_forged_describe_vector_add_json_is_rejected_before_ptxas():
+    backend = _cuda_backend()
+    options = backend.parse_options({})
+
+    class ForgedDescribeModule:
+        def get_entry_func_name(self):
+            return "primfunc_0"
+
+        def describe_vector_add(self):
+            return json.dumps({"valid": True, "descriptor": _valid_vector_add_descriptor()})
+
+    with pytest.raises(TypeError, match="actual post-TTIR native ir\\.module"):
+        backend.make_ptx(ForgedDescribeModule(), {}, options, 80)
 
 
 def test_compiled_kernel_rejects_missing_launcher_metadata(tmp_path):

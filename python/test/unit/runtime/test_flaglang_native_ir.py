@@ -1,7 +1,7 @@
 from triton._C.libtriton import ir
 
 
-def test_native_ir_builder_vector_add_surface():
+def _build_vector_add_module():
     session = ir.compile_session(ir.target("cuda"), ir.compile_options())
     builder = ir.builder(session)
 
@@ -61,5 +61,10 @@ def test_native_ir_builder_vector_add_surface():
 
     fn.finalize()
     module.push_back(fn)
+    return session, module
+
+
+def test_native_ir_builder_vector_add_surface():
+    _, module = _build_vector_add_module()
 
     assert module.verify_with_diagnostics()

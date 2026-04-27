@@ -35,7 +35,7 @@ Source plan: docs/plan/01-vector-add.md
 ## MUTABLE SECTION
 <!-- Update each round with justification for changes -->
 
-### Plan Version: 2 (Updated: Round 1)
+### Plan Version: 3 (Updated: Round 2)
 
 #### Plan Evolution Log
 <!-- Document any changes to the plan with justification -->
@@ -43,13 +43,14 @@ Source plan: docs/plan/01-vector-add.md
 |-------|--------|--------|--------------|
 | 0 | Initial plan | - | - |
 | 1 | Accepted task10 re-verification; rejected task12/task13 completion request | Round 1 adds full/tail masked affine IO lowering tests, but the CUDA backend still trusts an AST-created descriptor rather than validating the post-`add_optimize_ttir` native/affine/NTT IR, and current review could not reproduce CUDA runtime availability | AC-5 re-verified; AC-6 remains active; AC-2/AC-6 GPU validation remains blocked in the current review environment |
+| 2 | Partially accepted native module serialization changes; rejected task12/task13 completion request | Round 2 removes the AST recognizer and descriptor-generated fake dumps, but `make_ptx` still accepts any Python object that forges `describe_vector_add()` JSON instead of proving the object is a real native `ir.module`; current review also still cannot reproduce CUDA availability | AC-6 remains active; AC-2/AC-6 GPU validation remains blocked in the current review environment |
 
 #### Active Tasks
 <!-- Map each task to its target Acceptance Criterion and routing tag -->
 | Task | Target AC | Status | Tag | Owner | Notes |
 |------|-----------|--------|-----|-------|-------|
-| task12 | AC-6 | active | coding | Claude | Rework CUDA `cubin` emission so PTX is generated only after inspecting the actual post-`make_ttir`/native module structure for two affine gathers, one fadd, one affine scatter, shared `program_id(0) * BLOCK_SIZE + d0` relation, mask constraint, pointer roles, dtype, and default semantics. Do not accept a descriptor that was fabricated solely from the Python AST. |
-| task13 | AC-1, AC-2, AC-4, AC-6 | active | analyze | Claude via ask-codex | Re-run final validation after task12, including forced tutorial unit test and benchmark with CUDA available, plus dump checks that prove `.ttir`, `.ttgir`, and `.llir` are actual stage output rather than descriptor summaries. |
+| task12 | AC-6 | active | coding | Claude | Rework CUDA `cubin` emission so PTX is generated only after inspecting an actual native `triton._C.libtriton.ir.module` from the post-`make_ttir` pipeline. Reject forged Python objects that merely implement `describe_vector_add()` and add a negative test for that case. Tighten native validation to enforce the exact supported shape: exactly two affine gathers, exactly one fadd, exactly one affine scatter, shared relation/constraint, pointer roles, dtype, and default semantics. |
+| task13 | AC-1, AC-2, AC-4, AC-6 | active | analyze | Claude via ask-codex | Re-run final validation after task12, including forced tutorial unit test and benchmark with CUDA available, plus dump checks that prove `.ttir`, `.ttgir`, and `.llir` are actual stage output from the current checkout. |
 
 ### Completed and Verified
 <!-- Only move tasks here after Codex verification -->
@@ -76,6 +77,6 @@ Source plan: docs/plan/01-vector-add.md
 <!-- Issues discovered during implementation -->
 | Issue | Discovered Round | Blocking AC | Resolution Path |
 |-------|-----------------|-------------|-----------------|
-| CUDA backend validates an AST-created `_flaglang_vector_add` descriptor instead of the actual post-optimization native/affine/NTT IR before PTX emission | 1 | AC-6 | Move recognition into/after `make_ttir` and inspect the actual module/stage output for vector-add affine gather/scatter structure; only then attach or derive the emission contract consumed by `make_ptx`. Add tests proving a fake descriptor or mismatched lowered module cannot emit PTX. |
-| `.ttir`, `.ttgir`, and `.llir` dumps are deterministic descriptor summaries, not textual dumps of the actual stage output | 1 | AC-6 | Implement or call a native module serializer/dump API for each stage, and make dump tests assert real stage text plus affine/NTT markers from the module, not markers copied from descriptor JSON. |
+| CUDA backend accepts forged `describe_vector_add()` JSON from non-native Python objects before PTX emission | 2 | AC-6 | In `_inspect_vector_add_native_module`, require the source object to be an actual `triton._C.libtriton.ir.module` before calling `describe_vector_add()`. Add a negative test with a fake object that returns a fully valid descriptor JSON and assert `make_ptx` rejects it. |
+| Native vector-add descriptor validation does not explicitly reject extra affine scatter calls or non-exact mask constraints | 2 | AC-6 | In `BuildVectorAddDescriptor`, count all affine scatter calls and require exactly one; validate the relation constraint structurally/exactly instead of using a substring check; add focused negative coverage for extra side effects and mismatched constraints. |
 | Current review environment cannot reproduce CUDA acceptance because `torch.cuda.is_available()` is `False` and `nvidia-smi` cannot communicate with the NVIDIA driver | 1 | AC-2, AC-6 | Restore CUDA driver/runtime availability for the `flaglang` environment, then rerun the import, CUDA PyTorch, forced tutorial unit test, full benchmark, and dump validation commands from task13. |

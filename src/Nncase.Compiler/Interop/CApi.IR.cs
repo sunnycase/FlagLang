@@ -22,6 +22,9 @@ namespace Nncase.Compiler.Interop;
 
 public static unsafe partial class CApi
 {
+    public static string DescribeVectorAddModuleForDiagnostics(IR.IRModule module) =>
+        JsonSerializer.Serialize(DescribeVectorAddModule(module));
+
     [UnmanagedCallersOnly]
     private static IntPtr FileLocationCreate(byte* filePathPtr, nuint filePathLength, int startLine, int startColumn, int endLine, int endColumn)
     {
@@ -582,8 +585,20 @@ public static unsafe partial class CApi
 
         var xGather = RequireSingleGather(gatherCalls, parameters[0], "x");
         var yGather = RequireSingleGather(gatherCalls, parameters[1], "y");
-        var addCall = RequireSingleVectorAdd(calls, xGather, yGather);
-        var scatter = RequireSingleScatter(calls, addCall, parameters[2]);
+        var addCalls = calls.Where(call => call.Target is Binary { BinaryOp: BinaryOp.Add }).ToArray();
+        if (addCalls.Length != 1)
+        {
+            throw new InvalidOperationException($"Vector-add module must contain exactly one floating add, got {addCalls.Length}.");
+        }
+
+        var addCall = RequireVectorAdd(addCalls[0], xGather, yGather);
+        var scatterCalls = calls.Where(call => call.Target is IR.Affine.Scatter).ToArray();
+        if (scatterCalls.Length != 1)
+        {
+            throw new InvalidOperationException($"Vector-add module must contain exactly one affine scatter, got {scatterCalls.Length}.");
+        }
+
+        var scatter = RequireSingleScatter(scatterCalls[0], addCall, parameters[2]);
 
         var xGatherOp = (IR.Affine.Gather)xGather.Target;
         var yGatherOp = (IR.Affine.Gather)yGather.Target;
@@ -675,26 +690,28 @@ public static unsafe partial class CApi
             : throw new InvalidOperationException($"Vector-add module must contain one affine gather for {role} input, got {matches.Length}.");
     }
 
-    private static Call RequireSingleVectorAdd(IReadOnlyList<Call> calls, Call xGather, Call yGather)
+    private static Call RequireVectorAdd(Call addCall, Call xGather, Call yGather)
     {
-        var matches = calls.Where(call =>
-            call.Target is Binary { BinaryOp: BinaryOp.Add }
-            && ReferenceEquals(call[Binary.Lhs], xGather)
-            && ReferenceEquals(call[Binary.Rhs], yGather)).ToArray();
-        return matches.Length == 1
-            ? matches[0]
-            : throw new InvalidOperationException($"Vector-add module must contain one floating add from the two affine gathers, got {matches.Length}.");
+        if (addCall.Target is Binary { BinaryOp: BinaryOp.Add }
+            && ReferenceEquals(addCall[Binary.Lhs], xGather)
+            && ReferenceEquals(addCall[Binary.Rhs], yGather))
+        {
+            return addCall;
+        }
+
+        throw new InvalidOperationException("Vector-add module must contain one floating add from the two affine gathers.");
     }
 
-    private static Call RequireSingleScatter(IReadOnlyList<Call> calls, Call addCall, IVar dest)
+    private static Call RequireSingleScatter(Call scatter, Call addCall, IVar dest)
     {
-        var matches = calls.Where(call =>
-            call.Target is IR.Affine.Scatter
-            && ReferenceEquals(call[IR.Affine.Scatter.Source], addCall)
-            && ReferenceEquals(call[IR.Affine.Scatter.Dest], dest)).ToArray();
-        return matches.Length == 1
-            ? matches[0]
-            : throw new InvalidOperationException($"Vector-add module must contain one affine scatter of the add result to the output pointer, got {matches.Length}.");
+        if (scatter.Target is IR.Affine.Scatter
+            && ReferenceEquals(scatter[IR.Affine.Scatter.Source], addCall)
+            && ReferenceEquals(scatter[IR.Affine.Scatter.Dest], dest))
+        {
+            return scatter;
+        }
+
+        throw new InvalidOperationException("Vector-add module must contain one affine scatter of the add result to the output pointer.");
     }
 
     private static int ValidateRelation(AffineRelation relation, RankedShape symbols, Shape? shape, IVar problemSize, string role)
@@ -716,12 +733,6 @@ public static unsafe partial class CApi
             throw new InvalidOperationException($"Vector-add {role} relation does not match program_id(0) * BLOCK_SIZE + d0.");
         }
 
-        if (relation.Constraint is LogicalConst { Value: true }
-            || !relation.Constraint.ToString().Contains($"< {problemSize.Name}", StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException($"Vector-add {role} relation must be guarded by the problem-size parameter.");
-        }
-
         if (symbols.Count != 2
             || symbols[0] is not ProgramIdDim { Axis: 0 }
             || symbols[1] is not DimVar problemSymbol
@@ -729,6 +740,8 @@ public static unsafe partial class CApi
         {
             throw new InvalidOperationException($"Vector-add {role} symbols must be program_id(0) and the problem-size parameter.");
         }
+
+        ValidateConstraint(relation.Constraint, symbols[0], symbols[1], blockSize, role);
 
         if (shape is not null)
         {
@@ -742,6 +755,45 @@ public static unsafe partial class CApi
         }
 
         return blockSize;
+    }
+
+    private static void ValidateConstraint(LogicalExpr constraint, Dimension programId, Dimension problemSize, int blockSize, string role)
+    {
+        if (constraint is not DimCompare { Op: CompareOp.LowerThan } compare
+            || !ReferenceEquals(compare.Rhs, problemSize)
+            || !IsProgramBlockPlusLane(compare.Lhs, programId, blockSize))
+        {
+            throw new InvalidOperationException($"Vector-add {role} relation must be guarded exactly by program_id(0) * BLOCK_SIZE + d0 < problem-size.");
+        }
+    }
+
+    private static bool IsProgramBlockPlusLane(Dimension value, Dimension programId, int blockSize)
+    {
+        var (terms, bias) = value is DimSum sum
+            ? (sum.Operands.ToArray(), sum.Bias)
+            : (new[] { value }, 0L);
+
+        return bias == 0
+            && terms.Length == 2
+            && terms.Any(term => IsScaledProgramId(term, programId, blockSize))
+            && terms.Any(IsLaneDomain);
+    }
+
+    private static bool IsScaledProgramId(Dimension value, Dimension programId, int blockSize)
+    {
+        if (blockSize == 1 && ReferenceEquals(value, programId))
+        {
+            return true;
+        }
+
+        return value is DimProduct { Count: 1, Scale: var scale, Operands: [var operand] }
+            && scale == blockSize
+            && ReferenceEquals(operand, programId);
+    }
+
+    private static bool IsLaneDomain(Dimension value)
+    {
+        return value is DimVar { Name: "d0", Metadata.Range: { Min: 0, Max: >= 0 } };
     }
 
     private static string DescribeDefaultValue(BaseExpr defaultValue)
