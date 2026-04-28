@@ -38,17 +38,7 @@ public sealed class TieredTileGraphBuilder : ExprVisitor<Unit, Unit>
 
     public static TieredTileGraph Build(BaseExpr expr, int levelCount, out Dictionary<Grid, TieredTileGraph> exprMemo)
     {
-        HashSet<Grid> outputGrids = new();
-        if (expr is IR.Tuple tp)
-        {
-            var outputs = tp.Fields.ToArray().OfType<Grid>().ToHashSet();
-            outputGrids.UnionWith(outputs);
-        }
-        else if (expr is Grid grid)
-        {
-            outputGrids.UnionWith(new[] { grid });
-        }
-
+        var outputGrids = CollectOutputGrids(expr);
         var builder = new TieredTileGraphBuilder(levelCount, outputGrids);
         builder.Visit(expr);
         exprMemo = builder._exprMemo;
@@ -120,5 +110,35 @@ public sealed class TieredTileGraphBuilder : ExprVisitor<Unit, Unit>
         _exprMemo.Add(current, tileNodeRoot);
 
         return default;
+    }
+
+    private static HashSet<Grid> CollectOutputGrids(BaseExpr expr)
+    {
+        HashSet<Grid> outputGrids = new();
+        Collect(expr);
+        return outputGrids;
+
+        void Collect(BaseExpr current)
+        {
+            switch (current)
+            {
+                case Function function:
+                    Collect(function.Body);
+                    break;
+                case IRBlock block:
+                    Collect(block.Body);
+                    break;
+                case Nncase.IR.Tuple tuple:
+                    foreach (var field in tuple.Fields)
+                    {
+                        Collect(field);
+                    }
+
+                    break;
+                case Grid grid:
+                    outputGrids.Add(grid);
+                    break;
+            }
+        }
     }
 }

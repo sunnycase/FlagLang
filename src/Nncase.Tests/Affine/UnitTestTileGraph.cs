@@ -537,7 +537,7 @@ public sealed class UnitTestTileGraph : TestClassBase
         var exprs = ExprCollector.Collect(post);
         Assert.DoesNotContain(exprs, e => e is IR.Affine.Grid);
         var func = Assert.IsType<IR.Function>(post);
-        Assert.IsType<IR.Tuple>(func.Body);
+        Assert.IsType<IR.Tuple>(func.Body.Body);
     }
 
     public sealed record IntMergePoint(int Consumer, int Producer, int Level)

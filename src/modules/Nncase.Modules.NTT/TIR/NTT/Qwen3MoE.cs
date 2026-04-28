@@ -19,6 +19,7 @@ public sealed partial class Qwen3MoE : Nncase.TIR.NTT.NTTKernelOp
     public static readonly ParameterInfo MoeExpertUpInputScale = new(typeof(Qwen3MoE), 8, "MoeExpertUpInputScale", ParameterKind.Input);
     public static readonly ParameterInfo MoeExpertUpProjW = new(typeof(Qwen3MoE), 9, "MoeExpertUpProjW", ParameterKind.Input);
     public static readonly ParameterInfo MoeExpertUpProjScale = new(typeof(Qwen3MoE), 10, "MoeExpertUpProjScale", ParameterKind.Input);
+    public static readonly ParameterInfo Output = new(typeof(Qwen3MoE), 11, "output", ParameterKind.Input);
 
     public long LayerId { get; }
 

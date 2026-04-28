@@ -90,6 +90,40 @@ public sealed class UnitTestTIR
     }
 
     [Fact]
+    public void TestQwen3MoEParameterMetadataMatchesFunctionalCall()
+    {
+        var type = new TensorType(DataTypes.Float32, new[] { 1 });
+        var args = Enumerable.Range(0, 12).Select(i => (Expr)new Var($"arg{i}", type)).ToArray();
+        var call = Assert.IsType<Call>(Nncase.TIR.F.NTT.Qwen3MoE(
+            args[0],
+            args[1],
+            args[2],
+            args[3],
+            args[4],
+            args[5],
+            args[6],
+            args[7],
+            args[8],
+            args[9],
+            args[10],
+            args[11],
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1));
+        var op = Assert.IsType<Nncase.TIR.NTT.Qwen3MoE>(call.Target);
+        var parameters = op.Parameters.ToArray();
+
+        Assert.Equal(call.Arguments.Length, parameters.Length);
+        Assert.Same(Nncase.TIR.NTT.Qwen3MoE.Output, parameters[11]);
+        Assert.Equal("output", parameters[11].Name);
+        call.ParametersForeach((_, _) => { });
+    }
+
+    [Fact]
     public void TestEmit()
     {
         int result;
