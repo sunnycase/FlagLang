@@ -73,7 +73,7 @@ macro(add_test_exec test_source_file)
     add_executable(${tname} ${test_source_file})
     target_compile_options(${tname} PRIVATE )
     target_link_libraries(${tname} PRIVATE GTest::gtest_main nncaseruntime ortki::ortki)
-    add_test(NAME ${tname} COMMAND ${CMAKE_COMMAND} -DTEST_EXECUTABLE=$<TARGET_FILE:${tname}> -P ${NNCASE_CMAKE_DIR}/run_test.cmake)
+    add_test(NAME ${tname} COMMAND $<TARGET_FILE:${tname}>)
 
 endmacro()
 

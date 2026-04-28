@@ -1,5 +1,6 @@
 # Triton builds
 build/
+CMakeUserPresets.json
 build-*/
 
 llvm-project/
