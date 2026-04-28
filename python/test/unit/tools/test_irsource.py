@@ -8,6 +8,28 @@ target = triton.runtime.driver.active.get_current_target()
 backend = make_backend(target)
 
 
+def test_ptx_source_make_ir_returns_raw_text(tmp_path: pathlib.Path) -> None:
+    sample_ptx = r"""
+.version 8.0
+.target sm_80
+.address_size 64
+
+.visible .entry raw_ptx_kernel(
+    .param .u64 raw_ptx_kernel_param_0
+)
+{
+    ret;
+}
+"""
+    temp_file = tmp_path / "raw_ptx_kernel.ptx"
+    temp_file.write_text(sample_ptx)
+    context = ir.context()
+    src = IRSource(str(temp_file), context, backend)
+
+    assert src.name == "raw_ptx_kernel"
+    assert src.make_ir(target, backend.parse_options({}), {}, {}, context) == sample_ptx
+
+
 def test_mlir_attribute_parsing(tmp_path: pathlib.Path) -> None:
     '''
     Tests that MLIR attributes are parsed correctly from input ttir/ttgir.

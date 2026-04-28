@@ -122,6 +122,9 @@ class IRSource:
         return hashlib.sha256(self.src.encode("utf-8")).hexdigest()
 
     def make_ir(self, target: GPUTarget, options, codegen_fns, module_map, context):
+        if self.ext == "ptx":
+            return self.src
+
         self.module.context = context
         return self.module
 
