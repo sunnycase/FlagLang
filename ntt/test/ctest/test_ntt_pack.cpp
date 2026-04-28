@@ -59,3 +59,31 @@ TEST(PackTest, PackAxis1HonorsStridedOutput) {
         }
     }
 }
+
+TEST(PackTest, PackLastAxisPadsEachRowTail) {
+    using TVec = ntt::vector<uint64_t, 2>;
+
+    auto input = ntt::make_tensor<uint64_t>(ntt::fixed_shape_v<2, 3>);
+    uint64_t value = 1;
+    for (size_t row = 0; row < 2; row++) {
+        for (size_t col = 0; col < 3; col++) {
+            input(row, col) = value++;
+        }
+    }
+
+    auto output = ntt::make_tensor<TVec>(ntt::fixed_shape_v<2, 2>);
+    for (auto &item : output.elements()) {
+        item = TVec(UINT64_MAX);
+    }
+
+    ntt::pack(input, output, ntt::fixed_shape_v<1>);
+
+    EXPECT_EQ(output(0, 0)(0), 1);
+    EXPECT_EQ(output(0, 0)(1), 2);
+    EXPECT_EQ(output(0, 1)(0), 3);
+    EXPECT_EQ(output(0, 1)(1), 0);
+    EXPECT_EQ(output(1, 0)(0), 4);
+    EXPECT_EQ(output(1, 0)(1), 5);
+    EXPECT_EQ(output(1, 1)(0), 6);
+    EXPECT_EQ(output(1, 1)(1), 0);
+}

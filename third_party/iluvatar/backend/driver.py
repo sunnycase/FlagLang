@@ -56,7 +56,7 @@ def libcuda_dirs():
 
 @functools.lru_cache()
 def library_dirs():
-    if is_corex:
+    if is_corex():
         cuda_path = cuda_home_dirs()
         cuda_lib_dirs = os.path.join(cuda_path, "lib64")
         return [libdevice_dir, cuda_lib_dirs]

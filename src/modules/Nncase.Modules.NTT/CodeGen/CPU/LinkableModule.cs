@@ -167,6 +167,7 @@ internal sealed class LinkableModule : ILinkableModule
                     blockLocalDataPoolSize: scheduleResult.BlockLocalDataPoolSize,
                     rdataPoolSize: memoryPoolDesc.RdataPoolSize,
                     threadLocalRdataPoolSize: memoryPoolDesc.ThreadLocalRdataPoolSize,
+                    warpLocalRdataPoolSize: memoryPoolDesc.WarpLocalRdataPoolSize,
                     blockLocalRdataPoolSize: memoryPoolDesc.BlockLocalRdataPoolSize,
                     options: _targetOptions));
             }

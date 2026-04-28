@@ -85,7 +85,8 @@ template <Tensor TIn, Tensor TOut> class pack_impl<TIn, TOut, 1> {
         const auto out_conti_dims =
             contiguous_dims(output.shape(), output.strides());
         if ((in_conti_dims == rank) && (out_conti_dims == rank) &&
-            (VectorizeAxis == rank - 1) && (in_shape.length() % VecLen == 0)) {
+            (VectorizeAxis == rank - 1) &&
+            (in_shape[VectorizeAxis] % VecLen == 0)) {
             for (dim_t i = 0; i < output.shape().length(); i++) {
                 out_p[i] = TVec::unaligned_load_from(in_p);
                 in_p += VecLen;

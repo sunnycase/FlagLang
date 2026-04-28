@@ -348,7 +348,7 @@ class CPUUtils(object):
                 kernel_asm,  # function
                 None,  # n_regs
                 None,  # n_spills
-                0  # n_max_threads
+                1024  # n_max_threads
                 )
 
 
