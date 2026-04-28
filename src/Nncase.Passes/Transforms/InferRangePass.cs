@@ -210,12 +210,10 @@ internal sealed class InferRangeVisitor : ExprVisitor<ValueRange<double>, Unit>
 
     private ValueRange<double> VisitAbs(ValueRange<double> input)
     {
-        var values = new[]
-        {
-            Math.Abs(input.Min),
-            Math.Abs(input.Max),
-        };
-        return new ValueRange<double>(values.Min(), values.Max());
+        var minAbs = Math.Abs(input.Min);
+        var maxAbs = Math.Abs(input.Max);
+        var min = input.Min <= 0 && input.Max >= 0 ? 0 : Math.Min(minAbs, maxAbs);
+        return new ValueRange<double>(min, Math.Max(minAbs, maxAbs));
     }
 
     private ValueRange<double> VisitDiv(ValueRange<double> lhs, ValueRange<double> rhs, DataType rhsDataType)
@@ -257,29 +255,17 @@ internal sealed class InferRangeVisitor : ExprVisitor<ValueRange<double>, Unit>
             return ValueRange<double>.Full;
         }
 
-        double[] values;
-        if (rhsDataType.IsIntegral())
-        {
-            values = new[]
-            {
-                Math.Floor(lhs.Min % rhs.Min),
-                Math.Floor(lhs.Min % rhs.Max),
-                Math.Floor(lhs.Max % rhs.Min),
-                Math.Floor(lhs.Max % rhs.Max),
-            };
-        }
-        else
-        {
-            values = new[]
-            {
-                lhs.Min % rhs.Min,
-                lhs.Min % rhs.Max,
-                lhs.Max % rhs.Min,
-                lhs.Max % rhs.Max,
-            };
-        }
+        var maxDivisorMagnitude = Math.Max(Math.Abs(rhs.Min), Math.Abs(rhs.Max));
+        var maxRemainderMagnitude = rhsDataType.IsIntegral()
+            ? Math.Max(0, Math.Ceiling(maxDivisorMagnitude) - 1)
+            : maxDivisorMagnitude;
 
-        return new ValueRange<double>(values.Min(), values.Max());
+        return lhs switch
+        {
+            { Min: >= 0 } => new ValueRange<double>(0, maxRemainderMagnitude),
+            { Max: <= 0 } => new ValueRange<double>(-maxRemainderMagnitude, 0),
+            _ => new ValueRange<double>(-maxRemainderMagnitude, maxRemainderMagnitude),
+        };
     }
 
     private ValueRange<double> VisitMul(ValueRange<double> lhs, ValueRange<double> rhs)
