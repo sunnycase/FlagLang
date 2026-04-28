@@ -26,9 +26,9 @@
 using namespace nncase;
 
 namespace {
-struct inserion_point {
+struct insertion_point_snapshot {
     clr::sequential block;
-    size_t index;
+    size_t index = 0;
 };
 
 struct mlir_source_function {
@@ -301,6 +301,15 @@ class triton_op_builder {
 
         return insertion_point_.block;
     }
+
+    insertion_point_snapshot get_insertion_point() const {
+        return insertion_point_;
+    }
+
+    void restore_insertion_point(insertion_point_snapshot point) {
+        insertion_point_ = std::move(point);
+    }
+
     void set_insertion_point_to_start(clr::sequential block) {
         insertion_point_.block = std::move(block);
         insertion_point_.index = 0;
@@ -319,7 +328,7 @@ class triton_op_builder {
   private:
     clr::compile_session session_;
     clr::location last_location_;
-    inserion_point insertion_point_;
+    insertion_point_snapshot insertion_point_;
 };
 } // namespace
 
@@ -523,6 +532,8 @@ void nncase::init_triton_ir(py::module &&m) {
             }
         });
 
+    py::class_<insertion_point_snapshot>(m, "insertion_point");
+
     py::class_<triton_op_builder>(m, "builder", py::dynamic_attr())
         .def(py::init<clr::compile_session>())
 
@@ -551,6 +562,9 @@ void nncase::init_triton_ir(py::module &&m) {
 
         // insertion point
         .def("get_insertion_block", &triton_op_builder::get_insertion_block)
+        .def("get_insertion_point", &triton_op_builder::get_insertion_point)
+        .def("restore_insertion_point",
+             &triton_op_builder::restore_insertion_point)
         .def("set_insertion_point_to_start",
              &triton_op_builder::set_insertion_point_to_start)
         .def("set_insertion_point_to_end",

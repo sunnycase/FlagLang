@@ -63,6 +63,25 @@ def _is_list_like(o: Any) -> bool:
     return isinstance(o, (list, tuple))
 
 
+_NATIVE_CONTROL_FLOW_BUILDER_METHODS = (
+    "get_insertion_point",
+    "restore_insertion_point",
+    "create_block",
+    "create_block_with_parent",
+    "create_cond_branch",
+    "create_branch",
+    "create_if_op",
+    "create_yield_op",
+    "create_while_op",
+    "create_condition_op",
+    "create_for_op",
+)
+
+
+def _missing_builder_methods(builder: Any, methods: Iterable[str]) -> List[str]:
+    return [name for name in methods if not callable(getattr(builder, name, None))]
+
+
 def _check_fn_args(node, fn, args):
     if fn.noinline:
         for idx, arg in enumerate(args):
@@ -369,6 +388,15 @@ class CodeGenerator(ast.NodeVisitor):
 
     def _unsupported(self, node, message):
         return UnsupportedLanguageConstruct(self.jit_fn.src, node, message)
+
+    def _require_control_flow_lowering(self, node, construct):
+        missing = _missing_builder_methods(self.builder, _NATIVE_CONTROL_FLOW_BUILDER_METHODS)
+        if missing:
+            builder_type = type(self.builder).__name__
+            raise self._unsupported(
+                node,
+                f"{construct} requires native IR structured control-flow lowering, but builder "
+                f"{builder_type} is missing required methods: {', '.join(missing)}.")
 
     def _is_constexpr_global(self, name):
         absent_marker = object()
@@ -891,6 +919,7 @@ class CodeGenerator(ast.NodeVisitor):
         cond = self.visit(node.test)
 
         if _is_triton_tensor(cond):
+            self._require_control_flow_lowering(node, "dynamic Triton if")
             if _is_non_scalar_tensor(cond):
                 raise self._unsupported(node, "Boolean value of Tensor with more than one value is ambiguous")
             if cond.type.is_block():
@@ -921,6 +950,7 @@ class CodeGenerator(ast.NodeVisitor):
     def visit_IfExp(self, node):
         cond = self.visit(node.test)
         if _is_triton_tensor(cond):
+            self._require_control_flow_lowering(node, "dynamic Triton ternary expression")
             cond = cond.to(language.int1, _semantic=self.semantic)
             # TODO: Deal w/ more complicated return types (e.g tuple)
             with enter_sub_region(self):
@@ -1059,6 +1089,7 @@ class CodeGenerator(ast.NodeVisitor):
         return self.visit(node.context_expr)
 
     def visit_While(self, node):
+        self._require_control_flow_lowering(node, "dynamic Triton while")
         with enter_sub_region(self) as sr:
             liveins, insert_block = sr
             ip, last_loc = self._get_insertion_point_and_loc()
@@ -1181,6 +1212,7 @@ class CodeGenerator(ast.NodeVisitor):
             step = iter_args[2] if len(iter_args) > 2 else self.visit(ast.Num(1))
         else:
             raise RuntimeError('Only `range` and `static_range` iterators are currently supported')
+        self._require_control_flow_lowering(node, "dynamic Triton for")
         # handle negative constant step (not supported by scf.for in MLIR)
         negative_step = False
         if _is_constexpr(step) and step.value < 0:
