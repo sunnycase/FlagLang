@@ -1,6 +1,8 @@
 import numpy as np
+import pytest
 
 from triton._C.libtriton import RuntimeTensor, ir
+from triton.language.semantic import TritonSemantic
 
 
 def test_libtriton_exports_interpreter_submodule():
@@ -72,6 +74,30 @@ def test_native_ir_builder_call_surface():
     builder.ret([call.get_result(0)])
     caller.finalize()
     assert module.verify_with_diagnostics()
+
+
+def test_native_ir_builder_integer_sub_surface():
+    builder = ir.builder(ir.context())
+    module = builder.create_module()
+    i32 = builder.get_int32_ty()
+
+    fn_ty = builder.get_function_ty([i32, i32], [i32])
+    fn = builder.get_or_insert_function(module, "sub_kernel", fn_ty, "public", False)
+    module.push_back(fn)
+    body = fn.add_entry_block()
+    builder.set_insertion_point_to_end(body)
+    diff = builder.create_sub(fn.args(0), fn.args(1))
+    builder.ret([diff])
+
+    fn.finalize()
+    assert module.verify_with_diagnostics()
+
+
+def test_num_programs_fails_explicitly_until_grid_extent_ir_exists():
+    builder = ir.builder(ir.context())
+
+    with pytest.raises(NotImplementedError, match="tl.num_programs is not supported"):
+        TritonSemantic(builder).num_programs(0)
 
 
 def _build_vector_add_module():

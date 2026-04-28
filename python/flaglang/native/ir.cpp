@@ -735,6 +735,11 @@ void nncase::init_triton_ir(py::module &&m) {
                  return self.insert_expr(
                      clr::ir_builder::math::binary(nncase_binary_add, a, b));
              })
+        .def("create_sub",
+             [](triton_op_builder &self, clr::expr a, clr::expr b) {
+                 return self.insert_expr(
+                     clr::ir_builder::math::binary(nncase_binary_sub, a, b));
+             })
         .def("create_frem",
              [](triton_op_builder &self, clr::expr a, clr::expr b) {
                  return self.insert_expr(

@@ -145,13 +145,6 @@ inline py::class_<runtime_tensor> register_runtime_tensor(py::module &m) {
                 }
                 auto py_shape =
                     to_py_shape(tensor.impl()->dtype(), tensor.impl()->shape());
-                if (tensor.impl()->dtype().is_a<vector_type_t>()) {
-                    auto vtype =
-                        tensor.impl()->dtype().as<vector_type_t>().unwrap();
-                    for (auto lane : vtype->lanes()) {
-                        py_shape.push_back(lane);
-                    }
-                }
                 return py_shape;
             });
 

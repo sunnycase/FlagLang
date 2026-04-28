@@ -43,7 +43,12 @@ class TritonSemantic(Generic[TensorTy]):
     def num_programs(self, axis: int) -> TensorTy:
         if axis not in (0, 1, 2):
             raise ValueError(f"num_programs axis must be 0, 1, or 2 but got {axis}")
-        return self.tensor(self.builder.create_get_num_programs(axis), tl.int32)
+        create_get_num_programs = getattr(self.builder, "create_get_num_programs", None)
+        if not callable(create_get_num_programs):
+            raise NotImplementedError(
+                "tl.num_programs is not supported by the active FlagLang native builder; "
+                "launch grid extents are not represented in native IR yet")
+        return self.tensor(create_get_num_programs(axis), tl.int32)
 
 # ===----------------------------------------------------------------------===//
 #                               Implicit Casting Utilities
