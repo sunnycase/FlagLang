@@ -30,7 +30,12 @@ def is_interpreter():
 def get_current_target():
     if is_interpreter():
         return None
-    return triton.runtime.driver.active.get_current_target()
+    try:
+        return triton.runtime.driver.active.get_current_target()
+    except RuntimeError as exc:
+        if str(exc).startswith("0 active drivers"):
+            return None
+        raise
 
 
 def is_cuda():
