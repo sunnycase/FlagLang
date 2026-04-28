@@ -71,22 +71,19 @@ def get_host_toolchain_profile(base_dir=None, machine=None, system=None):
     except KeyError as exc:
         raise RuntimeError(
             f"Unsupported host architecture {machine!r} for Conan profile selection. "
-            "Add an explicit toolchains/<arch>-<os>.profile.jinja profile before building on this host."
-        ) from exc
+            "Add an explicit toolchains/<arch>-<os>.profile.jinja profile before building on this host.") from exc
 
     try:
         toolchain_os = _CONAN_TOOLCHAIN_OSES[system]
     except KeyError as exc:
         raise RuntimeError(
             f"Unsupported host operating system {system!r} for Conan profile selection. "
-            "Add an explicit toolchains/<arch>-<os>.profile.jinja profile before building on this host."
-        ) from exc
+            "Add an explicit toolchains/<arch>-<os>.profile.jinja profile before building on this host.") from exc
 
     profile_path = base_dir / "toolchains" / f"{toolchain_arch}-{toolchain_os}.profile.jinja"
     if not profile_path.is_file():
         supported = _available_toolchain_profiles(base_dir / "toolchains")
         raise RuntimeError(
             f"No Conan profile is available for host platform {machine}/{system}: expected {profile_path}. "
-            f"Supported profiles: {supported}. Add the missing profile instead of reusing an unrelated toolchain."
-        )
+            f"Supported profiles: {supported}. Add the missing profile instead of reusing an unrelated toolchain.")
     return profile_path

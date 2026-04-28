@@ -7,30 +7,30 @@
 
 namespace mlir::triton::proton::gpu::AMD {
 class TargetInfo : public mlir::triton::proton::gpu::TargetInfoBase {
-public:
-  explicit TargetInfo(const mlir::triton::AMD::TargetInfo &helper,
-                      std::string arch)
-      : mlir::triton::proton::gpu::TargetInfoBase(helper),
-        arch(std::move(arch)) {}
+  public:
+    explicit TargetInfo(const mlir::triton::AMD::TargetInfo &helper,
+                        std::string arch)
+        : mlir::triton::proton::gpu::TargetInfoBase(helper),
+          arch(std::move(arch)) {}
 
-  const mlir::triton::AMD::TargetInfo &getTritonTargetInfo() const override {
-    return static_cast<const mlir::triton::AMD::TargetInfo &>(helper);
-  }
+    const mlir::triton::AMD::TargetInfo &getTritonTargetInfo() const override {
+        return static_cast<const mlir::triton::AMD::TargetInfo &>(helper);
+    }
 
-  Value clock(ConversionPatternRewriter &rewriter, Location loc,
-              bool isClock64) const override;
+    Value clock(ConversionPatternRewriter &rewriter, Location loc,
+                bool isClock64) const override;
 
-  Value processorId(ConversionPatternRewriter &rewriter,
-                    Location loc) const override;
+    Value processorId(ConversionPatternRewriter &rewriter,
+                      Location loc) const override;
 
-  int getAddressSpace(Attribute addressSpace) const override;
+    int getAddressSpace(Attribute addressSpace) const override;
 
-  int getIndexPtrAddrSpace() const override;
+    int getIndexPtrAddrSpace() const override;
 
-  ~TargetInfo() = default;
+    ~TargetInfo() = default;
 
-private:
-  std::string arch;
+  private:
+    std::string arch;
 };
 } // namespace mlir::triton::proton::gpu::AMD
 

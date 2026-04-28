@@ -15,6 +15,7 @@ from test_generator_base import *
 
 
 class UnpackTestGenerator(BaseTestGenerator):
+
     def __init__(self):
         super().__init__()
 
@@ -33,7 +34,6 @@ class UnpackTestGenerator(BaseTestGenerator):
         parts.append(f"unpack_axis_{unpack_axis_str}")
         parts.append(f"{ndim}D")
         return "_".join(parts)
-
 
     def generate_unpack_axes_str(self, axes):
         if len(axes) == 1:
@@ -77,16 +77,12 @@ class UnpackTestGenerator(BaseTestGenerator):
 
         return code
 
-
     def generate_ntt_ops(self, unpack_axes):
         unpack_axes_str = self.generate_unpack_axes_str(unpack_axes)
-        return [
-            "// Execute unpack operation",
-            f"ntt::unpack(ntt_input, ntt_output1, {unpack_axes_str});",
-            ""
-        ]
+        return ["// Execute unpack operation", f"ntt::unpack(ntt_input, ntt_output1, {unpack_axes_str});", ""]
 
-    def generate_ntt_output_to_test(self, datatype, shape_type, dim_names, continuity, vector_dim, P, unpack_axes, deal_fp8):
+    def generate_ntt_output_to_test(self, datatype, shape_type, dim_names, continuity, vector_dim, P, unpack_axes,
+                                    deal_fp8):
         """
         Generates the NTT output to be tested.
         This includes:
@@ -98,32 +94,24 @@ class UnpackTestGenerator(BaseTestGenerator):
         code = []
 
         # 1. NTT input creation
-        code.extend(self.generate_ntt_input_section(
-            datatype=datatype,
-            shape_type=shape_type,
-            dims_spec=dim_names,
-            continuity=continuity,
-            vector_rank=vector_dim,
-            P=P,
-            var_name="ntt_input"))
+        code.extend(
+            self.generate_ntt_input_section(datatype=datatype, shape_type=shape_type, dims_spec=dim_names,
+                                            continuity=continuity, vector_rank=vector_dim, P=P, var_name="ntt_input"))
 
         # 2. NTT operation (unpack)
         output_dims = self.get_unpacked_dims(dim_names, unpack_axes)
         output_shape_expr = self.generate_shape_init(shape_type, output_dims)
-        
+
         unpack_call_code = self.generate_ntt_ops(unpack_axes)
 
-        op_code = self.generate_ntt_output_and_op_section(
-            datatype=datatype,
-            output_shape_expr=output_shape_expr,
-            cast_mode=deal_fp8,
-            ntt_op_call_lines=unpack_call_code
-        )
+        op_code = self.generate_ntt_output_and_op_section(datatype=datatype, output_shape_expr=output_shape_expr,
+                                                          cast_mode=deal_fp8, ntt_op_call_lines=unpack_call_code)
         code.extend(op_code)
-        
+
         return code, output_shape_expr
 
-    def generate_ort_golden_output(self, datatype, shape_type, dims, dim_names, continuity, vector_dim, P, unpack_axes, deal_fp8, output_shape_expr):
+    def generate_ort_golden_output(self, datatype, shape_type, dims, dim_names, continuity, vector_dim, P, unpack_axes,
+                                   deal_fp8, output_shape_expr):
         """
         Generates the golden output using ORT as a reference.
         This includes:
@@ -133,15 +121,10 @@ class UnpackTestGenerator(BaseTestGenerator):
         code = []
 
         # 1. ORT input section
-        code.extend(self.generate_ort_input_section(
-            datatype=datatype,
-            shape_type=shape_type,
-            dims_spec=dim_names,
-            continuity=continuity,
-            cast_mode=deal_fp8,
-            P=P,
-            vector_rank=vector_dim,
-            ntt_input_var_name="ntt_input"))
+        code.extend(
+            self.generate_ort_input_section(datatype=datatype, shape_type=shape_type, dims_spec=dim_names,
+                                            continuity=continuity, cast_mode=deal_fp8, P=P, vector_rank=vector_dim,
+                                            ntt_input_var_name="ntt_input"))
 
         # 2. ORT kernel exec section
         ort_kernel_lines = self.generate_ort_reference(dims, dim_names, unpack_axes, P)
@@ -160,29 +143,29 @@ class UnpackTestGenerator(BaseTestGenerator):
         else:
             dims, dim_names = [2, 8, 4, 4, 2], ['N', 'C', 'H', 'W', 'D']
 
-        test_name = self.generate_test_name(datatype, shape_type, vector_dim, continuity, "_".join(map(str, unpack_axes)), ndim)
+        test_name = self.generate_test_name(datatype, shape_type, vector_dim, continuity,
+                                            "_".join(map(str, unpack_axes)), ndim)
 
         code: List[str] = []
 
         # 1. Test header and constants
         code.extend(self.generate_test_prologue("UnpackTest", datatype, test_name, P, dim_names, dims))
-        
+
         # Generate output to test in ntt format
-        ntt_output_code, output_shape_expr = self.generate_ntt_output_to_test(datatype, shape_type, dim_names, continuity, vector_dim, P, unpack_axes, deal_fp8)
+        ntt_output_code, output_shape_expr = self.generate_ntt_output_to_test(datatype, shape_type, dim_names,
+                                                                              continuity, vector_dim, P, unpack_axes,
+                                                                              deal_fp8)
         code.extend([f"    {line}" for line in ntt_output_code])
 
         # Generate golden output in ort format
-        golden_output_code = self.generate_ort_golden_output(datatype, shape_type, dims, dim_names, continuity, vector_dim, P, unpack_axes, deal_fp8, output_shape_expr)
+        golden_output_code = self.generate_ort_golden_output(datatype, shape_type, dims, dim_names, continuity,
+                                                             vector_dim, P, unpack_axes, deal_fp8, output_shape_expr)
         code.extend([f"    {line}" for line in golden_output_code])
 
         # Compare outputs
-        compare_code = self.generate_ort_back2ntt_and_compare_section(
-            datatype,
-            datatype.cpp_type,
-            output_shape_expr,
-            deal_fp8,
-            ntt_output_var_name="ntt_output1",
-            ort_output_var_name="ort_output")
+        compare_code = self.generate_ort_back2ntt_and_compare_section(datatype, datatype.cpp_type, output_shape_expr,
+                                                                      deal_fp8, ntt_output_var_name="ntt_output1",
+                                                                      ort_output_var_name="ort_output")
         code.extend([f"    {line}" for line in compare_code])
 
         return "\n".join(code)
@@ -192,9 +175,10 @@ class UnpackTestGenerator(BaseTestGenerator):
         vector_dims = [1, 2]
 
         unpack_axes_options = {
-            3: [[2], [1], [0], [0, 1], [1, 2]],
-            4: [[3], [2], [1], [0], [0, 1], [1, 2], [2, 3]],
-            5: [[4], [3], [2], [1], [0], [0, 1], [1, 2], [2, 3], [3, 4]]
+            3: [[2], [1], [0], [0, 1], [1, 2]], 4: [[3], [2], [1], [0], [0, 1], [1, 2], [2, 3]], 5: [[4], [3], [2], [1],
+                                                                                                     [0], [0, 1],
+                                                                                                     [1, 2], [2, 3],
+                                                                                                     [3, 4]]
         }
 
         full_continuities = [
@@ -222,7 +206,7 @@ class UnpackTestGenerator(BaseTestGenerator):
                     # The vector dimension must match the number of axes to unpack.
                     if vector_dim != len(unpack_axes) and vector_dim > 0:
                         continue
-                    
+
                     test_code = self.generate_test_case(datatype, shape_type, vector_dim, continuity, unpack_axes, ndim)
                     code.append(test_code)
 
@@ -238,7 +222,7 @@ if __name__ == "__main__":
     # Get the parent directory (ctest) and then the generated subdirectory
     ctest_directory = os.path.dirname(script_directory)
     generated_directory = os.path.join(ctest_directory, "generated")
-    
+
     # Ensure generated directory exists
     os.makedirs(generated_directory, exist_ok=True)
 
@@ -255,4 +239,5 @@ if __name__ == "__main__":
         print(f"Test file generated: {output_filepath}")
         generated_filenames.append(filename)
 
-    generate_cmake_list(generated_directory, generated_filenames, "generated_unpack_tests.cmake", "GENERATED_UNPACK_TEST_SOURCES")
+    generate_cmake_list(generated_directory, generated_filenames, "generated_unpack_tests.cmake",
+                        "GENERATED_UNPACK_TEST_SOURCES")

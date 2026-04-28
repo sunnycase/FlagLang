@@ -110,9 +110,9 @@ void assertIsRecognized(const std::string &env) {
     bool is_neutral = CACHE_NEUTRAL_ENV_VARS.find(env.c_str()) !=
                       CACHE_NEUTRAL_ENV_VARS.end();
     if (!is_invalidating && !is_neutral) {
-        throw std::invalid_argument(
-            env + " is not recognized. Please add it to "
-                  "triton/tools/sys/getenv.hpp");
+        throw std::invalid_argument(env +
+                                    " is not recognized. Please add it to "
+                                    "triton/tools/sys/getenv.hpp");
     }
 }
 

@@ -38,27 +38,27 @@ namespace {
 
 class LinalgTilingPass
     : public triton::impl::LinalgTilingBase<LinalgTilingPass> {
-public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<linalg::LinalgDialect>();
-  }
-
-  void runOnOperation() override {
-    ModuleOp module = getOperation();
-    MLIRContext *context = &getContext();
-
-    RewritePatternSet patterns(context);
-
-    mlir::triton::populateLinalgTilingPatterns(patterns);
-
-    if (failed(applyPatternsGreedily(module, std::move(patterns)))) {
-      signalPassFailure();
+  public:
+    void getDependentDialects(DialectRegistry &registry) const override {
+        registry.insert<linalg::LinalgDialect>();
     }
-  }
+
+    void runOnOperation() override {
+        ModuleOp module = getOperation();
+        MLIRContext *context = &getContext();
+
+        RewritePatternSet patterns(context);
+
+        mlir::triton::populateLinalgTilingPatterns(patterns);
+
+        if (failed(applyPatternsGreedily(module, std::move(patterns)))) {
+            signalPassFailure();
+        }
+    }
 };
 } // namespace
 
 std::unique_ptr<OperationPass<ModuleOp>>
 mlir::triton::createLinalgTilingPass() {
-  return std::make_unique<LinalgTilingPass>();
+    return std::make_unique<LinalgTilingPass>();
 }

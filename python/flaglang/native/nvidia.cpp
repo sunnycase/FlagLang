@@ -55,11 +55,12 @@ void check_matmul_constraints(const std::string &a_dtype,
 
     const auto m = a_shape[0];
     if (m != c_shape[0]) {
-        throw std::runtime_error(
-            "Matrix dimensions do not match. A is [" +
-            std::to_string(a_shape[0]) + ", " + std::to_string(a_shape[1]) +
-            "], C is [" + std::to_string(c_shape[0]) + ", " +
-            std::to_string(c_shape[1]) + "]. Expected A.shape[0] == C.shape[0].");
+        throw std::runtime_error("Matrix dimensions do not match. A is [" +
+                                 std::to_string(a_shape[0]) + ", " +
+                                 std::to_string(a_shape[1]) + "], C is [" +
+                                 std::to_string(c_shape[0]) + ", " +
+                                 std::to_string(c_shape[1]) +
+                                 "]. Expected A.shape[0] == C.shape[0].");
     }
 
     const auto n = b_shape[0];
@@ -76,8 +77,8 @@ void check_matmul_constraints(const std::string &a_dtype,
 
 cudaDataType_t to_cuda_dtype(const std::string &torch_dtype) {
     const auto dot = torch_dtype.find_last_of('.');
-    const auto dtype = dot == std::string::npos ? torch_dtype
-                                                : torch_dtype.substr(dot + 1);
+    const auto dtype =
+        dot == std::string::npos ? torch_dtype : torch_dtype.substr(dot + 1);
     if (dtype == "float8_e4m3fn") {
         return CUDA_R_8F_E4M3;
     }
@@ -131,34 +132,33 @@ void init_triton_nvidia(py::module &&m) {
 
                  check_matmul_constraints(a_dtype, b_dtype, c_dtype, a_shape,
                                           b_shape, c_shape);
-                 self.matmul(a_shape[0], b_shape[0], a_shape[1],
-                             data_ptr_of(a), data_ptr_of(b), data_ptr_of(c),
+                 self.matmul(a_shape[0], b_shape[0], a_shape[1], data_ptr_of(a),
+                             data_ptr_of(b), data_ptr_of(c),
                              to_cuda_dtype(a_dtype));
              })
-        .def("gemm",
-             [](CublasLtInstance &self, py::object &a, py::object &b,
-                py::object &c, py::object &d, float alpha, float beta) {
-                 const auto a_shape = shape_of(a);
-                 const auto b_shape = shape_of(b);
-                 const auto c_shape = shape_of(c);
-                 const auto d_shape = shape_of(d);
-                 const auto a_dtype = dtype_of(a);
-                 const auto b_dtype = dtype_of(b);
-                 const auto c_dtype = dtype_of(c);
-                 const auto d_dtype = dtype_of(d);
+        .def("gemm", [](CublasLtInstance &self, py::object &a, py::object &b,
+                        py::object &c, py::object &d, float alpha, float beta) {
+            const auto a_shape = shape_of(a);
+            const auto b_shape = shape_of(b);
+            const auto c_shape = shape_of(c);
+            const auto d_shape = shape_of(d);
+            const auto a_dtype = dtype_of(a);
+            const auto b_dtype = dtype_of(b);
+            const auto c_dtype = dtype_of(c);
+            const auto d_dtype = dtype_of(d);
 
-                 check_matmul_constraints(a_dtype, b_dtype, d_dtype, a_shape,
-                                          b_shape, d_shape);
-                 if (c_dtype != "torch.float16") {
-                     throw std::runtime_error("C dtype must be float16, got " +
-                                              c_dtype);
-                 }
-                 if (c_shape != d_shape) {
-                     throw std::runtime_error("C and D shapes must match");
-                 }
+            check_matmul_constraints(a_dtype, b_dtype, d_dtype, a_shape,
+                                     b_shape, d_shape);
+            if (c_dtype != "torch.float16") {
+                throw std::runtime_error("C dtype must be float16, got " +
+                                         c_dtype);
+            }
+            if (c_shape != d_shape) {
+                throw std::runtime_error("C and D shapes must match");
+            }
 
-                 self.gemm(a_shape[0], b_shape[0], a_shape[1], data_ptr_of(a),
-                           data_ptr_of(b), data_ptr_of(c), data_ptr_of(d),
-                           to_cuda_dtype(a_dtype), alpha, beta);
-             });
+            self.gemm(a_shape[0], b_shape[0], a_shape[1], data_ptr_of(a),
+                      data_ptr_of(b), data_ptr_of(c), data_ptr_of(d),
+                      to_cuda_dtype(a_dtype), alpha, beta);
+        });
 }

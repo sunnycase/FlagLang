@@ -21,37 +21,36 @@
 static const int32_t TX81_MAX_THREADS_PER_BLOCK = 256;
 
 static PyObject *getDeviceProperties(PyObject *self, PyObject *args) {
-  // Extract device properties
-  // Note: We're mapping Tx81 properties to fields expected by Triton
-  int max_shared_mem = 1024 * 1024 * 3; // Default 3MB
-  int max_threads_per_block = TX81_MAX_THREADS_PER_BLOCK;
-  // int multiprocessor_count = device->tile_num;
-  int multiprocessor_count = 1;
-  int sm_clock_rate = 1000;  // Placeholder
-  int mem_clock_rate = 2000; // Placeholder
-  int mem_bus_width = 256;   // Placeholder
+    // Extract device properties
+    // Note: We're mapping Tx81 properties to fields expected by Triton
+    int max_shared_mem = 1024 * 1024 * 3; // Default 3MB
+    int max_threads_per_block = TX81_MAX_THREADS_PER_BLOCK;
+    // int multiprocessor_count = device->tile_num;
+    int multiprocessor_count = 1;
+    int sm_clock_rate = 1000;  // Placeholder
+    int mem_clock_rate = 2000; // Placeholder
+    int mem_bus_width = 256;   // Placeholder
 
-  return Py_BuildValue("{s:i, s:i, s:i, s:i, s:i, s:i}", "max_shared_mem",
-                       max_shared_mem, "max_threads_per_block",
-                       max_threads_per_block, "multiprocessor_count",
-                       multiprocessor_count, "sm_clock_rate", sm_clock_rate,
-                       "mem_clock_rate", mem_clock_rate, "mem_bus_width",
-                       mem_bus_width);
+    return Py_BuildValue(
+        "{s:i, s:i, s:i, s:i, s:i, s:i}", "max_shared_mem", max_shared_mem,
+        "max_threads_per_block", max_threads_per_block, "multiprocessor_count",
+        multiprocessor_count, "sm_clock_rate", sm_clock_rate, "mem_clock_rate",
+        mem_clock_rate, "mem_bus_width", mem_bus_width);
 }
 
 static PyObject *loadBinary(PyObject *self, PyObject *args) {
-  const char *name;
-  const char *data;
-  Py_ssize_t data_size;
-  int shared;
-  int device;
+    const char *name;
+    const char *data;
+    Py_ssize_t data_size;
+    int shared;
+    int device;
 
-  int32_t n_regs = 256;
-  int32_t n_spills = 0;
-  int32_t n_max_threads = TX81_MAX_THREADS_PER_BLOCK;
-  return Py_BuildValue("(KKiii)", (uint64_t)"module {}",
-                       (uint64_t)"void @add_kernel() {}", n_regs, n_spills,
-                       n_max_threads);
+    int32_t n_regs = 256;
+    int32_t n_spills = 0;
+    int32_t n_max_threads = TX81_MAX_THREADS_PER_BLOCK;
+    return Py_BuildValue("(KKiii)", (uint64_t)"module {}",
+                         (uint64_t)"void @add_kernel() {}", n_regs, n_spills,
+                         n_max_threads);
 }
 
 static PyMethodDef ModuleMethods[] = {
@@ -68,12 +67,12 @@ static struct PyModuleDef ModuleDef = {PyModuleDef_HEAD_INIT, "tx81_utils",
                                        ModuleMethods};
 
 PyMODINIT_FUNC PyInit_tx81_utils(void) {
-  PyObject *m = PyModule_Create(&ModuleDef);
-  if (m == NULL) {
-    return NULL;
-  }
+    PyObject *m = PyModule_Create(&ModuleDef);
+    if (m == NULL) {
+        return NULL;
+    }
 
-  PyModule_AddFunctions(m, ModuleMethods);
+    PyModule_AddFunctions(m, ModuleMethods);
 
-  return m;
+    return m;
 }

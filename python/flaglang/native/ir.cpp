@@ -79,7 +79,8 @@ size_t find_matching_paren(const std::string &text, size_t open_pos) {
         }
     }
 
-    throw std::runtime_error("Malformed MLIR function signature: unmatched '('");
+    throw std::runtime_error(
+        "Malformed MLIR function signature: unmatched '('");
 }
 
 std::vector<std::string> split_top_level_commas(const std::string &text) {
@@ -119,7 +120,8 @@ std::vector<std::string> split_top_level_commas(const std::string &text) {
         case ',':
             if (paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 &&
                 angle_depth == 0) {
-                auto part = trim(std::string_view(text).substr(start, i - start));
+                auto part =
+                    trim(std::string_view(text).substr(start, i - start));
                 if (!part.empty()) {
                     parts.push_back(std::move(part));
                 }
@@ -167,8 +169,7 @@ std::string convert_mlir_type(std::string type_text) {
 
 bool has_enabled_tma_descriptor_attr(const std::string &arg_text) {
     std::smatch match;
-    static const std::regex attr_pattern(
-        R"(tt\.nv_tma_desc\s*=\s*([^,:}]+))");
+    static const std::regex attr_pattern(R"(tt\.nv_tma_desc\s*=\s*([^,:}]+))");
     if (!std::regex_search(arg_text, match, attr_pattern)) {
         return false;
     }
@@ -193,7 +194,8 @@ std::string convert_mlir_argument_type(const std::string &arg_text) {
 
     auto colon = arg_text.find(':');
     if (colon == std::string::npos) {
-        throw std::runtime_error("Malformed MLIR function argument: " + arg_text);
+        throw std::runtime_error("Malformed MLIR function argument: " +
+                                 arg_text);
     }
 
     return convert_mlir_type(arg_text.substr(colon + 1));
@@ -266,14 +268,15 @@ class mlir_source_module {
     const std::string &to_text() const { return source_; }
     const std::string &str_nodebug() const { return source_; }
     bool verify() const { return !functions_.empty(); }
-    void create_location_snapshot([[maybe_unused]] std::string_view path) const {}
+    void
+    create_location_snapshot([[maybe_unused]] std::string_view path) const {}
 
   private:
     void parse_functions() {
         static const std::regex function_pattern(
             R"(\b(?:tt|func)\.func\s+(?:public\s+)?@([A-Za-z_.$][A-Za-z0-9_.$]*)\s*\()");
-        auto begin =
-            std::sregex_iterator(source_.begin(), source_.end(), function_pattern);
+        auto begin = std::sregex_iterator(source_.begin(), source_.end(),
+                                          function_pattern);
         auto end = std::sregex_iterator();
         for (auto it = begin; it != end; ++it) {
             const auto &match = *it;
@@ -432,8 +435,8 @@ void nncase::init_triton_ir(py::module &&m) {
 
     py::class_<mlir_source_function>(m, "mlir_source_function");
     py::class_<mlir_source_module>(m, "mlir_source_module", py::dynamic_attr())
-        .def("get_entry_func_name",
-             &mlir_source_module::get_entry_func_name, ret::reference_internal)
+        .def("get_entry_func_name", &mlir_source_module::get_entry_func_name,
+             ret::reference_internal)
         .def("get_function", &mlir_source_module::get_function)
         .def("get_function_signature",
              &mlir_source_module::get_function_signature)
@@ -510,9 +513,10 @@ void nncase::init_triton_ir(py::module &&m) {
         .def("str_nodebug", &clr::ir_module::to_text)
         .def("get_entry_func_name", &clr::ir_module::get_entry_func_name)
         .def("describe_vector_add", &clr::ir_module::describe_vector_add)
-        .def("verify", [](clr::ir_module &self) {
-            return clr::compiler_services::inference_type(self);
-        })
+        .def("verify",
+             [](clr::ir_module &self) {
+                 return clr::compiler_services::inference_type(self);
+             })
         .def("verify_with_diagnostics", [](clr::ir_module &self) {
             return clr::compiler_services::inference_type(self);
         });
@@ -521,7 +525,8 @@ void nncase::init_triton_ir(py::module &&m) {
         auto json = py::module_::import("json");
         auto options_json = json.attr("dumps")(options).cast<std::string>();
         clr::native_cuda_compile_result result(module, options_json);
-        auto payload = json.attr("loads")(result.metadata_json()).cast<py::dict>();
+        auto payload =
+            json.attr("loads")(result.metadata_json()).cast<py::dict>();
         if (payload.contains("error") && !payload["error"].is_none()) {
             throw std::runtime_error(payload["error"].cast<std::string>());
         }
@@ -911,14 +916,14 @@ void nncase::init_triton_ir(py::module &&m) {
                  return self.insert_expr(clr::ir_builder::triton::load(
                      ptr, mask, other, cache_modifier, eviction_policy));
              })
-        .def("create_store",
-             [](triton_op_builder &self, clr::expr ptr, clr::expr value,
-                nncase_cache_modifier_t cache_modifier,
-                nncase_eviction_policy_t eviction_policy) {
-                 return self.insert_expr(clr::ir_builder::triton::store(
-                     ptr, value, std::nullopt, cache_modifier,
-                     eviction_policy));
-             })
+        .def(
+            "create_store",
+            [](triton_op_builder &self, clr::expr ptr, clr::expr value,
+               nncase_cache_modifier_t cache_modifier,
+               nncase_eviction_policy_t eviction_policy) {
+                return self.insert_expr(clr::ir_builder::triton::store(
+                    ptr, value, std::nullopt, cache_modifier, eviction_policy));
+            })
         .def("create_masked_store",
              [](triton_op_builder &self, clr::expr ptr, clr::expr value,
                 clr::expr mask, nncase_cache_modifier_t cache_modifier,

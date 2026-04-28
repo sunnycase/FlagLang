@@ -108,7 +108,7 @@ extern "C" NTT_DEVICE void thread_main(const nncase::ntt::runtime::thread_inout_
   @if (Model.Options.Hierarchies.Length > 1) {
     throw new NotSupportedException($"not support multi form topology!");
   }
-  
+
   @(Model.PrimFunction.Name)(@(string.Concat(names.Select(x => $"{x}, ")))rdata, thread_local_rdata, warp_local_rdata, block_local_rdata, thread_local_data, warp_local_data, block_local_data, output, output_descs);
 }
 
@@ -212,8 +212,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
   for (auto &block : blocks) {
     block.join();
   }
-    
-    
+
+
 #ifdef __APPLE__
   pthread_key_delete(cpu_thread_context_key_);
 #endif

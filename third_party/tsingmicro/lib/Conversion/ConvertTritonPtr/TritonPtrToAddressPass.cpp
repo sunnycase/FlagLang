@@ -39,145 +39,149 @@ namespace {
 
 // arith.select could operate on triton pointers. Convert to use !ptr.ptr
 struct SelectOpConverter : public OpConversionPattern<arith::SelectOp> {
-  using OpConversionPattern<arith::SelectOp>::OpConversionPattern;
+    using OpConversionPattern<arith::SelectOp>::OpConversionPattern;
 
-  SelectOpConverter(const TypeConverter &typeConverter, MLIRContext *context)
-      : OpConversionPattern<arith::SelectOp>(typeConverter, context) {}
+    SelectOpConverter(const TypeConverter &typeConverter, MLIRContext *context)
+        : OpConversionPattern<arith::SelectOp>(typeConverter, context) {}
 
-  LogicalResult
-  matchAndRewrite(arith::SelectOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<arith::SelectOp>(
-        op, getTypeConverter()->convertType(op.getType()),
-        adaptor.getCondition(), adaptor.getTrueValue(),
-        adaptor.getFalseValue());
-    return success();
-  }
+    LogicalResult
+    matchAndRewrite(arith::SelectOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+        rewriter.replaceOpWithNewOp<arith::SelectOp>(
+            op, getTypeConverter()->convertType(op.getType()),
+            adaptor.getCondition(), adaptor.getTrueValue(),
+            adaptor.getFalseValue());
+        return success();
+    }
 };
 
 // Convert bitcast which is a no-op because !ptr.ptr is opaque with no pointtee
 // type.
 struct BitCastConverter : public OpConversionPattern<triton::BitcastOp> {
-  using OpConversionPattern<triton::BitcastOp>::OpConversionPattern;
+    using OpConversionPattern<triton::BitcastOp>::OpConversionPattern;
 
-  BitCastConverter(const TypeConverter &typeConverter, MLIRContext *context)
-      : OpConversionPattern<triton::BitcastOp>(typeConverter, context) {}
+    BitCastConverter(const TypeConverter &typeConverter, MLIRContext *context)
+        : OpConversionPattern<triton::BitcastOp>(typeConverter, context) {}
 
-  LogicalResult
-  matchAndRewrite(triton::BitcastOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    if (isa<ShapedType>(op.getType())) {
-      return failure();
+    LogicalResult
+    matchAndRewrite(triton::BitcastOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+        if (isa<ShapedType>(op.getType())) {
+            return failure();
+        }
+
+        // If the source is a triton pointer, we can convert it to an address
+        // type.
+        rewriter.replaceOpWithNewOp<mk::BitcastOp>(
+            op, getTypeConverter()->convertType(op.getType()),
+            adaptor.getSrc());
+        return success();
     }
-
-    // If the source is a triton pointer, we can convert it to an address
-    // type.
-    rewriter.replaceOpWithNewOp<mk::BitcastOp>(
-        op, getTypeConverter()->convertType(op.getType()), adaptor.getSrc());
-    return success();
-  }
 };
 
 // Convert tt.ptr_to_int to ptr.ptrtoint
 struct PtrToIntConverter : public OpConversionPattern<triton::PtrToIntOp> {
-  using OpConversionPattern<triton::PtrToIntOp>::OpConversionPattern;
+    using OpConversionPattern<triton::PtrToIntOp>::OpConversionPattern;
 
-  PtrToIntConverter(const TypeConverter &typeConverter, MLIRContext *context)
-      : OpConversionPattern<triton::PtrToIntOp>(typeConverter, context) {}
+    PtrToIntConverter(const TypeConverter &typeConverter, MLIRContext *context)
+        : OpConversionPattern<triton::PtrToIntOp>(typeConverter, context) {}
 
-  LogicalResult
-  matchAndRewrite(triton::PtrToIntOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    if (isa<ShapedType>(op.getType())) {
-      return failure();
+    LogicalResult
+    matchAndRewrite(triton::PtrToIntOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+        if (isa<ShapedType>(op.getType())) {
+            return failure();
+        }
+        rewriter.replaceOpWithNewOp<addr::CastIntOp>(op, op.getType(),
+                                                     adaptor.getSrc());
+        return success();
     }
-    rewriter.replaceOpWithNewOp<addr::CastIntOp>(op, op.getType(),
-                                                 adaptor.getSrc());
-    return success();
-  }
 };
 
 // Convert tt.int_to_ptr to ptr.ptrtoint
 struct IntToPtrConverter : public OpConversionPattern<triton::IntToPtrOp> {
-  using OpConversionPattern<triton::IntToPtrOp>::OpConversionPattern;
+    using OpConversionPattern<triton::IntToPtrOp>::OpConversionPattern;
 
-  IntToPtrConverter(const TypeConverter &typeConverter, MLIRContext *context)
-      : OpConversionPattern<triton::IntToPtrOp>(typeConverter, context) {}
+    IntToPtrConverter(const TypeConverter &typeConverter, MLIRContext *context)
+        : OpConversionPattern<triton::IntToPtrOp>(typeConverter, context) {}
 
-  LogicalResult
-  matchAndRewrite(triton::IntToPtrOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    if (isa<ShapedType>(op.getType())) {
-      return failure();
+    LogicalResult
+    matchAndRewrite(triton::IntToPtrOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+        if (isa<ShapedType>(op.getType())) {
+            return failure();
+        }
+        rewriter.replaceOpWithNewOp<addr::CastIntOp>(
+            op, addr::AddressType::get(rewriter.getContext()),
+            adaptor.getSrc());
+        return success();
     }
-    rewriter.replaceOpWithNewOp<addr::CastIntOp>(
-        op, addr::AddressType::get(rewriter.getContext()), adaptor.getSrc());
-    return success();
-  }
 };
 
 class TritonPtrTypeConverter : public TypeConverter {
-public:
-  TritonPtrTypeConverter(MLIRContext *context) {
-    addConversion([](Type type) { return type; });
-    addConversion([context](triton::PointerType ptrType) {
-      return addr::AddressType::get(context);
-    });
-    addConversion([context](RankedTensorType tensorType) {
-      if (isa<triton::PointerType>(tensorType.getElementType())) {
-        return RankedTensorType::get(tensorType.getShape(),
-                                     addr::AddressType::get(context));
-      }
-      return tensorType;
-    });
-    auto createCast = [&](OpBuilder &builder, Type resultType,
-                          ValueRange inputs, Location loc) -> Value {
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
-          .getResult(0);
-    };
-    addTargetMaterialization(createCast);
-    addSourceMaterialization(createCast);
-  }
+  public:
+    TritonPtrTypeConverter(MLIRContext *context) {
+        addConversion([](Type type) { return type; });
+        addConversion([context](triton::PointerType ptrType) {
+            return addr::AddressType::get(context);
+        });
+        addConversion([context](RankedTensorType tensorType) {
+            if (isa<triton::PointerType>(tensorType.getElementType())) {
+                return RankedTensorType::get(tensorType.getShape(),
+                                             addr::AddressType::get(context));
+            }
+            return tensorType;
+        });
+        auto createCast = [&](OpBuilder &builder, Type resultType,
+                              ValueRange inputs, Location loc) -> Value {
+            return builder
+                .create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+                .getResult(0);
+        };
+        addTargetMaterialization(createCast);
+        addSourceMaterialization(createCast);
+    }
 };
 
 class TritonPtrToAddressPass
     : public impl::TritonPtrToAddressBase<TritonPtrToAddressPass> {
 
-public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<arith::ArithDialect, addr::AddressDialect>();
-  }
-
-  void runOnOperation() override {
-    auto moduleOp = getOperation();
-
-    RewritePatternSet patterns(&getContext());
-    ConversionTarget target(getContext());
-    TritonPtrTypeConverter typeConverter(&getContext());
-    target.addLegalDialect<addr::AddressDialect>();
-
-    target.addIllegalOp<triton::IntToPtrOp, triton::PtrToIntOp>();
-    target.addDynamicallyLegalOp<arith::SelectOp>([](auto op) {
-      return llvm::all_of(
-          llvm::concat<Value>(op->getOperands(), op->getResults()),
-          [&](Value v) {
-            return !mlir::triton::utils::isPtrTypeLike(v.getType());
-          });
-    });
-
-    patterns.add<PtrToIntConverter, IntToPtrConverter, SelectOpConverter,
-                 BitCastConverter>(typeConverter, patterns.getContext());
-
-    mlir::scf::populateSCFStructuralTypeConversionsAndLegality(
-        typeConverter, patterns, target);
-    if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
-      signalPassFailure();
+  public:
+    void getDependentDialects(DialectRegistry &registry) const override {
+        registry.insert<arith::ArithDialect, addr::AddressDialect>();
     }
-  }
+
+    void runOnOperation() override {
+        auto moduleOp = getOperation();
+
+        RewritePatternSet patterns(&getContext());
+        ConversionTarget target(getContext());
+        TritonPtrTypeConverter typeConverter(&getContext());
+        target.addLegalDialect<addr::AddressDialect>();
+
+        target.addIllegalOp<triton::IntToPtrOp, triton::PtrToIntOp>();
+        target.addDynamicallyLegalOp<arith::SelectOp>([](auto op) {
+            return llvm::all_of(
+                llvm::concat<Value>(op->getOperands(), op->getResults()),
+                [&](Value v) {
+                    return !mlir::triton::utils::isPtrTypeLike(v.getType());
+                });
+        });
+
+        patterns.add<PtrToIntConverter, IntToPtrConverter, SelectOpConverter,
+                     BitCastConverter>(typeConverter, patterns.getContext());
+
+        mlir::scf::populateSCFStructuralTypeConversionsAndLegality(
+            typeConverter, patterns, target);
+        if (failed(applyPartialConversion(moduleOp, target,
+                                          std::move(patterns)))) {
+            signalPassFailure();
+        }
+    }
 };
 } // namespace
 
 std::unique_ptr<OperationPass<ModuleOp>>
 triton::createTritonPtrToAddressPass() {
-  return std::make_unique<TritonPtrToAddressPass>();
+    return std::make_unique<TritonPtrToAddressPass>();
 }

@@ -31,100 +31,104 @@ namespace mlir::triton::AMD {
 /// "abstractly interpreting" the loop when loop bounds are statically known.
 /// See visitRegionSuccessors.
 struct TritonIntegerRangeAnalysis : dataflow::IntegerRangeAnalysis {
-  using dataflow::IntegerRangeAnalysis::IntegerRangeAnalysis;
-  TritonIntegerRangeAnalysis(
-      DataFlowSolver &solver,
-      const DenseMap<Value, SetVector<Operation *>> &assumptions)
-      : dataflow::IntegerRangeAnalysis(solver), assumptions(assumptions) {}
+    using dataflow::IntegerRangeAnalysis::IntegerRangeAnalysis;
+    TritonIntegerRangeAnalysis(
+        DataFlowSolver &solver,
+        const DenseMap<Value, SetVector<Operation *>> &assumptions)
+        : dataflow::IntegerRangeAnalysis(solver), assumptions(assumptions) {}
 
-  void setToEntryState(dataflow::IntegerValueRangeLattice *lattice) override;
+    void setToEntryState(dataflow::IntegerValueRangeLattice *lattice) override;
 
-  void initializeFuncOp(triton::FuncOp funcOp);
+    void initializeFuncOp(triton::FuncOp funcOp);
 
-  LogicalResult visitOperation(
-      Operation *op,
-      ArrayRef<const dataflow::IntegerValueRangeLattice *> operands,
-      ArrayRef<dataflow::IntegerValueRangeLattice *> resultsLattices) override;
+    LogicalResult visitOperation(
+        Operation *op,
+        ArrayRef<const dataflow::IntegerValueRangeLattice *> operands,
+        ArrayRef<dataflow::IntegerValueRangeLattice *> resultsLattices)
+        override;
 
-  std::optional<int64_t> maybeGetTripCount(LoopLikeOpInterface loop);
+    std::optional<int64_t> maybeGetTripCount(LoopLikeOpInterface loop);
 
-  /// This method (which overloads
-  /// AbstractSparseForwardDataFlowAnalysis::visitRegionSuccessors)
-  /// implements "abstract interpretation" of loops with statically known bounds
-  /// in order to infer tight ranges for loop carried values (and therefore loop
-  /// body values). By "abstract interpretation" we mean lattice states are
-  /// propagated to all region successors N times, where N is the total trip
-  /// count of the loop. Recall for scf.for, both the loop itself and the users
-  /// of the loop successors. Thus, after N propagations both loop body values
-  /// and users of loop results will have accurate ranges (assuming we have
-  /// implemented support for range analysis on the ops).
-  /// *Note*, this implementation is majority similar to
-  /// AbstractSparseForwardDataFlowAnalysis::visitRegionSuccessors
-  /// (so check there for more explanation/insight) and basically only does two
-  /// things differently:
-  ///
-  /// 1. If the branch op is a loop (LoopLikeOpInterface) then we attempt to
-  /// compute its total trip count (nested loop trip counts multiply) and
-  /// initialize a visit count to 0. Note, due to how Dataflow analysis works we
-  /// have to actually visit the loop N times for each iter_arg (each argument
-  /// lattice) so we actually track visit count for (loop, arg) not just (loop).
-  ///
-  /// 2. Before propagating, we check if we have propagated for (loop, arg) >= N
-  /// times. If so, we do not propagate (and thus the traversal converges/ends).
-  ///
-  /// Note, for loops where the trip count cannot be inferred *and* loops with a
-  /// total trip count larger than `kDefaultMaxTripCount`, fallback to
-  /// upstream's conservative inference (i.e., we infer [min_int, max_int]) for
-  /// the loop operands and all users and all users of the results of the loop.
-  void visitRegionSuccessors(
-      ProgramPoint *point, RegionBranchOpInterface branch,
-      RegionBranchPoint successor,
-      ArrayRef<dataflow::AbstractSparseLattice *> abstractLattices) override;
+    /// This method (which overloads
+    /// AbstractSparseForwardDataFlowAnalysis::visitRegionSuccessors)
+    /// implements "abstract interpretation" of loops with statically known
+    /// bounds in order to infer tight ranges for loop carried values (and
+    /// therefore loop body values). By "abstract interpretation" we mean
+    /// lattice states are propagated to all region successors N times, where N
+    /// is the total trip count of the loop. Recall for scf.for, both the loop
+    /// itself and the users of the loop successors. Thus, after N propagations
+    /// both loop body values and users of loop results will have accurate
+    /// ranges (assuming we have implemented support for range analysis on the
+    /// ops). *Note*, this implementation is majority similar to
+    /// AbstractSparseForwardDataFlowAnalysis::visitRegionSuccessors
+    /// (so check there for more explanation/insight) and basically only does
+    /// two things differently:
+    ///
+    /// 1. If the branch op is a loop (LoopLikeOpInterface) then we attempt to
+    /// compute its total trip count (nested loop trip counts multiply) and
+    /// initialize a visit count to 0. Note, due to how Dataflow analysis works
+    /// we have to actually visit the loop N times for each iter_arg (each
+    /// argument lattice) so we actually track visit count for (loop, arg) not
+    /// just (loop).
+    ///
+    /// 2. Before propagating, we check if we have propagated for (loop, arg) >=
+    /// N times. If so, we do not propagate (and thus the traversal
+    /// converges/ends).
+    ///
+    /// Note, for loops where the trip count cannot be inferred *and* loops with
+    /// a total trip count larger than `kDefaultMaxTripCount`, fallback to
+    /// upstream's conservative inference (i.e., we infer [min_int, max_int])
+    /// for the loop operands and all users and all users of the results of the
+    /// loop.
+    void visitRegionSuccessors(
+        ProgramPoint *point, RegionBranchOpInterface branch,
+        RegionBranchPoint successor,
+        ArrayRef<dataflow::AbstractSparseLattice *> abstractLattices) override;
 
-  /// Collect all operands that participate in assumptions (see description of
-  /// `assumptions` field below) under the rootOp. By default, operands that can
-  /// be folded to constants are excluded.
-  static DenseMap<Value, SetVector<Operation *>>
-  collectAssumptions(Operation *rootOp, bool filterConstants = true);
+    /// Collect all operands that participate in assumptions (see description of
+    /// `assumptions` field below) under the rootOp. By default, operands that
+    /// can be folded to constants are excluded.
+    static DenseMap<Value, SetVector<Operation *>>
+    collectAssumptions(Operation *rootOp, bool filterConstants = true);
 
-  /// Construct the tightest/narrowest range possible using all the assumptions
-  /// that `anchor` participates in. For example, the pattern
-  ///   %assumesltlhs = arith.cmpi sge, %K, %c0 : i32
-  ///   llvm.intr.assume %assumesltlhs : i1
-  ///   %assumesltlhs = arith.cmpi slt, %K, %c128 : i32
-  ///   llvm.intr.assume %assumesltlhs : i1
-  /// for %K, will produce a final range
-  ///   [0, 2147483647] ∩ [-2147483648, 128] = [0, 128]
-  std::optional<ConstantIntRanges> maybeGetAssumedRange(Value anchor) const;
+    /// Construct the tightest/narrowest range possible using all the
+    /// assumptions that `anchor` participates in. For example, the pattern
+    ///   %assumesltlhs = arith.cmpi sge, %K, %c0 : i32
+    ///   llvm.intr.assume %assumesltlhs : i1
+    ///   %assumesltlhs = arith.cmpi slt, %K, %c128 : i32
+    ///   llvm.intr.assume %assumesltlhs : i1
+    /// for %K, will produce a final range
+    ///   [0, 2147483647] ∩ [-2147483648, 128] = [0, 128]
+    std::optional<ConstantIntRanges> maybeGetAssumedRange(Value anchor) const;
 
-  int64_t getTotalLoopTripCount(LoopLikeOpInterface loop);
+    int64_t getTotalLoopTripCount(LoopLikeOpInterface loop);
 
-  /// Trip counts of all loops with static loop bounds contained under the root
-  /// operation being analyzed. Note, nested loops have trip counts computed as
-  /// a product of enclosing loops; i.e. for
-  ///   scf.for i = 1 to 10
-  ///     scf.for j = 1 to 10
-  /// the trip count of the outer loop (on i) is 10 but the trip count of the
-  /// inner loop (on j) is 100.
-  llvm::SmallDenseMap<LoopLikeOpInterface, int64_t> loopTripCounts;
+    /// Trip counts of all loops with static loop bounds contained under the
+    /// root operation being analyzed. Note, nested loops have trip counts
+    /// computed as a product of enclosing loops; i.e. for
+    ///   scf.for i = 1 to 10
+    ///     scf.for j = 1 to 10
+    /// the trip count of the outer loop (on i) is 10 but the trip count of the
+    /// inner loop (on j) is 100.
+    llvm::SmallDenseMap<LoopLikeOpInterface, int64_t> loopTripCounts;
 
-  /// Visit counts tabulating how many times each lattice has been propagated
-  /// through each loop. This is used in visitRegionSuccessors to end
-  /// propagation when loopVisits[loop, lattice] reaches loopTripCounts[loop].
-  llvm::SmallDenseMap<
-      std::pair<LoopLikeOpInterface, dataflow::IntegerValueRangeLattice *>,
-      int64_t>
-      loopVisits;
+    /// Visit counts tabulating how many times each lattice has been propagated
+    /// through each loop. This is used in visitRegionSuccessors to end
+    /// propagation when loopVisits[loop, lattice] reaches loopTripCounts[loop].
+    llvm::SmallDenseMap<
+        std::pair<LoopLikeOpInterface, dataflow::IntegerValueRangeLattice *>,
+        int64_t>
+        loopVisits;
 
-  /// `assumptions` maps from values to (possibly) any operations that satisfy
-  /// the pattern
-  ///   %assumesltlhs = arith.cmpi sge, %K, %c0 : i32
-  ///   llvm.intr.assume %assumesltlhs : i1
-  ///   %assumesltlhs = arith.cmpi slt, %K, %c128 : i32
-  ///   llvm.intr.assume %assumesltlhs : i1
-  /// If one uses collectAssumptions below then `assumptions` will look like
-  /// %K -> {arith.cmpi slt..., arith.cmpi sge}.
-  llvm::DenseMap<Value, SetVector<Operation *>> assumptions;
+    /// `assumptions` maps from values to (possibly) any operations that satisfy
+    /// the pattern
+    ///   %assumesltlhs = arith.cmpi sge, %K, %c0 : i32
+    ///   llvm.intr.assume %assumesltlhs : i1
+    ///   %assumesltlhs = arith.cmpi slt, %K, %c128 : i32
+    ///   llvm.intr.assume %assumesltlhs : i1
+    /// If one uses collectAssumptions below then `assumptions` will look like
+    /// %K -> {arith.cmpi slt..., arith.cmpi sge}.
+    llvm::DenseMap<Value, SetVector<Operation *>> assumptions;
 };
 
 std::optional<SmallVector<std::optional<ConstantIntRanges>>>

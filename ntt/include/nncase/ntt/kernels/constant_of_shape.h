@@ -29,10 +29,8 @@ void constant_of_shape([[maybe_unused]] const TIn &shape, const TValue &value,
                        TOut &&output) {
     using TOutType = typename std::decay_t<TOut>;
     using TOutElem = typename TOutType::element_type;
-    
+
     auto out_shape = output.shape();
-    apply(out_shape, [&](auto index) {
-        output(index) = (TOutElem)value(0);
-    });
+    apply(out_shape, [&](auto index) { output(index) = (TOutElem)value(0); });
 }
 } // namespace nncase::ntt

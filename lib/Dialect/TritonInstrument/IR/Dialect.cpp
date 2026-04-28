@@ -8,8 +8,8 @@
 using namespace mlir::triton::instrument;
 
 void TritonInstrumentDialect::initialize() {
-  addOperations<
+    addOperations<
 #define GET_OP_LIST
 #include "triton/Dialect/TritonInstrument/IR/Ops.cpp.inc"
-      >();
+        >();
 }

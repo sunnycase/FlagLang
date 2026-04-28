@@ -900,6 +900,7 @@ def test_async_compile_mock(device, fresh_triton_cache):
 
 
 def test_async_compile_mode_resets_after_future_failure():
+
     def fail_compile():
         raise RuntimeError("compile failed")
 

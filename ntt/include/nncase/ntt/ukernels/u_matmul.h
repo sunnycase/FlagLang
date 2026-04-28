@@ -637,7 +637,8 @@ struct u_matmul<ukernels::matmul_vectorize_kind::vectorize_mn, AccumulateC,
                         b0_tile);
 
                     ntt::apply(fixed_shape_v<m0_subtile>, [&](auto index) {
-                        a0_tmp[index[0_dim]] = ntt::mul(a0(0, 0)(sm1 + index[0_dim]), scale);
+                        a0_tmp[index[0_dim]] =
+                            ntt::mul(a0(0, 0)(sm1 + index[0_dim]), scale);
                     });
                     ntt::apply(fixed_shape_v<N0Tile>, [&](auto index) {
                         auto b0_index = ntt::where(

@@ -32,45 +32,46 @@ using namespace triton;
 namespace {
 
 class Tx81ToLLVMPass : public Tx81ToLLVMBase<Tx81ToLLVMPass> {
-public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<LLVM::LLVMDialect, tx::Tx81Dialect, arith::ArithDialect,
-                func::FuncDialect, memref::MemRefDialect, scf::SCFDialect>();
-  }
+  public:
+    void getDependentDialects(DialectRegistry &registry) const override {
+        registry.insert<LLVM::LLVMDialect, tx::Tx81Dialect, arith::ArithDialect,
+                        func::FuncDialect, memref::MemRefDialect,
+                        scf::SCFDialect>();
+    }
 
-  void runOnOperation() override {
-    ModuleOp module = getOperation();
-    MLIRContext *context = &getContext();
-    ConversionTarget target(*context);
+    void runOnOperation() override {
+        ModuleOp module = getOperation();
+        MLIRContext *context = &getContext();
+        ConversionTarget target(*context);
 
-    // Setup LLVM lowering options object which should live across the call to
-    // applyFull/PartialConversion.
-    LowerToLLVMOptions options(context);
-    options.useBarePtrCallConv = false;
+        // Setup LLVM lowering options object which should live across the call
+        // to applyFull/PartialConversion.
+        LowerToLLVMOptions options(context);
+        options.useBarePtrCallConv = false;
 
-    // Setup conversion target
-    target.addLegalDialect<LLVM::LLVMDialect>();
-    target.addIllegalDialect<arith::ArithDialect, memref::MemRefDialect,
-                             linalg::LinalgDialect, tensor::TensorDialect,
-                             tx::Tx81Dialect>();
+        // Setup conversion target
+        target.addLegalDialect<LLVM::LLVMDialect>();
+        target.addIllegalDialect<arith::ArithDialect, memref::MemRefDialect,
+                                 linalg::LinalgDialect, tensor::TensorDialect,
+                                 tx::Tx81Dialect>();
 
-    // Setup rewrite patterns
-    RewritePatternSet patterns(context);
+        // Setup rewrite patterns
+        RewritePatternSet patterns(context);
 
-    // NOTE: LLVMTypeConverter should be enough for MLIR core dialects.
-    TensorToLLVMTypeConverter converter(context, options);
+        // NOTE: LLVMTypeConverter should be enough for MLIR core dialects.
+        TensorToLLVMTypeConverter converter(context, options);
 
-    triton::populateTx81ToLLVMConversionPatterns(patterns, target, converter);
+        triton::populateTx81ToLLVMConversionPatterns(patterns, target,
+                                                     converter);
 
-    // Apply the conversion
-    if (failed(applyPartialConversion(module, target, std::move(patterns))))
-      signalPassFailure();
-  }
+        // Apply the conversion
+        if (failed(applyPartialConversion(module, target, std::move(patterns))))
+            signalPassFailure();
+    }
 };
 
 } // namespace
 
 std::unique_ptr<OperationPass<ModuleOp>> triton::createTx81ToLLVMPass() {
-  return std::make_unique<Tx81ToLLVMPass>();
+    return std::make_unique<Tx81ToLLVMPass>();
 }

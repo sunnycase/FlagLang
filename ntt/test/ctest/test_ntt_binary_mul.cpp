@@ -12,7 +12,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- #include "test_ntt_binary.h"
+#include "test_ntt_binary.h"
 
- DEFINE_NTT_BINARY_TEST(mul, Mul)
- 
+DEFINE_NTT_BINARY_TEST(mul, Mul)

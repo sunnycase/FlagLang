@@ -26,207 +26,222 @@
 using namespace nncase;
 using namespace ortki;
 
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_scalar_raw_tensor_shape1) {
+    //---init ntt_input---
+    auto ntt_input = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    NttTest::init_tensor(ntt_input, -4, 4, true, false);
+    // ------------------------------------------------------------------
+    // 2. call NTT operation to get NTT output (under test)
+    // ------------------------------------------------------------------
+    // Create output tensor
+    auto ntt_output =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
 
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_scalar_raw_tensor_shape1) {
-    //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    NttTest::init_tensor(ntt_input, -4, 4, true, false);
-    // ------------------------------------------------------------------
-    // 2. call NTT operation to get NTT output (under test)
-    // ------------------------------------------------------------------
-    // Create output tensor
-    auto ntt_output = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_scalar_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_scalar_view_dim2_add3_shape1) {
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<int8_t>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_1D_vector_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_1D_vector_raw_tensor_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_1D_vector_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_1D_vector_view_dim2_add3_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, P>>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_2D_vector_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_2D_vector_raw_tensor_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_2D_vector_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_2D_vector_view_dim2_add3_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
-    auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor.strides())
-        );
+
+    auto ntt_input =
+        ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
+            big_tensor.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_scalar_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_scalar_raw_tensor_shape2) {
     //---init ntt_input---
     auto ntt_input = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
@@ -235,197 +250,208 @@ TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_scalar_raw_tensor_shape2) 
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_scalar_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_scalar_view_dim2_add3_shape2) {
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, (16) +3, 7>);
+    auto big_tensor =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, (16) + 3, 7>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<int8_t>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 7>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>, big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::fixed_shape_v<2, 1, 16, 7>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>,
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_1D_vector_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_1D_vector_raw_tensor_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_1D_vector_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_1D_vector_view_dim2_add3_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, (16) +3, 7>);
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, (16) + 3, 7>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, P>>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 7>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>, big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::fixed_shape_v<2, 1, 16, 7>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>,
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_2D_vector_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_2D_vector_raw_tensor_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_fixed_2D_vector_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_fixed_2D_vector_view_dim2_add3_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, (16) +3, 7>);
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, (16) + 3, 7>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
-    auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 7>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>, big_tensor.strides())
-        );
+
+    auto ntt_input =
+        ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
+            big_tensor.elements().data(), ntt::fixed_shape_v<2, 1, 16, 7>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>,
+                                      big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_scalar_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_scalar_raw_tensor_shape1) {
     //---init ntt_input---
     auto ntt_input = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
@@ -434,197 +460,208 @@ TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_scalar_raw_tensor_shape1
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_scalar_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_scalar_view_dim2_add3_shape1) {
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<int8_t>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_1D_vector_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_1D_vector_raw_tensor_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_1D_vector_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_1D_vector_view_dim2_add3_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, P>>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_2D_vector_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_2D_vector_raw_tensor_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_2D_vector_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_2D_vector_view_dim2_add3_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
-    auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor.strides())
-        );
+
+    auto ntt_input =
+        ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
+            big_tensor.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_scalar_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_scalar_raw_tensor_shape2) {
     //---init ntt_input---
     auto ntt_input = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
@@ -633,197 +670,208 @@ TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_scalar_raw_tensor_shape2
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, 16, 7));
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_scalar_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_scalar_view_dim2_add3_shape2) {
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, (16) +3, 7>);
+    auto big_tensor =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, (16) + 3, 7>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<int8_t>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 7>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>, big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::fixed_shape_v<2, 1, 16, 7>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>,
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, 16, 7));
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_1D_vector_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_1D_vector_raw_tensor_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
-    
+    auto ntt_output =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_golden =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_1D_vector_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_1D_vector_view_dim2_add3_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, (16) +3, 7>);
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, (16) + 3, 7>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, P>>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 7>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>, big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::fixed_shape_v<2, 1, 16, 7>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>,
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
-    
+    auto ntt_output =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_golden =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_2D_vector_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_2D_vector_raw_tensor_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, 16, 7));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, 16, 7));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_fixed_output_dynamic_2D_vector_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_fixed_output_dynamic_2D_vector_view_dim2_add3_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, (16) +3, 7>);
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, (16) + 3, 7>);
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
-    auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
-        big_tensor.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 7>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>, big_tensor.strides())
-        );
+
+    auto ntt_input =
+        ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
+            big_tensor.elements().data(), ntt::fixed_shape_v<2, 1, 16, 7>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 7>,
+                                      big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, 16, 7));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, 16, 7));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_scalar_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_scalar_raw_tensor_shape1) {
     //---init ntt_input---
     auto ntt_input = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
@@ -831,198 +879,213 @@ TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_scalar_raw_tensor_shape1
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_scalar_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_scalar_view_dim2_add3_shape1) {
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor =
+        ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<int8_t>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_1D_vector_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_1D_vector_raw_tensor_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_1D_vector_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_1D_vector_view_dim2_add3_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, P>>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_2D_vector_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_2D_vector_raw_tensor_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_2D_vector_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_2D_vector_view_dim2_add3_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
-    auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor.strides())
-        );
+
+    auto ntt_input =
+        ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
+            big_tensor.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_scalar_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_scalar_raw_tensor_shape2) {
     //---init ntt_input---
     auto ntt_input = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, 16, 7));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
@@ -1031,197 +1094,208 @@ TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_scalar_raw_tensor_shape2
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_scalar_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_scalar_view_dim2_add3_shape2) {
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, (16) +3, 7));
+    auto big_tensor =
+        ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, (16) + 3, 7));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<int8_t>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 1, 16, 7),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7), big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::make_shape(2, 1, 16, 7),
+        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7),
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_1D_vector_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_1D_vector_raw_tensor_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_input =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_1D_vector_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_1D_vector_view_dim2_add3_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, (16) +3, 7));
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::make_shape(2, 1, (16) + 3, 7));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, P>>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 1, 16, 7),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7), big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::make_shape(2, 1, 16, 7),
+        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7),
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_2D_vector_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_2D_vector_raw_tensor_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, 16, 7));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_fixed_2D_vector_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_fixed_2D_vector_view_dim2_add3_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, (16) +3, 7));
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, (16) + 3, 7));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
-    auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 1, 16, 7),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7), big_tensor.strides())
-        );
+
+    auto ntt_input =
+        ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
+            big_tensor.elements().data(), ntt::make_shape(2, 1, 16, 7),
+            ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7),
+                                      big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::fixed_shape_v<2, 1, 16, 7>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 7>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_scalar_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_scalar_raw_tensor_shape1) {
     //---init ntt_input---
     auto ntt_input = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
@@ -1230,197 +1304,208 @@ TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_scalar_raw_tensor_shap
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_scalar_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_scalar_view_dim2_add3_shape1) {
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor =
+        ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<int8_t>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_1D_vector_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_1D_vector_raw_tensor_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_1D_vector_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_1D_vector_view_dim2_add3_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, P>>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_2D_vector_raw_tensor_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_2D_vector_raw_tensor_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_2D_vector_view_dim2_add3_shape1) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_2D_vector_view_dim2_add3_shape1) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
-    auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor.strides())
-        );
+
+    auto ntt_input =
+        ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
+            big_tensor.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_scalar_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_scalar_raw_tensor_shape2) {
     //---init ntt_input---
     auto ntt_input = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, 16, 7));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
@@ -1429,196 +1514,206 @@ TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_scalar_raw_tensor_shap
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, 16, 7));
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_scalar_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_scalar_view_dim2_add3_shape2) {
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, (16) +3, 7));
+    auto big_tensor =
+        ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, (16) + 3, 7));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<int8_t>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 1, 16, 7),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7), big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::make_shape(2, 1, 16, 7),
+        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7),
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, 16, 7));
-    
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int8_t>(ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_1D_vector_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_1D_vector_raw_tensor_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_input =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
-    
+    auto ntt_output =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_golden =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_1D_vector_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_1D_vector_view_dim2_add3_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, (16) +3, 7));
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, P>>(
+        ntt::make_shape(2, 1, (16) + 3, 7));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
+
     auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, P>>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 1, 16, 7),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7), big_tensor.strides())
-        );
+        big_tensor.elements().data(), ntt::make_shape(2, 1, 16, 7),
+        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7),
+                                  big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
-    
+    auto ntt_output =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_golden =
+        ntt::make_tensor<ntt::vector<int8_t, P>>(ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_2D_vector_raw_tensor_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_2D_vector_raw_tensor_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
-    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_input = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, 16, 7));
     NttTest::init_tensor(ntt_input, -4, 4, true, false);
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, 16, 7));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, 16, 7));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(UnaryTestexp_Int8, Int8_input_dynamic_output_dynamic_2D_vector_view_dim2_add3_shape2) {
+}
+
+TEST(UnaryTestexp_Int8,
+     Int8_input_dynamic_output_dynamic_2D_vector_view_dim2_add3_shape2) {
     constexpr size_t P = NTT_VLEN / (sizeof(int8_t) * 8);
     //---init ntt_input---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, (16) +3, 7));
+    auto big_tensor = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, (16) + 3, 7));
     NttTest::init_tensor(big_tensor, -4, 4, true, false);
-    
-    auto ntt_input = ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
-        big_tensor.elements().data(),
-        ntt::make_shape(2, 1, 16, 7),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7), big_tensor.strides())
-        );
+
+    auto ntt_input =
+        ntt::make_tensor_view_from_address<ntt::vector<int8_t, 4, P>>(
+            big_tensor.elements().data(), ntt::make_shape(2, 1, 16, 7),
+            ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 7),
+                                      big_tensor.strides()));
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, 16, 7));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, 16, 7));
+
     // Execute unary operation
     ntt::unary<ntt::ops::exp>(ntt_input, ntt_output);
-    
-    
+
     auto ort_input_org = NttTest::ntt2ort(ntt_input);
     auto ort_input = ortki_Cast(ort_input_org, 1, ortki::DataType_DOUBLE);
     // Execute Ort operation
     auto ort_output = ortki_Exp(ort_input);
-    
+
     // Cast outputs from double to original datatype
     auto ort_golden = ortki_Cast(ort_output, 1, ortki::DataType_INT8);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(ntt::make_shape(2, 1, 16, 7));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int8_t, 4, P>>(
+        ntt::make_shape(2, 1, 16, 7));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
+}
+
 int main(int argc, char *argv[]) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

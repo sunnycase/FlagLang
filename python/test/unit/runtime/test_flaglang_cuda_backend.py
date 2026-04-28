@@ -257,8 +257,7 @@ def test_make_launcher_uses_regular_launch_for_simple_kernels():
 
     assert "needs_launch_kernel_ex" in source
     assert "cuLaunchKernel(function" in source
-    assert source.index("cuLaunchKernel(function") < source.index(
-        "static cuLaunchKernelEx_t cuLaunchKernelExHandle")
+    assert source.index("cuLaunchKernel(function") < source.index("static cuLaunchKernelEx_t cuLaunchKernelExHandle")
 
 
 def test_cuda_aot_cpp_type_mapping_uses_kernel_abi_widths():

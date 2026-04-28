@@ -37,25 +37,26 @@ namespace mlir {
 namespace {
 
 bool isOneOperandElementwiseOp(Operation *op) {
-  if (llvm::isa<arith::ExtFOp, arith::ExtSIOp, arith::ExtUIOp, arith::FPToSIOp,
-                arith::FPToUIOp, arith::NegFOp, arith::SIToFPOp,
-                arith::TruncFOp, arith::TruncIOp, arith::UIToFPOp>(op))
-    return true;
-  if (llvm::isa<math::AbsFOp, math::AbsIOp, math::AtanOp, math::Atan2Op,
-                math::CeilOp, math::CosOp, math::SinOp,
-                math::CountLeadingZerosOp, math::CountTrailingZerosOp,
-                math::CtPopOp, math::ErfOp, math::ExpOp, math::Exp2Op,
-                math::ExpM1Op, math::FloorOp, math::LogOp, math::Log10Op,
-                math::Log1pOp, math::Log2Op, math::SqrtOp, math::RsqrtOp,
-                math::TanhOp>(op))
-    return true;
-  if (llvm::isa<triton::IntToPtrOp, triton::PtrToIntOp, triton::BitcastOp,
-                triton::FpToFpOp>(op))
-    return true;
-  if (auto externElementwiseOp = dyn_cast<triton::ExternElementwiseOp>(op))
-    return op->getNumOperands() == 1 && op->getNumResults() == 1 &&
-           externElementwiseOp.getPure();
-  return false;
+    if (llvm::isa<arith::ExtFOp, arith::ExtSIOp, arith::ExtUIOp,
+                  arith::FPToSIOp, arith::FPToUIOp, arith::NegFOp,
+                  arith::SIToFPOp, arith::TruncFOp, arith::TruncIOp,
+                  arith::UIToFPOp>(op))
+        return true;
+    if (llvm::isa<math::AbsFOp, math::AbsIOp, math::AtanOp, math::Atan2Op,
+                  math::CeilOp, math::CosOp, math::SinOp,
+                  math::CountLeadingZerosOp, math::CountTrailingZerosOp,
+                  math::CtPopOp, math::ErfOp, math::ExpOp, math::Exp2Op,
+                  math::ExpM1Op, math::FloorOp, math::LogOp, math::Log10Op,
+                  math::Log1pOp, math::Log2Op, math::SqrtOp, math::RsqrtOp,
+                  math::TanhOp>(op))
+        return true;
+    if (llvm::isa<triton::IntToPtrOp, triton::PtrToIntOp, triton::BitcastOp,
+                  triton::FpToFpOp>(op))
+        return true;
+    if (auto externElementwiseOp = dyn_cast<triton::ExternElementwiseOp>(op))
+        return op->getNumOperands() == 1 && op->getNumResults() == 1 &&
+               externElementwiseOp.getPure();
+    return false;
 }
 
 // Tries to optimize oldStoreOp with v_permlane*_swap instruction when possible.
@@ -63,37 +64,37 @@ bool isOneOperandElementwiseOp(Operation *op) {
 static triton::StoreOp
 usePermlaneSwapToOptimizeStore(PatternRewriter &rewriter, Value ptr, Value val,
                                Value mask, triton::StoreOp oldStoreOp) {
-  auto ptrType = cast<RankedTensorType>(ptr.getType());
-  auto valType = cast<RankedTensorType>(val.getType());
+    auto ptrType = cast<RankedTensorType>(ptr.getType());
+    auto valType = cast<RankedTensorType>(val.getType());
 
-  // Create a new layout where each thread holds 8 consecutive elements, in
-  // order to enable wide 128-bit global stores.
-  std::optional<triton::LinearLayout> storeLL =
-      triton::gpu::chooseMfmaLikeStoreLayout(valType);
-  if (!storeLL)
-    return nullptr;
+    // Create a new layout where each thread holds 8 consecutive elements, in
+    // order to enable wide 128-bit global stores.
+    std::optional<triton::LinearLayout> storeLL =
+        triton::gpu::chooseMfmaLikeStoreLayout(valType);
+    if (!storeLL)
+        return nullptr;
 
-  Attribute newEncoding = triton::gpu::LinearEncodingAttr::get(
-      oldStoreOp.getContext(), storeLL.value());
-  auto newPtrType = ptrType.cloneWithEncoding(newEncoding);
-  Value newPtr = rewriter.create<triton::gpu::ConvertLayoutOp>(ptr.getLoc(),
-                                                               newPtrType, ptr);
+    Attribute newEncoding = triton::gpu::LinearEncodingAttr::get(
+        oldStoreOp.getContext(), storeLL.value());
+    auto newPtrType = ptrType.cloneWithEncoding(newEncoding);
+    Value newPtr = rewriter.create<triton::gpu::ConvertLayoutOp>(
+        ptr.getLoc(), newPtrType, ptr);
 
-  auto newValType = valType.cloneWithEncoding(newEncoding);
-  Value newVal = rewriter.create<triton::gpu::ConvertLayoutOp>(val.getLoc(),
-                                                               newValType, val);
+    auto newValType = valType.cloneWithEncoding(newEncoding);
+    Value newVal = rewriter.create<triton::gpu::ConvertLayoutOp>(
+        val.getLoc(), newValType, val);
 
-  Value newMask = mask;
-  if (mask) {
-    auto maskType = dyn_cast<RankedTensorType>(mask.getType());
-    auto newMaskType = maskType.cloneWithEncoding(newEncoding);
-    newMask = rewriter.create<triton::gpu::ConvertLayoutOp>(mask.getLoc(),
-                                                            newMaskType, mask);
-  }
+    Value newMask = mask;
+    if (mask) {
+        auto maskType = dyn_cast<RankedTensorType>(mask.getType());
+        auto newMaskType = maskType.cloneWithEncoding(newEncoding);
+        newMask = rewriter.create<triton::gpu::ConvertLayoutOp>(
+            mask.getLoc(), newMaskType, mask);
+    }
 
-  return rewriter.create<triton::StoreOp>(oldStoreOp.getLoc(), newPtr, newVal,
-                                          newMask, oldStoreOp.getCache(),
-                                          oldStoreOp.getEvict());
+    return rewriter.create<triton::StoreOp>(oldStoreOp.getLoc(), newPtr, newVal,
+                                            newMask, oldStoreOp.getCache(),
+                                            oldStoreOp.getEvict());
 }
 
 // convert(val) : xmma -> blocked
@@ -114,87 +115,87 @@ usePermlaneSwapToOptimizeStore(PatternRewriter &rewriter, Value ptr, Value val,
 // xmma layout is either MFMA or WMMA
 class BypassEpilogueSMEM : public mlir::OpRewritePattern<triton::StoreOp> {
 
-public:
-  using OpRewritePattern::OpRewritePattern;
+  public:
+    using OpRewritePattern::OpRewritePattern;
 
-  mlir::LogicalResult
-  matchAndRewrite(triton::StoreOp stOp,
-                  mlir::PatternRewriter &rewriter) const override {
+    mlir::LogicalResult
+    matchAndRewrite(triton::StoreOp stOp,
+                    mlir::PatternRewriter &rewriter) const override {
 
-    Value ptr = stOp.getPtr();
-    Value val = stOp.getValue();
-    Value mask = stOp.getMask();
-    auto ptrType = dyn_cast<RankedTensorType>(ptr.getType());
-    auto valType = dyn_cast<RankedTensorType>(val.getType());
-    if (!ptrType || !valType ||
-        !isa<triton::gpu::BlockedEncodingAttr>(ptrType.getEncoding()) ||
-        !isa<triton::gpu::BlockedEncodingAttr>(valType.getEncoding()))
-      return mlir::failure();
+        Value ptr = stOp.getPtr();
+        Value val = stOp.getValue();
+        Value mask = stOp.getMask();
+        auto ptrType = dyn_cast<RankedTensorType>(ptr.getType());
+        auto valType = dyn_cast<RankedTensorType>(val.getType());
+        if (!ptrType || !valType ||
+            !isa<triton::gpu::BlockedEncodingAttr>(ptrType.getEncoding()) ||
+            !isa<triton::gpu::BlockedEncodingAttr>(valType.getEncoding()))
+            return mlir::failure();
 
-    llvm::SmallVector<mlir::Operation *> chainedOps;
-    while (true) {
-      auto chainedOp = val.getDefiningOp();
-      if (!chainedOp)
-        return mlir::failure();
-      if (llvm::isa<triton::gpu::ConvertLayoutOp>(chainedOp))
-        break;
-      if (!chainedOp->hasOneUse())
-        return mlir::failure();
-      if (!isOneOperandElementwiseOp(chainedOp))
-        return mlir::failure();
-      val = chainedOp->getOperand(0);
-      chainedOps.push_back(chainedOp);
+        llvm::SmallVector<mlir::Operation *> chainedOps;
+        while (true) {
+            auto chainedOp = val.getDefiningOp();
+            if (!chainedOp)
+                return mlir::failure();
+            if (llvm::isa<triton::gpu::ConvertLayoutOp>(chainedOp))
+                break;
+            if (!chainedOp->hasOneUse())
+                return mlir::failure();
+            if (!isOneOperandElementwiseOp(chainedOp))
+                return mlir::failure();
+            val = chainedOp->getOperand(0);
+            chainedOps.push_back(chainedOp);
+        }
+
+        auto cvtOp = val.getDefiningOp<triton::gpu::ConvertLayoutOp>();
+        if (!cvtOp)
+            return mlir::failure();
+
+        auto encoding = cvtOp.getSrc().getType().getEncoding();
+        if (!isa<triton::gpu::MmaEncodingTrait>(encoding))
+            return mlir::failure();
+
+        if (!cvtOp.getResult().hasOneUse())
+            return mlir::failure();
+
+        auto newEncoding =
+            cast<RankedTensorType>(cvtOp.getSrc().getType()).getEncoding();
+
+        auto newPtrType = ptrType.cloneWithEncoding(newEncoding);
+        Value newPtr = rewriter.create<triton::gpu::ConvertLayoutOp>(
+            ptr.getLoc(), newPtrType, ptr);
+
+        auto newVal = cvtOp.getSrc();
+
+        for (auto chainedOp : llvm::reverse(chainedOps)) {
+            auto oldType =
+                cast<mlir::RankedTensorType>(chainedOp->getResult(0).getType());
+            chainedOp->setOperand(0, newVal);
+            newVal = llvm::cast<mlir::TypedValue<RankedTensorType>>(
+                chainedOp->getResult(0));
+
+            auto newType = oldType.cloneWithEncoding(newEncoding);
+            newVal.setType(newType);
+        }
+
+        Value newMask = mask;
+        if (mask) {
+            auto maskType = dyn_cast<RankedTensorType>(mask.getType());
+            auto newMaskType = maskType.cloneWithEncoding(newEncoding);
+            newMask = rewriter.create<triton::gpu::ConvertLayoutOp>(
+                mask.getLoc(), newMaskType, mask);
+        }
+        triton::StoreOp newStoreOp = usePermlaneSwapToOptimizeStore(
+            rewriter, newPtr, newVal, newMask, stOp);
+        if (!newStoreOp) {
+            newStoreOp = rewriter.create<triton::StoreOp>(
+                stOp.getLoc(), newPtr, newVal, newMask, stOp.getCache(),
+                stOp.getEvict());
+        }
+
+        rewriter.replaceOp(stOp, newStoreOp);
+        return mlir::success();
     }
-
-    auto cvtOp = val.getDefiningOp<triton::gpu::ConvertLayoutOp>();
-    if (!cvtOp)
-      return mlir::failure();
-
-    auto encoding = cvtOp.getSrc().getType().getEncoding();
-    if (!isa<triton::gpu::MmaEncodingTrait>(encoding))
-      return mlir::failure();
-
-    if (!cvtOp.getResult().hasOneUse())
-      return mlir::failure();
-
-    auto newEncoding =
-        cast<RankedTensorType>(cvtOp.getSrc().getType()).getEncoding();
-
-    auto newPtrType = ptrType.cloneWithEncoding(newEncoding);
-    Value newPtr = rewriter.create<triton::gpu::ConvertLayoutOp>(
-        ptr.getLoc(), newPtrType, ptr);
-
-    auto newVal = cvtOp.getSrc();
-
-    for (auto chainedOp : llvm::reverse(chainedOps)) {
-      auto oldType =
-          cast<mlir::RankedTensorType>(chainedOp->getResult(0).getType());
-      chainedOp->setOperand(0, newVal);
-      newVal = llvm::cast<mlir::TypedValue<RankedTensorType>>(
-          chainedOp->getResult(0));
-
-      auto newType = oldType.cloneWithEncoding(newEncoding);
-      newVal.setType(newType);
-    }
-
-    Value newMask = mask;
-    if (mask) {
-      auto maskType = dyn_cast<RankedTensorType>(mask.getType());
-      auto newMaskType = maskType.cloneWithEncoding(newEncoding);
-      newMask = rewriter.create<triton::gpu::ConvertLayoutOp>(
-          mask.getLoc(), newMaskType, mask);
-    }
-    triton::StoreOp newStoreOp =
-        usePermlaneSwapToOptimizeStore(rewriter, newPtr, newVal, newMask, stOp);
-    if (!newStoreOp) {
-      newStoreOp = rewriter.create<triton::StoreOp>(
-          stOp.getLoc(), newPtr, newVal, newMask, stOp.getCache(),
-          stOp.getEvict());
-    }
-
-    rewriter.replaceOp(stOp, newStoreOp);
-    return mlir::success();
-  }
 };
 
 } // anonymous namespace
@@ -203,19 +204,19 @@ class TritonAMDGPUOptimizeEpiloguePass
     : public impl::TritonAMDGPUOptimizeEpilogueBase<
           TritonAMDGPUOptimizeEpiloguePass> {
 
-public:
-  void runOnOperation() override {
-    MLIRContext *context = &getContext();
-    ModuleOp m = getOperation();
+  public:
+    void runOnOperation() override {
+        MLIRContext *context = &getContext();
+        ModuleOp m = getOperation();
 
-    mlir::RewritePatternSet patterns(context);
+        mlir::RewritePatternSet patterns(context);
 
-    patterns.add<BypassEpilogueSMEM>(context);
+        patterns.add<BypassEpilogueSMEM>(context);
 
-    if (applyPatternsGreedily(m, std::move(patterns)).failed()) {
-      signalPassFailure();
+        if (applyPatternsGreedily(m, std::move(patterns)).failed()) {
+            signalPassFailure();
+        }
     }
-  }
 };
 
 } // namespace mlir

@@ -328,8 +328,8 @@ TEST(WhereTestFloat, fixed_fixed_fixed_vectorize) {
     ntt::pack(ntt_input2, ntt_input2_vectorized, fixed_shape_v<3>);
     ntt::pack(condition, condition_vectorized, fixed_shape_v<3>);
 
-    ntt::where(condition_vectorized, ntt_input1_vectorized, ntt_input2_vectorized,
-               ntt_output1_vectorized);
+    ntt::where(condition_vectorized, ntt_input1_vectorized,
+               ntt_input2_vectorized, ntt_output1_vectorized);
     ntt::unpack(ntt_output1_vectorized, ntt_output1, fixed_shape_v<3>);
 
     // ort
@@ -511,7 +511,8 @@ TEST(WhereTestFloat, fixed_scalar_scalar_vectorize) {
     // ntt
     ntt::pack(condition, condition_vectorized, fixed_shape_v<3>);
 
-    ntt::where(condition_vectorized, ntt_input1, ntt_input2, ntt_output1_vectorized);
+    ntt::where(condition_vectorized, ntt_input1, ntt_input2,
+               ntt_output1_vectorized);
     ntt::unpack(ntt_output1_vectorized, ntt_output1, fixed_shape_v<3>);
 
     // ort
@@ -553,7 +554,8 @@ TEST(WhereTestFloat, scalar_scalar_fixed_vectorize) {
     // ntt
     ntt::pack(ntt_input2, ntt_input2_vectorized, fixed_shape_v<3>);
 
-    ntt::where(condition, ntt_input1, ntt_input2_vectorized, ntt_output1_vectorized);
+    ntt::where(condition, ntt_input1, ntt_input2_vectorized,
+               ntt_output1_vectorized);
     ntt::unpack(ntt_output1_vectorized, ntt_output1, fixed_shape_v<3>);
 
     // ort
@@ -595,7 +597,8 @@ TEST(WhereTestFloat, scalar_fixed_scalar_vectorize) {
     // ntt
     ntt::pack(ntt_input1, ntt_input1_vectorized, fixed_shape_v<3>);
 
-    ntt::where(condition, ntt_input1_vectorized, ntt_input2, ntt_output1_vectorized);
+    ntt::where(condition, ntt_input1_vectorized, ntt_input2,
+               ntt_output1_vectorized);
     ntt::unpack(ntt_output1_vectorized, ntt_output1, fixed_shape_v<3>);
 
     // ort

@@ -6,11 +6,11 @@ namespace proton {
 namespace roctracer {
 
 struct ExternLibRoctracer : public ExternLibBase {
-  using RetType = roctracer_status_t;
-  static constexpr const char *name = "libroctracer64.so";
-  static constexpr const char *defaultDir = "";
-  static constexpr RetType success = ROCTRACER_STATUS_SUCCESS;
-  static void *lib;
+    using RetType = roctracer_status_t;
+    static constexpr const char *name = "libroctracer64.so";
+    static constexpr const char *defaultDir = "";
+    static constexpr RetType success = ROCTRACER_STATUS_SUCCESS;
+    static void *lib;
 };
 
 void *ExternLibRoctracer::lib = nullptr;
@@ -22,38 +22,38 @@ DEFINE_DISPATCH(ExternLibRoctracer, getTimestamp, roctracer_get_timestamp,
                 roctracer_timestamp_t *)
 
 void start() {
-  typedef void (*roctracer_start_t)();
-  static roctracer_start_t func = nullptr;
-  Dispatch<ExternLibRoctracer>::init(ExternLibRoctracer::name,
-                                     &ExternLibRoctracer::lib);
-  if (func == nullptr)
-    func = reinterpret_cast<roctracer_start_t>(
-        dlsym(ExternLibRoctracer::lib, "roctracer_start"));
-  if (func)
-    func();
+    typedef void (*roctracer_start_t)();
+    static roctracer_start_t func = nullptr;
+    Dispatch<ExternLibRoctracer>::init(ExternLibRoctracer::name,
+                                       &ExternLibRoctracer::lib);
+    if (func == nullptr)
+        func = reinterpret_cast<roctracer_start_t>(
+            dlsym(ExternLibRoctracer::lib, "roctracer_start"));
+    if (func)
+        func();
 }
 
 void stop() {
-  typedef void (*roctracer_stop_t)();
-  static roctracer_stop_t func = nullptr;
-  Dispatch<ExternLibRoctracer>::init(ExternLibRoctracer::name,
-                                     &ExternLibRoctracer::lib);
-  if (func == nullptr)
-    func = reinterpret_cast<roctracer_stop_t>(
-        dlsym(ExternLibRoctracer::lib, "roctracer_stop"));
-  if (func)
-    func();
+    typedef void (*roctracer_stop_t)();
+    static roctracer_stop_t func = nullptr;
+    Dispatch<ExternLibRoctracer>::init(ExternLibRoctracer::name,
+                                       &ExternLibRoctracer::lib);
+    if (func == nullptr)
+        func = reinterpret_cast<roctracer_stop_t>(
+            dlsym(ExternLibRoctracer::lib, "roctracer_stop"));
+    if (func)
+        func();
 }
 
 char *getOpString(uint32_t domain, uint32_t op, uint32_t kind) {
-  typedef char *(*roctracer_op_string_t)(uint32_t, uint32_t, uint32_t);
-  static roctracer_op_string_t func = nullptr;
-  Dispatch<ExternLibRoctracer>::init(ExternLibRoctracer::name,
-                                     &ExternLibRoctracer::lib);
-  if (func == nullptr)
-    func = reinterpret_cast<roctracer_op_string_t>(
-        dlsym(ExternLibRoctracer::lib, "roctracer_op_string"));
-  return (func ? func(domain, op, kind) : NULL);
+    typedef char *(*roctracer_op_string_t)(uint32_t, uint32_t, uint32_t);
+    static roctracer_op_string_t func = nullptr;
+    Dispatch<ExternLibRoctracer>::init(ExternLibRoctracer::name,
+                                       &ExternLibRoctracer::lib);
+    if (func == nullptr)
+        func = reinterpret_cast<roctracer_op_string_t>(
+            dlsym(ExternLibRoctracer::lib, "roctracer_op_string"));
+    return (func ? func(domain, op, kind) : NULL);
 }
 
 DEFINE_DISPATCH(ExternLibRoctracer, enableDomainCallback,

@@ -40,52 +40,53 @@ namespace {
 
 class Tx81MemrefToLLVMPass
     : public mlir::triton::Tx81MemrefToLLVMBase<Tx81MemrefToLLVMPass> {
-  using Tx81MemrefToLLVMBase<Tx81MemrefToLLVMPass>::Tx81MemrefToLLVMBase;
+    using Tx81MemrefToLLVMBase<Tx81MemrefToLLVMPass>::Tx81MemrefToLLVMBase;
 
-public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<LLVM::LLVMDialect, tx::Tx81Dialect, arith::ArithDialect,
-                func::FuncDialect, memref::MemRefDialect, scf::SCFDialect>();
-  }
-
-  void runOnOperation() override {
-    auto moduleOp = getOperation();
-    MLIRContext *context = &getContext();
-    RewritePatternSet patterns(context);
-    ConversionTarget target(*context);
-
-    target.addIllegalOp<
-        memref::AllocOp, memref::LoadOp, memref::StoreOp,
-        memref::ReinterpretCastOp, memref::ExtractStridedMetadataOp,
-        memref::ExtractAlignedPointerAsIndexOp, memref::CastOp>();
-
-    target.addLegalDialect<LLVM::LLVMDialect, memref::MemRefDialect,
-                           func::FuncDialect, arith::ArithDialect,
-                           math::MathDialect, arith::ArithDialect,
-                           affine::AffineDialect, scf::SCFDialect,
-                           cf::ControlFlowDialect, tensor::TensorDialect>();
-
-    target.addLegalOp<ModuleOp>();
-
-    LowerToLLVMOptions options(context);
-    options.useBarePtrCallConv = false;
-    LLVMTypeConverter llvmTypeConverter(context, options);
-    triton::populateTx81MemrefToLLVMConversionPatterns(patterns,
-                                                       llvmTypeConverter);
-    if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
-      signalPassFailure();
+  public:
+    void getDependentDialects(DialectRegistry &registry) const override {
+        registry.insert<LLVM::LLVMDialect, tx::Tx81Dialect, arith::ArithDialect,
+                        func::FuncDialect, memref::MemRefDialect,
+                        scf::SCFDialect>();
     }
 
-    // Record spm usage.
-    moduleOp->setAttr("triton_tsm.spm_use",
-                      mlir::IntegerAttr::get(
-                          mlir::IntegerType::get(context, 32), spmPointer));
-  }
+    void runOnOperation() override {
+        auto moduleOp = getOperation();
+        MLIRContext *context = &getContext();
+        RewritePatternSet patterns(context);
+        ConversionTarget target(*context);
+
+        target.addIllegalOp<
+            memref::AllocOp, memref::LoadOp, memref::StoreOp,
+            memref::ReinterpretCastOp, memref::ExtractStridedMetadataOp,
+            memref::ExtractAlignedPointerAsIndexOp, memref::CastOp>();
+
+        target.addLegalDialect<LLVM::LLVMDialect, memref::MemRefDialect,
+                               func::FuncDialect, arith::ArithDialect,
+                               math::MathDialect, arith::ArithDialect,
+                               affine::AffineDialect, scf::SCFDialect,
+                               cf::ControlFlowDialect, tensor::TensorDialect>();
+
+        target.addLegalOp<ModuleOp>();
+
+        LowerToLLVMOptions options(context);
+        options.useBarePtrCallConv = false;
+        LLVMTypeConverter llvmTypeConverter(context, options);
+        triton::populateTx81MemrefToLLVMConversionPatterns(patterns,
+                                                           llvmTypeConverter);
+        if (failed(applyPartialConversion(moduleOp, target,
+                                          std::move(patterns)))) {
+            signalPassFailure();
+        }
+
+        // Record spm usage.
+        moduleOp->setAttr("triton_tsm.spm_use",
+                          mlir::IntegerAttr::get(
+                              mlir::IntegerType::get(context, 32), spmPointer));
+    }
 };
 
 } // namespace
 
 std::unique_ptr<OperationPass<ModuleOp>> triton::createTx81MemrefToLLVMPass() {
-  return std::make_unique<Tx81MemrefToLLVMPass>();
+    return std::make_unique<Tx81MemrefToLLVMPass>();
 }

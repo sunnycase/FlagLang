@@ -22,30 +22,32 @@ unsigned AMDAllocationAnalysisScratchSizeFn(Operation *op);
 // It is padded (`paddedRepShape`) to avoid bank conflicts and is accessed in a
 // specific `order`.
 struct ScratchConfig {
-  SmallVector<unsigned> repShape;
-  SmallVector<unsigned> paddedRepShape;
-  SmallVector<unsigned> order;
-  unsigned inVec;
-  unsigned outVec;
+    SmallVector<unsigned> repShape;
+    SmallVector<unsigned> paddedRepShape;
+    SmallVector<unsigned> order;
+    unsigned inVec;
+    unsigned outVec;
 
-  ScratchConfig(SmallVector<unsigned> repShape,
-                SmallVector<unsigned> paddedRepShape, unsigned inVec = 1,
-                unsigned outVec = 1)
-      : repShape(repShape), paddedRepShape(paddedRepShape), inVec(inVec),
-        outVec(outVec) {}
+    ScratchConfig(SmallVector<unsigned> repShape,
+                  SmallVector<unsigned> paddedRepShape, unsigned inVec = 1,
+                  unsigned outVec = 1)
+        : repShape(repShape),
+          paddedRepShape(paddedRepShape),
+          inVec(inVec),
+          outVec(outVec) {}
 
-  void print(llvm::raw_ostream &os) const {
-    os << "repShape: [";
-    llvm::interleaveComma(repShape, os);
-    os << "]";
-    os << ", paddedRepShape: [";
-    llvm::interleaveComma(paddedRepShape, os);
-    os << "]";
-    os << ", order: [";
-    llvm::interleaveComma(order, os);
-    os << "]";
-    os << ", inVec: " << inVec << ", outVec: " << outVec << "\n";
-  }
+    void print(llvm::raw_ostream &os) const {
+        os << "repShape: [";
+        llvm::interleaveComma(repShape, os);
+        os << "]";
+        os << ", paddedRepShape: [";
+        llvm::interleaveComma(paddedRepShape, os);
+        os << "]";
+        os << ", order: [";
+        llvm::interleaveComma(order, os);
+        os << "]";
+        os << ", inVec: " << inVec << ", outVec: " << outVec << "\n";
+    }
 };
 
 // For a layout conversion between `srcTy` and `dstTy`, return the vector length

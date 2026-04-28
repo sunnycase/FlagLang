@@ -63,20 +63,19 @@ _PI32AVX_CONST(4, 4);
     static const ALIGN32_BEG int _pi32_256_##Name[8] ALIGN32_END = {           \
         Val, Val, Val, Val, Val, Val, Val, Val}
 #define _PU32_CONST256(Name, Val)                                              \
-    static const ALIGN32_BEG uint _pu32_256_##Name[8] ALIGN32_END = {           \
+    static const ALIGN32_BEG uint _pu32_256_##Name[8] ALIGN32_END = {          \
         Val, Val, Val, Val, Val, Val, Val, Val}
 #define _PS256_CONST_TYPE(Name, Type, Val)                                     \
     static const ALIGN32_BEG Type _ps256_##Name[8] ALIGN32_END = {             \
         Val, Val, Val, Val, Val, Val, Val, Val}
-#define _PD256_CONST(Name, Val)                                     \
-    static const ALIGN32_BEG double _pd256_##Name[4] ALIGN32_END = {             \
-        Val, Val, Val, Val}
+#define _PD256_CONST(Name, Val)                                                \
+    static const ALIGN32_BEG double _pd256_##Name[4] ALIGN32_END = {Val, Val,  \
+                                                                    Val, Val}
 
 _PS256_CONST(1, 1.0f);
 _PS256_CONST(0p5, 0.5f);
-_PS256_CONST(2,  2.0f);
-_PS256_CONST(nan,  NAN);
-
+_PS256_CONST(2, 2.0f);
+_PS256_CONST(nan, NAN);
 
 /* the smallest non denormalized float number */
 _PS256_CONST_TYPE(min_norm_pos, int, 0x00800000);
@@ -85,7 +84,7 @@ _PS256_CONST_TYPE(inv_mant_mask, int, ~0x7f800000);
 
 _PS256_CONST_TYPE(sign_mask, int, (int)0x80000000);
 _PS256_CONST_TYPE(inv_sign_mask, int, ~0x80000000);
-_PS256_CONST_TYPE(all_bits,  int, -1);      
+_PS256_CONST_TYPE(all_bits, int, -1);
 
 _PI32_CONST256(0, 0);
 _PI32_CONST256(1, 1);
@@ -368,87 +367,83 @@ _PD256_CONST(minus_cephes_DP1, -0.78539816339744828l);
 _PD256_CONST(minus_cephes_DP2, -2.185733861782034e-17l);
 _PD256_CONST(minus_cephes_DP3, 0.0l);
 
-
-
 /* Define constants */
-_PS256_CONST(inv_pi, 0x1.45f306p-2f);      // 1/π ≈ 0.318309886
-_PS256_CONST(pi_high, 0x1.921fb6p+1f);     // High part of π ≈ 3.14159274
-_PS256_CONST(pi_mid, -0x1.777a5cp-24f);    // Mid part of π ≈ -8.74227766e-08
-_PS256_CONST(pi_low, -0x1.ee59dap-49f);    // Low part of π ≈ -2.76216304e-15
+_PS256_CONST(inv_pi, 0x1.45f306p-2f);   // 1/π ≈ 0.318309886
+_PS256_CONST(pi_high, 0x1.921fb6p+1f);  // High part of π ≈ 3.14159274
+_PS256_CONST(pi_mid, -0x1.777a5cp-24f); // Mid part of π ≈ -8.74227766e-08
+_PS256_CONST(pi_low, -0x1.ee59dap-49f); // Low part of π ≈ -2.76216304e-15
 
 /* Sin polynomial coefficients */
-_PS256_CONST(sin_c0, -0x1.555548p-3f);     // ≈ -0.166666
-_PS256_CONST(sin_c2, -0x1.9f42eap-13f);    // ≈ -0.000198
-_PS256_CONST(sin_y1, 0x1.5b2e76p-19f);     // High order term coefficient
-_PS256_CONST(sin_y2, 0x1.110df4p-7f);      // High order term coefficient
+_PS256_CONST(sin_c0, -0x1.555548p-3f);  // ≈ -0.166666
+_PS256_CONST(sin_c2, -0x1.9f42eap-13f); // ≈ -0.000198
+_PS256_CONST(sin_y1, 0x1.5b2e76p-19f);  // High order term coefficient
+_PS256_CONST(sin_y2, 0x1.110df4p-7f);   // High order term coefficient
 
 _PU32_CONST256(sign_mask, 0x80000000);
 _PI32_CONST256(abs_mask, 0x7fffffff);
-_PS256_CONST(float_0x1p23, 0x1.8p+23f);    // 2^23 + 2^22 used for odd/even judgment
+_PS256_CONST(float_0x1p23,
+             0x1.8p+23f); // 2^23 + 2^22 used for odd/even judgment
 
 static inline __m256 sin256_ps(__m256 x) {
     /* Get sign bit and take absolute value */
-    __m256i sign = _mm256_and_si256(
-        _mm256_castps_si256(x), 
-        *(__m256i*)_pu32_256_sign_mask
-    );
-    
-    __m256 r = _mm256_and_ps(x, *(__m256*)_pi32_256_abs_mask);
-    
+    __m256i sign = _mm256_and_si256(_mm256_castps_si256(x),
+                                    *(__m256i *)_pu32_256_sign_mask);
+
+    __m256 r = _mm256_and_ps(x, *(__m256 *)_pi32_256_abs_mask);
+
     /* n = rint(|x|/π) - round to nearest integer */
-    __m256 n = _mm256_mul_ps(r, *(__m256*)_ps256_inv_pi);
-    __m256i ni = _mm256_cvtps_epi32(n);  // Convert to integer (automatic rounding)
-    n = _mm256_cvtepi32_ps(ni);          // Convert back to float
-    
+    __m256 n = _mm256_mul_ps(r, *(__m256 *)_ps256_inv_pi);
+    __m256i ni =
+        _mm256_cvtps_epi32(n);  // Convert to integer (automatic rounding)
+    n = _mm256_cvtepi32_ps(ni); // Convert back to float
+
     /* Determine odd/even for sign adjustment */
     __m256 temp = _mm256_cvtepi32_ps(ni);
-    temp = _mm256_add_ps(temp, *(__m256*)_ps256_float_0x1p23);
+    temp = _mm256_add_ps(temp, *(__m256 *)_ps256_float_0x1p23);
     __m256i odd = _mm256_castps_si256(temp);
-    odd = _mm256_slli_epi32(odd, 31);  // Shift lowest bit to sign bit
-    
-    /* Range reduction: r = |x| - n*π 
+    odd = _mm256_slli_epi32(odd, 31); // Shift lowest bit to sign bit
+
+    /* Range reduction: r = |x| - n*π
        Use three parts of π value for high precision reduction */
-    
+
     // Use FMA instruction for high precision calculation
     // r = r - n * pi_high
-    r = _mm256_fnmadd_ps(n, *(__m256*)_ps256_pi_high, r);
-    
+    r = _mm256_fnmadd_ps(n, *(__m256 *)_ps256_pi_high, r);
+
     // r = r - n * pi_mid
-    r = _mm256_fnmadd_ps(n, *(__m256*)_ps256_pi_mid, r);
-    
+    r = _mm256_fnmadd_ps(n, *(__m256 *)_ps256_pi_mid, r);
+
     // r = r - n * pi_low
-    r = _mm256_fnmadd_ps(n, *(__m256*)_ps256_pi_low, r);
-    
+    r = _mm256_fnmadd_ps(n, *(__m256 *)_ps256_pi_low, r);
+
     /* Calculate sin(r) using Taylor series/polynomial approximation
        sin(x) ≈ x + x³*c0 + x⁵*c2 + x⁷*y1 + x⁹*y2 */
-    
-    __m256 r2 = _mm256_mul_ps(r, r);        // r²
-    __m256 r3 = _mm256_mul_ps(r2, r);       // r³
-    __m256 r4 = _mm256_mul_ps(r2, r2);      // r⁴
-    
+
+    __m256 r2 = _mm256_mul_ps(r, r);   // r²
+    __m256 r3 = _mm256_mul_ps(r2, r);  // r³
+    __m256 r4 = _mm256_mul_ps(r2, r2); // r⁴
+
     /* Calculate polynomial */
-    __m256 y1 = *(__m256*)_ps256_sin_y1;
-    __m256 y2 = *(__m256*)_ps256_sin_y2;
-    
+    __m256 y1 = *(__m256 *)_ps256_sin_y1;
+    __m256 y2 = *(__m256 *)_ps256_sin_y2;
+
     // y1 = sin_y1 * r² + sin_c2
-    y1 = _mm256_fmadd_ps(y1, r2, *(__m256*)_ps256_sin_c2);
-    
+    y1 = _mm256_fmadd_ps(y1, r2, *(__m256 *)_ps256_sin_c2);
+
     // y2 = sin_y2 * r² + sin_c0
-    y2 = _mm256_fmadd_ps(y2, r2, *(__m256*)_ps256_sin_c0);
-    
+    y2 = _mm256_fmadd_ps(y2, r2, *(__m256 *)_ps256_sin_c0);
+
     // y1 = y1 * r⁴ + y2
     y1 = _mm256_fmadd_ps(y1, r4, y2);
-    
+
     // result = y1 * r³ + r
     y1 = _mm256_fmadd_ps(y1, r3, r);
-    
+
     /* Apply sign adjustment */
-    sign = _mm256_xor_si256(sign, odd);  // Combine original sign and odd/even sign
-    __m256i result_i = _mm256_xor_si256(
-        _mm256_castps_si256(y1), 
-        sign
-    );
-    
+    sign =
+        _mm256_xor_si256(sign, odd); // Combine original sign and odd/even sign
+    __m256i result_i = _mm256_xor_si256(_mm256_castps_si256(y1), sign);
+
     return _mm256_castsi256_ps(result_i);
 }
 #if 0
@@ -566,75 +561,73 @@ static inline __m256 cos256_ps(__m256 x) { // any x
 #endif
 
 /* Cosine polynomial coefficients optimized for [-π/2, π/2] range */
-_PS256_CONST(cos_c0, -0x1.00000p-1f);      // -0.5
-_PS256_CONST(cos_c1, 0x1.55554cp-5f);       // ≈ 0.0416666
-_PS256_CONST(cos_c2, -0x1.6c06dcp-10f);     // ≈ -0.00138867
-_PS256_CONST(cos_c3, 0x1.9a49eep-16f);      // ≈ 2.44329e-05
-_PS256_CONST(cos_c4, -0x1.1b4a88p-22f);     // ≈ -2.61766e-07
+_PS256_CONST(cos_c0, -0x1.00000p-1f);   // -0.5
+_PS256_CONST(cos_c1, 0x1.55554cp-5f);   // ≈ 0.0416666
+_PS256_CONST(cos_c2, -0x1.6c06dcp-10f); // ≈ -0.00138867
+_PS256_CONST(cos_c3, 0x1.9a49eep-16f);  // ≈ 2.44329e-05
+_PS256_CONST(cos_c4, -0x1.1b4a88p-22f); // ≈ -2.61766e-07
 
-_PS256_CONST(half_pi, 0x1.921fb6p+0f);     // π/2 ≈ 1.5708
+_PS256_CONST(half_pi, 0x1.921fb6p+0f); // π/2 ≈ 1.5708
 _PS256_CONST(one, 1.0f);
 
 static inline __m256 cos256_ps(__m256 x) {
     /* Get absolute value - cosine is an even function */
-    __m256 r = _mm256_and_ps(x, *(__m256*)_pi32_256_abs_mask);
-    
+    __m256 r = _mm256_and_ps(x, *(__m256 *)_pi32_256_abs_mask);
+
     /* Add π/2 to convert cos to sin: cos(x) = sin(x + π/2) */
-    r = _mm256_add_ps(r, *(__m256*)_ps256_half_pi);
-    
+    r = _mm256_add_ps(r, *(__m256 *)_ps256_half_pi);
+
     /* n = rint(r/π) - round to nearest integer */
-    __m256 n = _mm256_mul_ps(r, *(__m256*)_ps256_inv_pi);
-    __m256i ni = _mm256_cvtps_epi32(n);  // Convert to integer (automatic rounding)
-    n = _mm256_cvtepi32_ps(ni);          // Convert back to float
-    
+    __m256 n = _mm256_mul_ps(r, *(__m256 *)_ps256_inv_pi);
+    __m256i ni =
+        _mm256_cvtps_epi32(n);  // Convert to integer (automatic rounding)
+    n = _mm256_cvtepi32_ps(ni); // Convert back to float
+
     /* Determine sign based on quadrant (odd/even detection) */
     __m256 temp = _mm256_cvtepi32_ps(ni);
-    temp = _mm256_add_ps(temp, *(__m256*)_ps256_float_0x1p23);
+    temp = _mm256_add_ps(temp, *(__m256 *)_ps256_float_0x1p23);
     __m256i sign = _mm256_castps_si256(temp);
-    sign = _mm256_slli_epi32(sign, 31);  // Move LSB to sign bit position
-    
-    /* Range reduction: r = r - n*π 
+    sign = _mm256_slli_epi32(sign, 31); // Move LSB to sign bit position
+
+    /* Range reduction: r = r - n*π
        Using three-part π for high precision reduction */
-    
+
     // r = r - n * pi_high
-    r = _mm256_fnmadd_ps(n, *(__m256*)_ps256_pi_high, r);
-    
+    r = _mm256_fnmadd_ps(n, *(__m256 *)_ps256_pi_high, r);
+
     // r = r - n * pi_mid
-    r = _mm256_fnmadd_ps(n, *(__m256*)_ps256_pi_mid, r);
-    
+    r = _mm256_fnmadd_ps(n, *(__m256 *)_ps256_pi_mid, r);
+
     // r = r - n * pi_low
-    r = _mm256_fnmadd_ps(n, *(__m256*)_ps256_pi_low, r);
-    
+    r = _mm256_fnmadd_ps(n, *(__m256 *)_ps256_pi_low, r);
+
     /* Compute cos(r) using Taylor series polynomial approximation
        cos(x) ≈ 1 - x²/2! + x⁴/4! - x⁶/6! + x⁸/8! - x¹⁰/10!
        Factored as: 1 + x²*(c0 + x²*(c1 + x²*(c2 + x²*(c3 + x²*c4)))) */
-    
-    __m256 r2 = _mm256_mul_ps(r, r);        // r²
-    
+
+    __m256 r2 = _mm256_mul_ps(r, r); // r²
+
     /* Evaluate polynomial using Horner's method */
-    __m256 y = *(__m256*)_ps256_cos_c4;
-    
+    __m256 y = *(__m256 *)_ps256_cos_c4;
+
     // y = c4 * r² + c3
-    y = _mm256_fmadd_ps(y, r2, *(__m256*)_ps256_cos_c3);
-    
+    y = _mm256_fmadd_ps(y, r2, *(__m256 *)_ps256_cos_c3);
+
     // y = y * r² + c2
-    y = _mm256_fmadd_ps(y, r2, *(__m256*)_ps256_cos_c2);
-    
+    y = _mm256_fmadd_ps(y, r2, *(__m256 *)_ps256_cos_c2);
+
     // y = y * r² + c1
-    y = _mm256_fmadd_ps(y, r2, *(__m256*)_ps256_cos_c1);
-    
+    y = _mm256_fmadd_ps(y, r2, *(__m256 *)_ps256_cos_c1);
+
     // y = y * r² + c0
-    y = _mm256_fmadd_ps(y, r2, *(__m256*)_ps256_cos_c0);
-    
+    y = _mm256_fmadd_ps(y, r2, *(__m256 *)_ps256_cos_c0);
+
     // y = y * r² + 1
-    y = _mm256_fmadd_ps(y, r2, *(__m256*)_ps256_one);
-    
+    y = _mm256_fmadd_ps(y, r2, *(__m256 *)_ps256_one);
+
     /* Apply sign adjustment based on quadrant */
-    __m256i result_i = _mm256_xor_si256(
-        _mm256_castps_si256(y), 
-        sign
-    );
-    
+    __m256i result_i = _mm256_xor_si256(_mm256_castps_si256(y), sign);
+
     return _mm256_castsi256_ps(result_i);
 }
 
@@ -791,20 +784,19 @@ static inline __m256 tan256_ps(__m256 x) {
     return ytan;
 }
 
-
 // static inline __m256 pow256_ps(__m256 a, __m256 b) {
 //     // pow(x, m) = exp(m * log(x))
 //     return exp256_ps(_mm256_mul_ps(b, log256_ps(a)));
 // }
 static inline __m256 pow256_ps(__m256 a, __m256 b) {
     // --- constants ---
-    const __m256 zero     =  _mm256_setzero_ps();
-    const __m256 two      = *(__m256*)_ps256_2;
-    const __m256 half     = *(__m256*)_ps256_0p5;
-    const __m256 nan_val  = *(__m256*)_ps256_nan;
-    const __m256 abs_mask = *(__m256*)_ps256_inv_sign_mask;
-    const __m256 sign_mask= *(__m256*)_ps256_sign_mask;
-    const __m256 all_bits = *(__m256*)_ps256_all_bits;
+    const __m256 zero = _mm256_setzero_ps();
+    const __m256 two = *(__m256 *)_ps256_2;
+    const __m256 half = *(__m256 *)_ps256_0p5;
+    const __m256 nan_val = *(__m256 *)_ps256_nan;
+    const __m256 abs_mask = *(__m256 *)_ps256_inv_sign_mask;
+    const __m256 sign_mask = *(__m256 *)_ps256_sign_mask;
+    const __m256 all_bits = *(__m256 *)_ps256_all_bits;
 
     // --- input a  ---
     __m256 neg_a_mask = _mm256_cmp_ps(a, zero, _CMP_LT_OS);
@@ -819,7 +811,8 @@ static inline __m256 pow256_ps(__m256 a, __m256 b) {
         __m256 is_int_mask = _mm256_cmp_ps(b, b_floor, _CMP_EQ_OQ);
 
         __m256 b_div_2_floor = _mm256_floor_ps(_mm256_mul_ps(b, half));
-        __m256 is_odd_mask = _mm256_cmp_ps(_mm256_mul_ps(b_div_2_floor, two), b_floor, _CMP_NEQ_UQ);
+        __m256 is_odd_mask = _mm256_cmp_ps(_mm256_mul_ps(b_div_2_floor, two),
+                                           b_floor, _CMP_NEQ_UQ);
 
         //  set to neg, a < 0 AND b is odd
         __m256 flip_sign_mask = _mm256_and_ps(neg_a_mask, is_int_mask);
@@ -833,7 +826,7 @@ static inline __m256 pow256_ps(__m256 a, __m256 b) {
         // a. set to neg
         __m256 sign_flipper = _mm256_and_ps(flip_sign_mask, sign_mask);
         result = _mm256_xor_ps(result, sign_flipper);
-        
+
         // b. set to NaN
         result = _mm256_blendv_ps(result, nan_val, set_nan_mask);
     }

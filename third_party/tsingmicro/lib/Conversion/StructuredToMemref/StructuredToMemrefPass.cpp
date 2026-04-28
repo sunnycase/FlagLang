@@ -46,107 +46,117 @@ namespace triton {
 namespace {
 
 class LoopTypeConverter : public TypeConverter {
-public:
-  LoopTypeConverter(MLIRContext *context) {
-    // The order of type conversion is important: later ones are tried earlier.
-    addConversion([](Type type) { return type; });
+  public:
+    LoopTypeConverter(MLIRContext *context) {
+        // The order of type conversion is important: later ones are tried
+        // earlier.
+        addConversion([](Type type) { return type; });
 
-    // A tensor of pointers can be passed in as scf.for's init-args, in such
-    // cases, we convert the type to a memref with dynamic offsets and
-    // strides.
-    addConversion(
-        [context](RankedTensorType tensorType) -> std::optional<MemRefType> {
-          if (auto ptrType = llvm::dyn_cast<triton::PointerType>(
-                  tensorType.getElementType())) {
-            auto layout = StridedLayoutAttr::get(
-                context, ShapedType::kDynamic,
-                SmallVector<int64_t>(tensorType.getRank(),
-                                     ShapedType::kDynamic));
-            Type elemType = ptrType.getPointeeType();
-            return MemRefType::get(tensorType.getShape(), elemType, layout);
-          }
+        // A tensor of pointers can be passed in as scf.for's init-args, in such
+        // cases, we convert the type to a memref with dynamic offsets and
+        // strides.
+        addConversion([context](RankedTensorType tensorType)
+                          -> std::optional<MemRefType> {
+            if (auto ptrType = llvm::dyn_cast<triton::PointerType>(
+                    tensorType.getElementType())) {
+                auto layout = StridedLayoutAttr::get(
+                    context, ShapedType::kDynamic,
+                    SmallVector<int64_t>(tensorType.getRank(),
+                                         ShapedType::kDynamic));
+                Type elemType = ptrType.getPointeeType();
+                return MemRefType::get(tensorType.getShape(), elemType, layout);
+            }
 
-          return std::nullopt;
+            return std::nullopt;
         });
 
-    addSourceMaterialization([&](OpBuilder &builder, Type resultType,
-                                 ValueRange inputs, Location loc) -> Value {
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
-          .getResult(0);
-    });
+        addSourceMaterialization([&](OpBuilder &builder, Type resultType,
+                                     ValueRange inputs, Location loc) -> Value {
+            return builder
+                .create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+                .getResult(0);
+        });
 
-    addArgumentMaterialization([&](OpBuilder &builder, Type resultType,
-                                   ValueRange inputs, Location loc) -> Value {
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
-          .getResult(0);
-    });
+        addArgumentMaterialization([&](OpBuilder &builder, Type resultType,
+                                       ValueRange inputs,
+                                       Location loc) -> Value {
+            return builder
+                .create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+                .getResult(0);
+        });
 
-    // Convert the current memref type to a memref type with dynamic offsets and
-    // strides through another reinterpret_cast with the same offsets.
-    // Canonicalization will simplify this sequence by removing the inital
-    // reinterpret_cast.
-    addTargetMaterialization([&](OpBuilder &builder, MemRefType memrefType,
-                                 ValueRange inputs, Location loc) -> Value {
-      auto reinterpretCast =
-          inputs[0].getDefiningOp<memref::ReinterpretCastOp>();
-      if (!reinterpretCast) {
-        return builder
-            .create<UnrealizedConversionCastOp>(loc, memrefType, inputs)
-            .getResult(0);
-      }
-      return builder.create<memref::ReinterpretCastOp>(
-          loc, memrefType, inputs[0], reinterpretCast.getMixedOffsets()[0],
-          reinterpretCast.getMixedSizes(), reinterpretCast.getMixedStrides());
-    });
-  }
+        // Convert the current memref type to a memref type with dynamic offsets
+        // and strides through another reinterpret_cast with the same offsets.
+        // Canonicalization will simplify this sequence by removing the inital
+        // reinterpret_cast.
+        addTargetMaterialization([&](OpBuilder &builder, MemRefType memrefType,
+                                     ValueRange inputs, Location loc) -> Value {
+            auto reinterpretCast =
+                inputs[0].getDefiningOp<memref::ReinterpretCastOp>();
+            if (!reinterpretCast) {
+                return builder
+                    .create<UnrealizedConversionCastOp>(loc, memrefType, inputs)
+                    .getResult(0);
+            }
+            return builder.create<memref::ReinterpretCastOp>(
+                loc, memrefType, inputs[0],
+                reinterpretCast.getMixedOffsets()[0],
+                reinterpretCast.getMixedSizes(),
+                reinterpretCast.getMixedStrides());
+        });
+    }
 };
 
 class StructuredToMemrefPass
     : public triton::impl::StructuredToMemrefBase<StructuredToMemrefPass> {
-  using StructuredToMemrefBase<StructuredToMemrefPass>::StructuredToMemrefBase;
+    using StructuredToMemrefBase<
+        StructuredToMemrefPass>::StructuredToMemrefBase;
 
-public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<func::FuncDialect, arith::ArithDialect, math::MathDialect,
+  public:
+    void getDependentDialects(DialectRegistry &registry) const override {
+        registry
+            .insert<func::FuncDialect, arith::ArithDialect, math::MathDialect,
                     linalg::LinalgDialect, affine::AffineDialect,
                     scf::SCFDialect, tensor::TensorDialect,
                     bufferization::BufferizationDialect, triton::TritonDialect,
                     ttx::TritonTilingExtDialect, memref::MemRefDialect>();
-  }
-
-  void runOnOperation() override {
-    auto moduleOp = getOperation();
-
-    RewritePatternSet patterns(&getContext());
-    ConversionTarget target(getContext());
-
-    target.addLegalDialect<
-        func::FuncDialect, arith::ArithDialect, math::MathDialect,
-        linalg::LinalgDialect, affine::AffineDialect, scf::SCFDialect,
-        cf::ControlFlowDialect, tensor::TensorDialect,
-        bufferization::BufferizationDialect, ttx::TritonTilingExtDialect,
-        memref::MemRefDialect, addr::AddressDialect, mk::MagicKernelDialect>();
-
-    target.addIllegalOp<tts::LoadOp, tts::StoreOp, tts::MakeTensorPtrOp>();
-
-    target.addLegalOp<UnrealizedConversionCastOp>();
-
-    LoopTypeConverter loopTypeConverter(patterns.getContext());
-
-    mlir::scf::populateSCFStructuralTypeConversionsAndLegality(
-        loopTypeConverter, patterns, target);
-
-    PtrToUnrankedMemrefConverter typeConverter;
-    triton::populateStructuredToMemrefConversionPatterns(patterns,
-                                                         typeConverter);
-    if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
-      signalPassFailure();
     }
-  }
+
+    void runOnOperation() override {
+        auto moduleOp = getOperation();
+
+        RewritePatternSet patterns(&getContext());
+        ConversionTarget target(getContext());
+
+        target.addLegalDialect<
+            func::FuncDialect, arith::ArithDialect, math::MathDialect,
+            linalg::LinalgDialect, affine::AffineDialect, scf::SCFDialect,
+            cf::ControlFlowDialect, tensor::TensorDialect,
+            bufferization::BufferizationDialect, ttx::TritonTilingExtDialect,
+            memref::MemRefDialect, addr::AddressDialect,
+            mk::MagicKernelDialect>();
+
+        target.addIllegalOp<tts::LoadOp, tts::StoreOp, tts::MakeTensorPtrOp>();
+
+        target.addLegalOp<UnrealizedConversionCastOp>();
+
+        LoopTypeConverter loopTypeConverter(patterns.getContext());
+
+        mlir::scf::populateSCFStructuralTypeConversionsAndLegality(
+            loopTypeConverter, patterns, target);
+
+        PtrToUnrankedMemrefConverter typeConverter;
+        triton::populateStructuredToMemrefConversionPatterns(patterns,
+                                                             typeConverter);
+        if (failed(applyPartialConversion(moduleOp, target,
+                                          std::move(patterns)))) {
+            signalPassFailure();
+        }
+    }
 };
 } // namespace
 
 std::unique_ptr<OperationPass<ModuleOp>>
 triton::createStructuredToMemrefPass() {
-  return std::make_unique<StructuredToMemrefPass>();
+    return std::make_unique<StructuredToMemrefPass>();
 }

@@ -47,5 +47,6 @@ def test_filecheck_negative():
         # CHECK: test_filecheck.anchor__i32__(42)
         anchor(scalar)
 
-    with pytest.raises(ValueError, match=r"expected string not found in input\n # CHECK: test_filecheck\.anchor__i32__\(42\)"):
+    with pytest.raises(ValueError,
+                       match=r"expected string not found in input\n # CHECK: test_filecheck\.anchor__i32__\(42\)"):
         run_filecheck_test(test_kernel)

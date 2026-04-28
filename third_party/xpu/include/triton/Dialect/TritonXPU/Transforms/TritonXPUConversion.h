@@ -17,22 +17,22 @@
 namespace mlir {
 
 class TritonXPUTypeConverter : public TypeConverter {
-public:
-  TritonXPUTypeConverter(MLIRContext *context, uint32_t buffer_size,
-                         uint32_t core_num);
-  uint32_t getBufferSize() const { return buffer_size; }
-  uint32_t getCoreNum() const { return core_num; }
+  public:
+    TritonXPUTypeConverter(MLIRContext *context, uint32_t buffer_size,
+                           uint32_t core_num);
+    uint32_t getBufferSize() const { return buffer_size; }
+    uint32_t getCoreNum() const { return core_num; }
 
-private:
-  MLIRContext *context;
-  uint32_t buffer_size;
-  uint32_t core_num;
+  private:
+    MLIRContext *context;
+    uint32_t buffer_size;
+    uint32_t core_num;
 };
 
 class TritonXPUConversionTarget : public ConversionTarget {
-public:
-  explicit TritonXPUConversionTarget(MLIRContext &ctx,
-                                     TritonXPUTypeConverter &typeConverter);
+  public:
+    explicit TritonXPUConversionTarget(MLIRContext &ctx,
+                                       TritonXPUTypeConverter &typeConverter);
 };
 
 } // namespace mlir

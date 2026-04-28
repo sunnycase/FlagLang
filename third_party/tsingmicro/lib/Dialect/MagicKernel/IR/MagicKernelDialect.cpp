@@ -12,22 +12,22 @@ using namespace mlir;
 using namespace mlir::mk;
 
 LogicalResult PrintOp::verify() {
-  if (getOperands().size() > 1)
-    return emitOpError("expects at most one operand");
-  return success();
+    if (getOperands().size() > 1)
+        return emitOpError("expects at most one operand");
+    return success();
 }
 
 /// Dialect creation, the instance will be owned by the context. This is the
 /// point of registration of custom types and operations for the dialect.
 void MagicKernelDialect::initialize() {
-  addOperations<
+    addOperations<
 #define GET_OP_LIST
 #include "magic-kernel/Dialect/IR/MagicKernelOps.cpp.inc"
-      >();
-  // TODO: Add BufferizableOpInterface to all ops that can be bufferized
-  declarePromisedInterfaces<bufferization::BufferizableOpInterface, mk::DotOp,
-                            mk::DotScaledOp, mk::SigmoidOp, mk::GatherOp,
-                            mk::PrintOp>();
+        >();
+    // TODO: Add BufferizableOpInterface to all ops that can be bufferized
+    declarePromisedInterfaces<bufferization::BufferizableOpInterface, mk::DotOp,
+                              mk::DotScaledOp, mk::SigmoidOp, mk::GatherOp,
+                              mk::PrintOp>();
 }
 
 //===----------------------------------------------------------------------===//
@@ -35,10 +35,10 @@ void MagicKernelDialect::initialize() {
 //===----------------------------------------------------------------------===//
 
 OpFoldResult mk::BitcastOp::fold(FoldAdaptor adaptor) {
-  if (getOperand().getType() == getResult().getType()) {
-    return getOperand();
-  }
-  return {};
+    if (getOperand().getType() == getResult().getType()) {
+        return getOperand();
+    }
+    return {};
 }
 
 #define GET_OP_CLASSES

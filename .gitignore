@@ -49,6 +49,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache
 
+# Agent/runtime metadata
+.codex
+.humanize/
+
 # Environments
 .venv
 venv/

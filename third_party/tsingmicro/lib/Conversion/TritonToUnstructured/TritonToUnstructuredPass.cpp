@@ -166,449 +166,480 @@ namespace {
 // If the type is a tensor, return a tensor of offsets of the same shape. If the
 // type is a pointer, return a single offset type.
 static Type getPtrOffsetType(Type type, unsigned int bitWidth) {
-  if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
-    if (auto ptrType =
-            dyn_cast<triton::PointerType>(tensorType.getElementType())) {
-      return RankedTensorType::get(
-          tensorType.getShape(), IntegerType::get(type.getContext(), bitWidth));
+    if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
+        if (auto ptrType =
+                dyn_cast<triton::PointerType>(tensorType.getElementType())) {
+            return RankedTensorType::get(
+                tensorType.getShape(),
+                IntegerType::get(type.getContext(), bitWidth));
+        }
     }
-  }
 
-  if (auto ptrType = dyn_cast<triton::PointerType>(type)) {
-    return IntegerType::get(type.getContext(), bitWidth);
-  }
+    if (auto ptrType = dyn_cast<triton::PointerType>(type)) {
+        return IntegerType::get(type.getContext(), bitWidth);
+    }
 
-  llvm_unreachable("unexpected type");
-  return nullptr;
+    llvm_unreachable("unexpected type");
+    return nullptr;
 }
 
 static unsigned int getBitWidth(Type type) {
-  if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
-    if (auto integerType = dyn_cast<IntegerType>(tensorType.getElementType())) {
-      return integerType.getWidth();
+    if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
+        if (auto integerType =
+                dyn_cast<IntegerType>(tensorType.getElementType())) {
+            return integerType.getWidth();
+        }
+    } else if (auto integerType = dyn_cast<IntegerType>(type)) {
+        return integerType.getWidth();
     }
-  } else if (auto integerType = dyn_cast<IntegerType>(type)) {
-    return integerType.getWidth();
-  }
 
-  llvm_unreachable("unexpected type");
-  return 0;
+    llvm_unreachable("unexpected type");
+    return 0;
 }
 
 class TritonToUnstructuredPass
     : public TritonToUnstructuredBase<TritonToUnstructuredPass> {
 
-public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<arith::ArithDialect, math::MathDialect, affine::AffineDialect,
-                scf::SCFDialect, tensor::TensorDialect, triton::TritonDialect,
-                tts::TritonStructuredDialect>();
-  }
+  public:
+    void getDependentDialects(DialectRegistry &registry) const override {
+        registry.insert<arith::ArithDialect, math::MathDialect,
+                        affine::AffineDialect, scf::SCFDialect,
+                        tensor::TensorDialect, triton::TritonDialect,
+                        tts::TritonStructuredDialect>();
+    }
 
-  struct PtrOffset {
-    // the source pointer which comes from the kernel argument
-    Value ptr;
-    // the pointer type that corresponds to this offset; used when
-    // creating tts.make_unstructured_tptr
-    Type ptrType;
-    // bitwidth that is used for this offset, used to track if sign-extension is
-    // necessary
-    unsigned int bitWidth;
-    // the offset value
-    Value offset;
-  };
+    struct PtrOffset {
+        // the source pointer which comes from the kernel argument
+        Value ptr;
+        // the pointer type that corresponds to this offset; used when
+        // creating tts.make_unstructured_tptr
+        Type ptrType;
+        // bitwidth that is used for this offset, used to track if
+        // sign-extension is necessary
+        unsigned int bitWidth;
+        // the offset value
+        Value offset;
+    };
 
-  LogicalResult processUnstructuredPtrs(unsigned int defaultBitWidth = 32) {
-    llvm::SmallDenseSet<Value> ptrArgs;
-    llvm::DenseMap<Value, PtrOffset> offsetMap;
-    std::queue<Value> workList;
+    LogicalResult processUnstructuredPtrs(unsigned int defaultBitWidth = 32) {
+        llvm::SmallDenseSet<Value> ptrArgs;
+        llvm::DenseMap<Value, PtrOffset> offsetMap;
+        std::queue<Value> workList;
 
-    getOperation().walk([&](FunctionOpInterface func) {
-      for (auto arg : func.getArguments()) {
-        if (!triton::utils::isPtrTypeLike(arg.getType())) {
-          continue;
-        }
+        getOperation().walk([&](FunctionOpInterface func) {
+            for (auto arg : func.getArguments()) {
+                if (!triton::utils::isPtrTypeLike(arg.getType())) {
+                    continue;
+                }
 
-        OpBuilder b(func->getRegion(0));
-        Value zero = b.create<arith::ConstantOp>(
-            arg.getLoc(),
-            b.getIntegerAttr(IntegerType::get(&getContext(), defaultBitWidth),
-                             0));
+                OpBuilder b(func->getRegion(0));
+                Value zero = b.create<arith::ConstantOp>(
+                    arg.getLoc(),
+                    b.getIntegerAttr(
+                        IntegerType::get(&getContext(), defaultBitWidth), 0));
 
-        ptrArgs.insert(arg);
-        offsetMap.insert({arg, {arg, arg.getType(), defaultBitWidth, zero}});
-        workList.push(arg);
-      }
-    });
+                ptrArgs.insert(arg);
+                offsetMap.insert(
+                    {arg, {arg, arg.getType(), defaultBitWidth, zero}});
+                workList.push(arg);
+            }
+        });
 
-    getOperation().walk([&](triton::IntToPtrOp op) {
-      // We only want to handle single source pointer,
-      // skip if this op produces tensor of pointers
-      if (isa<RankedTensorType>(op.getType())) {
-        return;
-      }
-      auto res = op.getResult();
-      OpBuilder b(op);
-      Value zero = b.create<arith::ConstantOp>(
-          op.getLoc(),
-          b.getIntegerAttr(IntegerType::get(&getContext(), defaultBitWidth),
-                           0));
+        getOperation().walk([&](triton::IntToPtrOp op) {
+            // We only want to handle single source pointer,
+            // skip if this op produces tensor of pointers
+            if (isa<RankedTensorType>(op.getType())) {
+                return;
+            }
+            auto res = op.getResult();
+            OpBuilder b(op);
+            Value zero = b.create<arith::ConstantOp>(
+                op.getLoc(),
+                b.getIntegerAttr(
+                    IntegerType::get(&getContext(), defaultBitWidth), 0));
 
-      offsetMap.insert({res, {res, res.getType(), defaultBitWidth, zero}});
-      workList.push(res);
-    });
+            offsetMap.insert(
+                {res, {res, res.getType(), defaultBitWidth, zero}});
+            workList.push(res);
+        });
 
-    llvm::SmallVector<Operation *> toDelete;
-    llvm::SmallVector<Operation *> ptrUsers;
+        llvm::SmallVector<Operation *> toDelete;
+        llvm::SmallVector<Operation *> ptrUsers;
 
-    while (!workList.empty()) {
-      auto val = workList.front();
-      workList.pop();
+        while (!workList.empty()) {
+            auto val = workList.front();
+            workList.pop();
 
-      for (auto &use : val.getUses()) {
-        auto user = use.getOwner();
+            for (auto &use : val.getUses()) {
+                auto user = use.getOwner();
 
-        auto res =
-            llvm::TypeSwitch<Operation *, LogicalResult>(user)
+                auto res =
+                    llvm::TypeSwitch<Operation *, LogicalResult>(user)
 
-                .Case<arith::SelectOp>([&](arith::SelectOp op) {
-                  auto ptr = op->getOperand(0);
+                        .Case<arith::SelectOp>([&](arith::SelectOp op) {
+                            auto ptr = op->getOperand(0);
 
-                  if (!offsetMap.contains(op.getTrueValue()) ||
-                      !offsetMap.contains(op.getFalseValue()))
-                    return success();
-                  auto TrueValue = offsetMap.at(op.getTrueValue());
-                  auto FalseValue = offsetMap.at(op.getFalseValue());
-                  assert(TrueValue.bitWidth == FalseValue.bitWidth &&
-                         "arith.select op should have the same bitwidth "
-                         "for both true and false values");
-                  auto res = op.getResult();
-                  auto resType = op.getType();
+                            if (!offsetMap.contains(op.getTrueValue()) ||
+                                !offsetMap.contains(op.getFalseValue()))
+                                return success();
+                            auto TrueValue = offsetMap.at(op.getTrueValue());
+                            auto FalseValue = offsetMap.at(op.getFalseValue());
+                            assert(
+                                TrueValue.bitWidth == FalseValue.bitWidth &&
+                                "arith.select op should have the same bitwidth "
+                                "for both true and false values");
+                            auto res = op.getResult();
+                            auto resType = op.getType();
 
-                  OpBuilder b{op};
-                  auto newOffset = b.create<arith::SelectOp>(
-                      op->getLoc(),
-                      getPtrOffsetType(resType, TrueValue.bitWidth),
-                      op.getCondition(), TrueValue.offset, FalseValue.offset);
-                  PtrOffset newOffsetInfo{res, resType, TrueValue.bitWidth,
-                                          newOffset};
+                            OpBuilder b{op};
+                            auto newOffset = b.create<arith::SelectOp>(
+                                op->getLoc(),
+                                getPtrOffsetType(resType, TrueValue.bitWidth),
+                                op.getCondition(), TrueValue.offset,
+                                FalseValue.offset);
+                            PtrOffset newOffsetInfo{
+                                res, resType, TrueValue.bitWidth, newOffset};
 
-                  offsetMap.insert({
-                      res,
-                      newOffsetInfo,
-                  });
-                  workList.push(res);
-                  return success();
-                })
-                .Case<triton::PtrToIntOp>([&](triton::PtrToIntOp op) {
-                  auto offsetInfo = offsetMap.at(op.getSrc());
+                            offsetMap.insert({
+                                res,
+                                newOffsetInfo,
+                            });
+                            workList.push(res);
+                            return success();
+                        })
+                        .Case<triton::PtrToIntOp>([&](triton::PtrToIntOp op) {
+                            auto offsetInfo = offsetMap.at(op.getSrc());
 
-                  OpBuilder b{op};
-                  // We are converting a pointer to an integer here,
-                  // materialized the pointer using the accumulated offset
-                  // that we have stored so far.
-                  auto materializedAddPtr = b.create<triton::AddPtrOp>(
-                      op->getLoc(), offsetInfo.ptrType, offsetInfo.ptr,
-                      offsetInfo.offset);
+                            OpBuilder b{op};
+                            // We are converting a pointer to an integer here,
+                            // materialized the pointer using the accumulated
+                            // offset that we have stored so far.
+                            auto materializedAddPtr =
+                                b.create<triton::AddPtrOp>(
+                                    op->getLoc(), offsetInfo.ptrType,
+                                    offsetInfo.ptr, offsetInfo.offset);
 
-                  // Change the op to use the "simplified" pointer above.
-                  // This should not affect the traversal of uses, but hacky.
-                  // We will need to revisit how we process the IRs in this pass
-                  // later.
-                  op->setOperand(0, materializedAddPtr);
+                            // Change the op to use the "simplified" pointer
+                            // above. This should not affect the traversal of
+                            // uses, but hacky. We will need to revisit how we
+                            // process the IRs in this pass later.
+                            op->setOperand(0, materializedAddPtr);
 
-                  return success();
-                })
-                .Case<triton::BitcastOp>([&](triton::BitcastOp bitcast) {
-                  OpBuilder b{bitcast};
-                  auto loc = bitcast->getLoc();
+                            return success();
+                        })
+                        .Case<triton::BitcastOp>(
+                            [&](triton::BitcastOp bitcast) {
+                                OpBuilder b{bitcast};
+                                auto loc = bitcast->getLoc();
 
-                  auto offsetInfo = offsetMap.at(bitcast.getOperand());
+                                auto offsetInfo =
+                                    offsetMap.at(bitcast.getOperand());
 
-                  auto newBitcast = b.create<triton::BitcastOp>(
-                      loc, bitcast.getType(), offsetInfo.ptr);
-                  bitcast->replaceAllUsesWith(newBitcast);
+                                auto newBitcast = b.create<triton::BitcastOp>(
+                                    loc, bitcast.getType(), offsetInfo.ptr);
+                                bitcast->replaceAllUsesWith(newBitcast);
 
-                  PtrOffset newOffsetInfo{newBitcast, offsetInfo.ptrType,
-                                          offsetInfo.bitWidth,
-                                          offsetInfo.offset};
-                  offsetMap.insert({newBitcast, newOffsetInfo});
-                  workList.push(newBitcast);
+                                PtrOffset newOffsetInfo{
+                                    newBitcast, offsetInfo.ptrType,
+                                    offsetInfo.bitWidth, offsetInfo.offset};
+                                offsetMap.insert({newBitcast, newOffsetInfo});
+                                workList.push(newBitcast);
 
-                  return success();
-                })
-                .Case<triton::AddPtrOp>([&](triton::AddPtrOp addptr) {
-                  OpBuilder b{addptr};
-                  auto loc = addptr->getLoc();
+                                return success();
+                            })
+                        .Case<triton::AddPtrOp>([&](triton::AddPtrOp addptr) {
+                            OpBuilder b{addptr};
+                            auto loc = addptr->getLoc();
 
-                  auto offsetInfo = offsetMap.at(addptr.getPtr());
+                            auto offsetInfo = offsetMap.at(addptr.getPtr());
 
-                  auto prevOff = offsetInfo.offset;
-                  auto off = addptr.getOffset();
+                            auto prevOff = offsetInfo.offset;
+                            auto off = addptr.getOffset();
 
-                  auto lhsWidth = offsetInfo.bitWidth;
-                  auto rhsWidth = getBitWidth(off.getType());
-                  auto resWidth = std::max(lhsWidth, rhsWidth);
+                            auto lhsWidth = offsetInfo.bitWidth;
+                            auto rhsWidth = getBitWidth(off.getType());
+                            auto resWidth = std::max(lhsWidth, rhsWidth);
 
-                  if (lhsWidth < resWidth) {
-                    prevOff = b.create<arith::ExtSIOp>(
-                        loc, getPtrOffsetType(offsetInfo.ptrType, resWidth),
-                        prevOff);
-                  }
+                            if (lhsWidth < resWidth) {
+                                prevOff = b.create<arith::ExtSIOp>(
+                                    loc,
+                                    getPtrOffsetType(offsetInfo.ptrType,
+                                                     resWidth),
+                                    prevOff);
+                            }
 
-                  if (rhsWidth < resWidth) {
-                    off = b.create<arith::ExtSIOp>(
-                        loc, getPtrOffsetType(offsetInfo.ptrType, resWidth),
-                        off);
-                  }
+                            if (rhsWidth < resWidth) {
+                                off = b.create<arith::ExtSIOp>(
+                                    loc,
+                                    getPtrOffsetType(offsetInfo.ptrType,
+                                                     resWidth),
+                                    off);
+                            }
 
-                  auto accumulatedOff = b.create<arith::AddIOp>(
-                      loc, getPtrOffsetType(addptr.getType(), resWidth),
-                      prevOff, off);
+                            auto accumulatedOff = b.create<arith::AddIOp>(
+                                loc,
+                                getPtrOffsetType(addptr.getType(), resWidth),
+                                prevOff, off);
 
-                  PtrOffset newOffsetInfo{offsetInfo.ptr, addptr.getType(),
-                                          resWidth, accumulatedOff};
+                            PtrOffset newOffsetInfo{offsetInfo.ptr,
+                                                    addptr.getType(), resWidth,
+                                                    accumulatedOff};
 
-                  offsetMap.insert({addptr, newOffsetInfo});
-                  workList.push(addptr);
-                  toDelete.push_back(addptr);
+                            offsetMap.insert({addptr, newOffsetInfo});
+                            workList.push(addptr);
+                            toDelete.push_back(addptr);
 
-                  return success();
-                })
-                .Case<triton::SplatOp, triton::BroadcastOp,
-                      triton::ExpandDimsOp>([&](Operation *op) {
-                  auto res = op->getResult(0);
-                  auto resType = res.getType();
+                            return success();
+                        })
+                        .Case<triton::SplatOp, triton::BroadcastOp,
+                              triton::ExpandDimsOp>([&](Operation *op) {
+                            auto res = op->getResult(0);
+                            auto resType = res.getType();
 
-                  if (!triton::utils::isPtrTypeLike(resType)) {
-                    return success();
-                  }
+                            if (!triton::utils::isPtrTypeLike(resType)) {
+                                return success();
+                            }
 
-                  auto ptr = op->getOperand(0);
-                  auto offsetInfo = offsetMap.at(ptr);
+                            auto ptr = op->getOperand(0);
+                            auto offsetInfo = offsetMap.at(ptr);
 
-                  OpBuilder b{op};
-                  auto clone =
-                      b.create(op->getLoc(), op->getName().getIdentifier(),
-                               ValueRange{offsetInfo.offset},
-                               TypeRange{getPtrOffsetType(
-                                   resType, offsetInfo.bitWidth)});
+                            OpBuilder b{op};
+                            auto clone = b.create(
+                                op->getLoc(), op->getName().getIdentifier(),
+                                ValueRange{offsetInfo.offset},
+                                TypeRange{getPtrOffsetType(
+                                    resType, offsetInfo.bitWidth)});
 
-                  PtrOffset newOffsetInfo{offsetInfo.ptr, resType,
-                                          offsetInfo.bitWidth,
-                                          clone->getResult(0)};
+                            PtrOffset newOffsetInfo{offsetInfo.ptr, resType,
+                                                    offsetInfo.bitWidth,
+                                                    clone->getResult(0)};
 
-                  offsetMap.insert({
-                      res,
-                      newOffsetInfo,
-                  });
-                  workList.push(res);
-                  toDelete.push_back(op);
+                            offsetMap.insert({
+                                res,
+                                newOffsetInfo,
+                            });
+                            workList.push(res);
+                            toDelete.push_back(op);
 
-                  return success();
-                })
-                .Case<triton::LoadOp, triton::StoreOp, triton::MakeTensorPtrOp,
-                      tts::MakeTensorPtrOp>([&](Operation *op) {
-                  // Special case:
-                  // We do not want to create "unstructured tensor pointer" into
-                  // tts.make_tptr if the base pointer is directly from the
-                  // kernel arguments.
-                  if (auto makeTensorPtr = dyn_cast<tts::MakeTensorPtrOp>(op)) {
-                    if (ptrArgs.contains(makeTensorPtr.getBase())) {
-                      return success();
-                    }
-                    if (auto bitcast = dyn_cast<triton::BitcastOp>(
-                            makeTensorPtr.getBase().getDefiningOp())) {
-                      if (ptrArgs.contains(bitcast.getSrc())) {
-                        return success();
-                      }
-                    }
-                  }
+                            return success();
+                        })
+                        .Case<triton::LoadOp, triton::StoreOp,
+                              triton::MakeTensorPtrOp,
+                              tts::MakeTensorPtrOp>([&](Operation *op) {
+                            // Special case:
+                            // We do not want to create "unstructured tensor
+                            // pointer" into tts.make_tptr if the base pointer
+                            // is directly from the kernel arguments.
+                            if (auto makeTensorPtr =
+                                    dyn_cast<tts::MakeTensorPtrOp>(op)) {
+                                if (ptrArgs.contains(makeTensorPtr.getBase())) {
+                                    return success();
+                                }
+                                if (auto bitcast = dyn_cast<triton::BitcastOp>(
+                                        makeTensorPtr.getBase()
+                                            .getDefiningOp())) {
+                                    if (ptrArgs.contains(bitcast.getSrc())) {
+                                        return success();
+                                    }
+                                }
+                            }
 
-                  ptrUsers.push_back(op);
-                  return success();
-                })
-                .Case<scf::ForOp>([&](scf::ForOp forOp) {
-                  // Index of the init-arg corresponding to this use, note that
-                  // we have to subtract by 3 from the operand number because
-                  // scf.for ops always have 3 leading operands for start, end,
-                  // and step.
-                  auto argIndex = use.getOperandNumber() - 3;
-                  auto init = forOp.getInitArgs()[argIndex];
+                            ptrUsers.push_back(op);
+                            return success();
+                        })
+                        .Case<scf::ForOp>([&](scf::ForOp forOp) {
+                            // Index of the init-arg corresponding to this use,
+                            // note that we have to subtract by 3 from the
+                            // operand number because scf.for ops always have 3
+                            // leading operands for start, end, and step.
+                            auto argIndex = use.getOperandNumber() - 3;
+                            auto init = forOp.getInitArgs()[argIndex];
 
-                  auto offsetInfo = offsetMap.at(init);
+                            auto offsetInfo = offsetMap.at(init);
 
-                  auto offsetType =
-                      getPtrOffsetType(offsetInfo.ptrType, offsetInfo.bitWidth);
+                            auto offsetType = getPtrOffsetType(
+                                offsetInfo.ptrType, offsetInfo.bitWidth);
 
-                  // We're setting both the types of the iter-arg and the
-                  // corresponding result directly to the offset type.
-                  // At this point, the IR is in an invalid state because the
-                  // init-args still have tt.ptr. But at the end, we will
-                  // replace all uses of the tt.ptr to offset values.
-                  auto iterArg = forOp.getRegionIterArg(argIndex);
-                  iterArg.setType(offsetType);
+                            // We're setting both the types of the iter-arg and
+                            // the corresponding result directly to the offset
+                            // type. At this point, the IR is in an invalid
+                            // state because the init-args still have tt.ptr.
+                            // But at the end, we will replace all uses of the
+                            // tt.ptr to offset values.
+                            auto iterArg = forOp.getRegionIterArg(argIndex);
+                            iterArg.setType(offsetType);
 
-                  auto res = forOp.getResult(argIndex);
-                  res.setType(offsetType);
+                            auto res = forOp.getResult(argIndex);
+                            res.setType(offsetType);
 
-                  // For other ops, we only need to push the result into the
-                  // worklist. But for scf.for, the iter-arg corresponding to
-                  // the init-arg is used in the op's body instead, we have to
-                  // process uses of the iter-arg.
-                  PtrOffset iterArgOffset{offsetInfo.ptr, offsetInfo.ptrType,
-                                          offsetInfo.bitWidth, iterArg};
-                  offsetMap.insert({
-                      iterArg,
-                      iterArgOffset,
-                  });
+                            // For other ops, we only need to push the result
+                            // into the worklist. But for scf.for, the iter-arg
+                            // corresponding to the init-arg is used in the op's
+                            // body instead, we have to process uses of the
+                            // iter-arg.
+                            PtrOffset iterArgOffset{
+                                offsetInfo.ptr, offsetInfo.ptrType,
+                                offsetInfo.bitWidth, iterArg};
+                            offsetMap.insert({
+                                iterArg,
+                                iterArgOffset,
+                            });
 
-                  PtrOffset resOffset{offsetInfo.ptr, offsetInfo.ptrType,
-                                      offsetInfo.bitWidth, res};
-                  offsetMap.insert({
-                      res,
-                      resOffset,
-                  });
-                  workList.push(iterArg);
-                  workList.push(res);
+                            PtrOffset resOffset{offsetInfo.ptr,
+                                                offsetInfo.ptrType,
+                                                offsetInfo.bitWidth, res};
+                            offsetMap.insert({
+                                res,
+                                resOffset,
+                            });
+                            workList.push(iterArg);
+                            workList.push(res);
 
-                  return success();
-                })
-                .Case<scf::YieldOp>([](auto) { return success(); })
-                .Case<triton::CatOp>([](triton::CatOp op) {
-                  op->emitError("Do not support gather / scatter with multiple "
+                            return success();
+                        })
+                        .Case<scf::YieldOp>([](auto) { return success(); })
+                        .Case<triton::CatOp>([](triton::CatOp op) {
+                            op->emitError(
+                                "Do not support gather / scatter with multiple "
                                 "bases yet");
-                  return failure();
-                })
-                .Default([&](Operation *op) {
-                  op->emitError("unexpected op in ptr sequence");
-                  return failure();
-                });
+                            return failure();
+                        })
+                        .Default([&](Operation *op) {
+                            op->emitError("unexpected op in ptr sequence");
+                            return failure();
+                        });
 
-        if (failed(res)) {
-          return failure();
-        }
-      }
-    }
-
-    for (auto op : ptrUsers) {
-      OpBuilder b{op};
-      auto loc = op->getLoc();
-      auto res =
-          llvm::TypeSwitch<Operation *, LogicalResult>(op)
-              .Case<triton::LoadOp>([&](triton::LoadOp load) {
-                auto offsetInfo = offsetMap.at(load.getPtr());
-
-                auto other = load.getOther();
-
-                if (other) {
-                  other = triton::utils::getScalarValue(other, loc, b);
-                  if (!other) {
-                    load->emitError("cannot parse `other` value for load");
+                if (failed(res)) {
                     return failure();
-                  }
                 }
+            }
+        }
 
-                auto gather = b.create<tts::GatherOp>(
-                    loc, load.getType(), offsetInfo.ptr, offsetInfo.offset,
-                    load.getMask(), other);
+        for (auto op : ptrUsers) {
+            OpBuilder b{op};
+            auto loc = op->getLoc();
+            auto res =
+                llvm::TypeSwitch<Operation *, LogicalResult>(op)
+                    .Case<triton::LoadOp>([&](triton::LoadOp load) {
+                        auto offsetInfo = offsetMap.at(load.getPtr());
 
-                load->replaceAllUsesWith(gather->getResults());
-                load->erase();
-                return success();
-              })
-              .Case<triton::StoreOp>([&](triton::StoreOp store) {
-                auto offsetInfo = offsetMap.at(store.getPtr());
-                b.create<tts::ScatterOp>(loc, offsetInfo.ptr, offsetInfo.offset,
-                                         store.getValue(), store.getMask());
-                store->erase();
-                return success();
-              })
-              .Case<triton::MakeTensorPtrOp,
-                    tts::MakeTensorPtrOp>([&](auto makeTensorPtr) {
-                // For block pointers, the base could come from a sequence of
-                // `tt.addptr`. Accumulate the target offset with the offset
-                // we have saved.
-                auto offsetInfo = offsetMap.at(makeTensorPtr.getBase());
-                auto baseOffset = offsetInfo.offset;
+                        auto other = load.getOther();
 
-                makeTensorPtr.getBaseMutable().set(offsetInfo.ptr);
+                        if (other) {
+                            other =
+                                triton::utils::getScalarValue(other, loc, b);
+                            if (!other) {
+                                load->emitError(
+                                    "cannot parse `other` value for load");
+                                return failure();
+                            }
+                        }
 
-                // Add the existing offset from the base to the offset
-                // operand in the ops.
-                auto &offsetOpnd = makeTensorPtr.getOffsetsMutable()[0];
-                auto currOffset = offsetOpnd.get();
+                        auto gather = b.create<tts::GatherOp>(
+                            loc, load.getType(), offsetInfo.ptr,
+                            offsetInfo.offset, load.getMask(), other);
 
-                auto baseOffType = baseOffset.getType();
-                auto currOffType = currOffset.getType();
+                        load->replaceAllUsesWith(gather->getResults());
+                        load->erase();
+                        return success();
+                    })
+                    .Case<triton::StoreOp>([&](triton::StoreOp store) {
+                        auto offsetInfo = offsetMap.at(store.getPtr());
+                        b.create<tts::ScatterOp>(
+                            loc, offsetInfo.ptr, offsetInfo.offset,
+                            store.getValue(), store.getMask());
+                        store->erase();
+                        return success();
+                    })
+                    .Case<triton::MakeTensorPtrOp, tts::MakeTensorPtrOp>(
+                        [&](auto makeTensorPtr) {
+                            // For block pointers, the base could come from a
+                            // sequence of `tt.addptr`. Accumulate the target
+                            // offset with the offset we have saved.
+                            auto offsetInfo =
+                                offsetMap.at(makeTensorPtr.getBase());
+                            auto baseOffset = offsetInfo.offset;
 
-                if (baseOffType != currOffType) {
-                  if (currOffType.isIndex()) {
-                    baseOffset = b.create<arith::IndexCastOp>(
-                        loc, b.getIndexType(), baseOffset);
-                  } else if (currOffType.isInteger()) {
-                    if (baseOffType.getIntOrFloatBitWidth() <
-                        currOffType.getIntOrFloatBitWidth()) {
-                      baseOffset = b.create<arith::ExtSIOp>(loc, currOffType,
-                                                            baseOffset);
-                    } else {
-                      // MakeTensorPtrOp only takes i32 offsets, so we need
-                      // to truncate if the offsets were already in i64
-                      makeTensorPtr.emitWarning(
-                          "truncating offsets which may result in data loss");
-                      baseOffset = b.create<arith::TruncIOp>(loc, currOffType,
-                                                             baseOffset);
-                    }
-                  }
-                }
+                            makeTensorPtr.getBaseMutable().set(offsetInfo.ptr);
 
-                auto accumulatedOffset = b.create<arith::AddIOp>(
-                    loc, currOffset.getType(), baseOffset, currOffset);
+                            // Add the existing offset from the base to the
+                            // offset operand in the ops.
+                            auto &offsetOpnd =
+                                makeTensorPtr.getOffsetsMutable()[0];
+                            auto currOffset = offsetOpnd.get();
 
-                offsetOpnd.set(accumulatedOffset);
+                            auto baseOffType = baseOffset.getType();
+                            auto currOffType = currOffset.getType();
 
-                return success();
-              })
+                            if (baseOffType != currOffType) {
+                                if (currOffType.isIndex()) {
+                                    baseOffset = b.create<arith::IndexCastOp>(
+                                        loc, b.getIndexType(), baseOffset);
+                                } else if (currOffType.isInteger()) {
+                                    if (baseOffType.getIntOrFloatBitWidth() <
+                                        currOffType.getIntOrFloatBitWidth()) {
+                                        baseOffset = b.create<arith::ExtSIOp>(
+                                            loc, currOffType, baseOffset);
+                                    } else {
+                                        // MakeTensorPtrOp only takes i32
+                                        // offsets, so we need to truncate if
+                                        // the offsets were already in i64
+                                        makeTensorPtr.emitWarning(
+                                            "truncating offsets which may "
+                                            "result in data loss");
+                                        baseOffset = b.create<arith::TruncIOp>(
+                                            loc, currOffType, baseOffset);
+                                    }
+                                }
+                            }
 
-              .Default([&](Operation *op) {
-                op->emitError("unexpected op in ptr sequence");
+                            auto accumulatedOffset = b.create<arith::AddIOp>(
+                                loc, currOffset.getType(), baseOffset,
+                                currOffset);
+
+                            offsetOpnd.set(accumulatedOffset);
+
+                            return success();
+                        })
+
+                    .Default([&](Operation *op) {
+                        op->emitError("unexpected op in ptr sequence");
+                        return failure();
+                    });
+
+            if (failed(res)) {
                 return failure();
-              });
+            }
+        }
 
-      if (failed(res)) {
-        return failure();
-      }
+        for (auto op : toDelete) {
+            auto ptrInfo = offsetMap.at(op->getResult(0));
+            op->replaceAllUsesWith(ValueRange{ptrInfo.offset});
+            op->erase();
+        }
+
+        return success();
     }
 
-    for (auto op : toDelete) {
-      auto ptrInfo = offsetMap.at(op->getResult(0));
-      op->replaceAllUsesWith(ValueRange{ptrInfo.offset});
-      op->erase();
-    }
+    void runOnOperation() override {
+        if (failed(processUnstructuredPtrs(offsetBitWidth))) {
+            getOperation()->emitWarning("Cannot transform tensor of pointers "
+                                        "into a single base pointer "
+                                        "with tensor of offsets");
+            return;
+        }
 
-    return success();
-  }
-
-  void runOnOperation() override {
-    if (failed(processUnstructuredPtrs(offsetBitWidth))) {
-      getOperation()->emitWarning(
-          "Cannot transform tensor of pointers into a single base pointer "
-          "with tensor of offsets");
-      return;
+        PassManager pm(&getContext(), getOperation().getOperationName());
+        pm.addPass(createCanonicalizerPass());
+        pm.addPass(createCSEPass());
+        if (failed(runPipeline(pm, getOperation()))) {
+            signalPassFailure();
+        }
     }
-
-    PassManager pm(&getContext(), getOperation().getOperationName());
-    pm.addPass(createCanonicalizerPass());
-    pm.addPass(createCSEPass());
-    if (failed(runPipeline(pm, getOperation()))) {
-      signalPassFailure();
-    }
-  }
 };
 } // namespace
 
 std::unique_ptr<OperationPass<ModuleOp>>
 triton::createTritonToUnstructuredPass() {
-  return std::make_unique<TritonToUnstructuredPass>();
+    return std::make_unique<TritonToUnstructuredPass>();
 }

@@ -725,7 +725,7 @@ REGISTER_RVV_UNARY_OP(sign, float, sign_float32)
     }
 
 #if 0
-//with peak register less than 4, 
+//with peak register less than 4,
 // but precision error is too high. ulp error can reach ~10
 // New LMUL=8 sin using cos polynomial to reduce live registers.
 #define SIN_FLOAT32_LMUL_8(lmul, mlen)                                         \

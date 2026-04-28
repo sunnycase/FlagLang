@@ -34,13 +34,15 @@ void benchmark_ntt_layernorm_fixed_reduceAxis1_noVectorize() {
 
     for (size_t i = 0; i < warmup_num; i++) {
         vectorized_layer_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06,
-                          1_dim, ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                              1_dim, ntt::fixed_shape_v<>,
+                              ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
         vectorized_layer_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06,
-                          1_dim, ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                              1_dim, ntt::fixed_shape_v<>,
+                              ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(ntt_output));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -74,13 +76,15 @@ void benchmark_ntt_layernorm_fixed_reduceAxis2_noVectorize() {
     // no vectorize
     for (size_t i = 0; i < warmup_num; i++) {
         vectorized_layer_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06,
-                          2_dim, ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                              2_dim, ntt::fixed_shape_v<>,
+                              ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
         vectorized_layer_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06,
-                          2_dim, ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                              2_dim, ntt::fixed_shape_v<>,
+                              ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(ntt_output));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -125,14 +129,16 @@ void benchmark_ntt_layernorm_fixed_reduceAxis1_vectorizeAxis1() {
 
     // no vectorize
     for (size_t i = 0; i < warmup_num; i++) {
-        vectorized_layer_norm(buffer_3, buffer_4, buffer_5, buffer_6, 1E-06, 1_dim,
-                          ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+        vectorized_layer_norm(buffer_3, buffer_4, buffer_5, buffer_6, 1E-06,
+                              1_dim, ntt::fixed_shape_v<1>,
+                              ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
-        vectorized_layer_norm(buffer_3, buffer_4, buffer_5, buffer_6, 1E-06, 1_dim,
-                          ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+        vectorized_layer_norm(buffer_3, buffer_4, buffer_5, buffer_6, 1E-06,
+                              1_dim, ntt::fixed_shape_v<1>,
+                              ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(buffer_6));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -178,16 +184,16 @@ void benchmark_ntt_layernorm_fixed_reduceAxis2_vectorizeAxis2() {
 
     // no vectorize
     for (size_t i = 0; i < warmup_num; i++) {
-        vectorized_layer_norm(input_vectorized, scale_vectorized, bias_vectorized,
-                          output_vectorized, 1E-06, 2_dim, ntt::fixed_shape_v<2>,
-                          ntt::fixed_shape_v<>);
+        vectorized_layer_norm(input_vectorized, scale_vectorized,
+                              bias_vectorized, output_vectorized, 1E-06, 2_dim,
+                              ntt::fixed_shape_v<2>, ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
-        vectorized_layer_norm(input_vectorized, scale_vectorized, bias_vectorized,
-                          output_vectorized, 1E-06, 2_dim, ntt::fixed_shape_v<2>,
-                          ntt::fixed_shape_v<>);
+        vectorized_layer_norm(input_vectorized, scale_vectorized,
+                              bias_vectorized, output_vectorized, 1E-06, 2_dim,
+                              ntt::fixed_shape_v<2>, ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(output_vectorized));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -227,14 +233,16 @@ void benchmark_ntt_layernorm_fixed_reduceAxis2_vectorizeAxis1() {
 
     // no vectorize
     for (size_t i = 0; i < warmup_num; i++) {
-        vectorized_layer_norm(buffer_3, buffer_1, buffer_2, buffer_4, 1E-06, 2_dim,
-                          ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+        vectorized_layer_norm(buffer_3, buffer_1, buffer_2, buffer_4, 1E-06,
+                              2_dim, ntt::fixed_shape_v<1>,
+                              ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
-        vectorized_layer_norm(buffer_3, buffer_1, buffer_2, buffer_4, 1E-06, 2_dim,
-                          ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+        vectorized_layer_norm(buffer_3, buffer_1, buffer_2, buffer_4, 1E-06,
+                              2_dim, ntt::fixed_shape_v<1>,
+                              ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(buffer_4));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -280,16 +288,16 @@ void benchmark_ntt_layernorm_fixed_reduceAxis1_vectorizeAxis2() {
     pack(bias, vectorized_bias, ntt::fixed_shape_v<1>);
     // no vectorize
     for (size_t i = 0; i < warmup_num; i++) {
-        vectorized_layer_norm(vectorized_input, vectorized_scale, vectorized_bias,
-                          vectorized_output, 1E-06, 1_dim, ntt::fixed_shape_v<1>,
-                          ntt::fixed_shape_v<>);
+        vectorized_layer_norm(vectorized_input, vectorized_scale,
+                              vectorized_bias, vectorized_output, 1E-06, 1_dim,
+                              ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
-        vectorized_layer_norm(vectorized_input, vectorized_scale, vectorized_bias,
-                          vectorized_output, 1E-06, 1_dim, ntt::fixed_shape_v<1>,
-                          ntt::fixed_shape_v<>);
+        vectorized_layer_norm(vectorized_input, vectorized_scale,
+                              vectorized_bias, vectorized_output, 1E-06, 1_dim,
+                              ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(vectorized_output));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -325,13 +333,15 @@ void benchmark_ntt_layernorm_ranked_reduceAxis1_noVectorize() {
 
     for (size_t i = 0; i < warmup_num; i++) {
         vectorized_layer_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06,
-                          1_dim, ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                              1_dim, ntt::fixed_shape_v<>,
+                              ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
         vectorized_layer_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06,
-                          1_dim, ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                              1_dim, ntt::fixed_shape_v<>,
+                              ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(ntt_output));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -365,13 +375,15 @@ void benchmark_ntt_layernorm_ranked_reduceAxis2_noVectorize() {
     // no vectorize
     for (size_t i = 0; i < warmup_num; i++) {
         vectorized_layer_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06,
-                          2_dim, ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                              2_dim, ntt::fixed_shape_v<>,
+                              ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
         vectorized_layer_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06,
-                          2_dim, ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                              2_dim, ntt::fixed_shape_v<>,
+                              ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(ntt_output));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -416,14 +428,16 @@ void benchmark_ntt_layernorm_ranked_reduceAxis1_vectorizeAxis1() {
 
     // no vectorize
     for (size_t i = 0; i < warmup_num; i++) {
-        vectorized_layer_norm(buffer_3, buffer_4, buffer_5, buffer_6, 1E-06, 1_dim,
-                          ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+        vectorized_layer_norm(buffer_3, buffer_4, buffer_5, buffer_6, 1E-06,
+                              1_dim, ntt::fixed_shape_v<1>,
+                              ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
-        vectorized_layer_norm(buffer_3, buffer_4, buffer_5, buffer_6, 1E-06, 1_dim,
-                          ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+        vectorized_layer_norm(buffer_3, buffer_4, buffer_5, buffer_6, 1E-06,
+                              1_dim, ntt::fixed_shape_v<1>,
+                              ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(buffer_6));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -470,16 +484,16 @@ void benchmark_ntt_layernorm_ranked_reduceAxis2_vectorizeAxis2() {
 
     // no vectorize
     for (size_t i = 0; i < warmup_num; i++) {
-        vectorized_layer_norm(input_vectorized, scale_vectorized, bias_vectorized,
-                          output_vectorized, 1E-06, 2_dim, ntt::fixed_shape_v<2>,
-                          ntt::fixed_shape_v<>);
+        vectorized_layer_norm(input_vectorized, scale_vectorized,
+                              bias_vectorized, output_vectorized, 1E-06, 2_dim,
+                              ntt::fixed_shape_v<2>, ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
-        vectorized_layer_norm(input_vectorized, scale_vectorized, bias_vectorized,
-                          output_vectorized, 1E-06, 2_dim, ntt::fixed_shape_v<2>,
-                          ntt::fixed_shape_v<>);
+        vectorized_layer_norm(input_vectorized, scale_vectorized,
+                              bias_vectorized, output_vectorized, 1E-06, 2_dim,
+                              ntt::fixed_shape_v<2>, ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(output_vectorized));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -520,14 +534,16 @@ void benchmark_ntt_layernorm_ranked_reduceAxis2_vectorizeAxis1() {
 
     // no vectorize
     for (size_t i = 0; i < warmup_num; i++) {
-        vectorized_layer_norm(buffer_3, buffer_1, buffer_2, buffer_4, 1E-06, 2_dim,
-                          ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+        vectorized_layer_norm(buffer_3, buffer_1, buffer_2, buffer_4, 1E-06,
+                              2_dim, ntt::fixed_shape_v<1>,
+                              ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
-        vectorized_layer_norm(buffer_3, buffer_1, buffer_2, buffer_4, 1E-06, 2_dim,
-                          ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+        vectorized_layer_norm(buffer_3, buffer_1, buffer_2, buffer_4, 1E-06,
+                              2_dim, ntt::fixed_shape_v<1>,
+                              ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(buffer_4));
     }
     auto t2 = NttTest::get_cpu_cycle();
@@ -573,16 +589,16 @@ void benchmark_ntt_layernorm_ranked_reduceAxis1_vectorizeAxis2() {
     pack(bias, vectorized_bias, ntt::fixed_shape_v<1>);
     // no vectorize
     for (size_t i = 0; i < warmup_num; i++) {
-        vectorized_layer_norm(vectorized_input, vectorized_scale, vectorized_bias,
-                          vectorized_output, 1E-06, 1_dim, ntt::fixed_shape_v<1>,
-                          ntt::fixed_shape_v<>);
+        vectorized_layer_norm(vectorized_input, vectorized_scale,
+                              vectorized_bias, vectorized_output, 1E-06, 1_dim,
+                              ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
     }
 
     auto t1 = NttTest::get_cpu_cycle();
     for (size_t i = 0; i < run_num; i++) {
-        vectorized_layer_norm(vectorized_input, vectorized_scale, vectorized_bias,
-                          vectorized_output, 1E-06, 1_dim, ntt::fixed_shape_v<1>,
-                          ntt::fixed_shape_v<>);
+        vectorized_layer_norm(vectorized_input, vectorized_scale,
+                              vectorized_bias, vectorized_output, 1E-06, 1_dim,
+                              ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
         asm volatile("" ::"g"(vectorized_output));
     }
     auto t2 = NttTest::get_cpu_cycle();

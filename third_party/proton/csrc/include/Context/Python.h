@@ -7,13 +7,13 @@ namespace proton {
 
 /// Unwind the Python stack and early return a list of contexts.
 class PythonContextSource : public ContextSource {
-public:
-  PythonContextSource() = default;
+  public:
+    PythonContextSource() = default;
 
-  size_t getDepth() override;
+    size_t getDepth() override;
 
-private:
-  std::vector<Context> getContextsImpl() override;
+  private:
+    std::vector<Context> getContextsImpl() override;
 };
 
 } // namespace proton

@@ -23,15 +23,15 @@ using namespace nncase;
 using namespace ortki;
 
 #define DEFINE_PACKED_SOFTMAX_TEST(TEST_NAME, AXIS)                            \
-    TEST(FixedShapeVectorizedSoftmax, TEST_NAME) {                                 \
+    TEST(FixedShapeVectorizedSoftmax, TEST_NAME) {                             \
         auto buffer_1 =                                                        \
             ntt::make_tensor<float>(ntt::fixed_shape_v<3, 16, 16>);            \
         NttTest::init_tensor(buffer_1, -10.f, 10.f);                           \
                                                                                \
         auto ntt_output =                                                      \
             ntt::make_tensor<float>(ntt::fixed_shape_v<3, 16, 16>);            \
-        vectorized_softmax(buffer_1, ntt_output, AXIS##_dim,                       \
-                       ntt::fixed_shape_v<>);                                  \
+        vectorized_softmax(buffer_1, ntt_output, AXIS##_dim,                   \
+                           ntt::fixed_shape_v<>);                              \
                                                                                \
         auto ort_input = NttTest::ntt2ort(buffer_1);                           \
         auto ort_output = ortki_Softmax(ort_input, AXIS);                      \

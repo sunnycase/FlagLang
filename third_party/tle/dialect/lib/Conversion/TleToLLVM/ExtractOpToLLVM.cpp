@@ -19,56 +19,56 @@ namespace tle = mlir::triton::tle;
 
 struct ExtractAllocatedPtrOpConversion
     : public ConvertOpToLLVMPattern<tle::ExtractAllocatedPtrOp> {
-  ExtractAllocatedPtrOpConversion(LLVMTypeConverter &typeConverter,
-                                  PatternBenefit benefit);
-  LogicalResult
-  matchAndRewrite(tle::ExtractAllocatedPtrOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
+    ExtractAllocatedPtrOpConversion(LLVMTypeConverter &typeConverter,
+                                    PatternBenefit benefit);
+    LogicalResult
+    matchAndRewrite(tle::ExtractAllocatedPtrOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override;
 };
 
 struct ExtractAlignedPtrOpConversion
     : public ConvertOpToLLVMPattern<tle::ExtractAlignedPtrOp> {
-  ExtractAlignedPtrOpConversion(LLVMTypeConverter &typeConverter,
-                                PatternBenefit benefit);
-  LogicalResult
-  matchAndRewrite(tle::ExtractAlignedPtrOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
+    ExtractAlignedPtrOpConversion(LLVMTypeConverter &typeConverter,
+                                  PatternBenefit benefit);
+    LogicalResult
+    matchAndRewrite(tle::ExtractAlignedPtrOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override;
 };
 
 struct ExtractOffsetOpConversion
     : public ConvertOpToLLVMPattern<tle::ExtractOffsetOp> {
-  ExtractOffsetOpConversion(LLVMTypeConverter &typeConverter,
-                            PatternBenefit benefit);
-  LogicalResult
-  matchAndRewrite(tle::ExtractOffsetOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
+    ExtractOffsetOpConversion(LLVMTypeConverter &typeConverter,
+                              PatternBenefit benefit);
+    LogicalResult
+    matchAndRewrite(tle::ExtractOffsetOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override;
 };
 
 struct ExtractSizesOpConversion
     : public ConvertOpToLLVMPattern<tle::ExtractSizesOp> {
-  ExtractSizesOpConversion(LLVMTypeConverter &typeConverter,
-                           PatternBenefit benefit);
-  LogicalResult
-  matchAndRewrite(tle::ExtractSizesOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
+    ExtractSizesOpConversion(LLVMTypeConverter &typeConverter,
+                             PatternBenefit benefit);
+    LogicalResult
+    matchAndRewrite(tle::ExtractSizesOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override;
 };
 
 struct ExtractStridesOpConversion
     : public ConvertOpToLLVMPattern<tle::ExtractStridesOp> {
-  ExtractStridesOpConversion(LLVMTypeConverter &typeConverter,
-                             PatternBenefit benefit);
-  LogicalResult
-  matchAndRewrite(tle::ExtractStridesOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
+    ExtractStridesOpConversion(LLVMTypeConverter &typeConverter,
+                               PatternBenefit benefit);
+    LogicalResult
+    matchAndRewrite(tle::ExtractStridesOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override;
 };
 
 struct ExtractPtrOpConversion
     : public ConvertOpToLLVMPattern<tle::ExtractPtrOp> {
-  ExtractPtrOpConversion(LLVMTypeConverter &typeConverter,
-                         PatternBenefit benefit);
-  LogicalResult
-  matchAndRewrite(tle::ExtractPtrOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
+    ExtractPtrOpConversion(LLVMTypeConverter &typeConverter,
+                           PatternBenefit benefit);
+    LogicalResult
+    matchAndRewrite(tle::ExtractPtrOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override;
 };
 } // namespace
 
@@ -79,10 +79,10 @@ ExtractAllocatedPtrOpConversion::ExtractAllocatedPtrOpConversion(
 LogicalResult ExtractAllocatedPtrOpConversion::matchAndRewrite(
     tle::ExtractAllocatedPtrOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  LLVM::ExtractValueOp newOp = rewriter.create<LLVM::ExtractValueOp>(
-      op.getLoc(), adaptor.getInput(), SmallVector<int64_t>{0});
-  rewriter.replaceAllUsesWith(op, newOp);
-  return success();
+    LLVM::ExtractValueOp newOp = rewriter.create<LLVM::ExtractValueOp>(
+        op.getLoc(), adaptor.getInput(), SmallVector<int64_t>{0});
+    rewriter.replaceAllUsesWith(op, newOp);
+    return success();
 }
 
 ExtractAlignedPtrOpConversion::ExtractAlignedPtrOpConversion(
@@ -92,10 +92,10 @@ ExtractAlignedPtrOpConversion::ExtractAlignedPtrOpConversion(
 LogicalResult ExtractAlignedPtrOpConversion::matchAndRewrite(
     tle::ExtractAlignedPtrOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  LLVM::ExtractValueOp newOp = rewriter.create<LLVM::ExtractValueOp>(
-      op.getLoc(), adaptor.getInput(), SmallVector<int64_t>{0});
-  rewriter.replaceAllUsesWith(op, newOp);
-  return success();
+    LLVM::ExtractValueOp newOp = rewriter.create<LLVM::ExtractValueOp>(
+        op.getLoc(), adaptor.getInput(), SmallVector<int64_t>{0});
+    rewriter.replaceAllUsesWith(op, newOp);
+    return success();
 }
 
 ExtractOffsetOpConversion::ExtractOffsetOpConversion(
@@ -105,9 +105,9 @@ ExtractOffsetOpConversion::ExtractOffsetOpConversion(
 LogicalResult ExtractOffsetOpConversion::matchAndRewrite(
     tle::ExtractOffsetOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  rewriter.replaceOpWithNewOp<arith::ConstantOp>(op,
-                                                 rewriter.getI64IntegerAttr(0));
-  return success();
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(
+        op, rewriter.getI64IntegerAttr(0));
+    return success();
 }
 
 ExtractSizesOpConversion::ExtractSizesOpConversion(
@@ -117,19 +117,19 @@ ExtractSizesOpConversion::ExtractSizesOpConversion(
 LogicalResult ExtractSizesOpConversion::matchAndRewrite(
     tle::ExtractSizesOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  if (ttg::MemDescType memdesc =
-          dyn_cast<ttg::MemDescType>(op.getInput().getType())) {
-    SmallVector<Value> sizes;
-    for (int64_t size : memdesc.getShape()) {
-      auto newOp = rewriter.create<arith::ConstantOp>(
-          op.getLoc(), rewriter.getI64IntegerAttr(size));
-      sizes.push_back(newOp);
+    if (ttg::MemDescType memdesc =
+            dyn_cast<ttg::MemDescType>(op.getInput().getType())) {
+        SmallVector<Value> sizes;
+        for (int64_t size : memdesc.getShape()) {
+            auto newOp = rewriter.create<arith::ConstantOp>(
+                op.getLoc(), rewriter.getI64IntegerAttr(size));
+            sizes.push_back(newOp);
+        }
+        rewriter.replaceOpWithMultiple(op, sizes);
+        return success();
+    } else {
+        return failure();
     }
-    rewriter.replaceOpWithMultiple(op, sizes);
-    return success();
-  } else {
-    return failure();
-  }
 }
 
 ExtractStridesOpConversion::ExtractStridesOpConversion(
@@ -139,23 +139,23 @@ ExtractStridesOpConversion::ExtractStridesOpConversion(
 LogicalResult ExtractStridesOpConversion::matchAndRewrite(
     tle::ExtractStridesOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  if (ttg::MemDescType memdesc =
-          dyn_cast<ttg::MemDescType>(op.getInput().getType())) {
-    SmallVector<Value> strides;
-    ArrayRef<int64_t> shape = memdesc.getShape();
-    int64_t numel = std::accumulate(shape.begin(), shape.end(), 1,
-                                    std::multiplies<int64_t>());
-    for (int64_t size : memdesc.getShape()) {
-      numel /= size;
-      auto newOp = rewriter.create<arith::ConstantOp>(
-          op.getLoc(), rewriter.getI64IntegerAttr(numel));
-      strides.push_back(newOp);
+    if (ttg::MemDescType memdesc =
+            dyn_cast<ttg::MemDescType>(op.getInput().getType())) {
+        SmallVector<Value> strides;
+        ArrayRef<int64_t> shape = memdesc.getShape();
+        int64_t numel = std::accumulate(shape.begin(), shape.end(), 1,
+                                        std::multiplies<int64_t>());
+        for (int64_t size : memdesc.getShape()) {
+            numel /= size;
+            auto newOp = rewriter.create<arith::ConstantOp>(
+                op.getLoc(), rewriter.getI64IntegerAttr(numel));
+            strides.push_back(newOp);
+        }
+        rewriter.replaceOpWithMultiple(op, strides);
+        return success();
+    } else {
+        return failure();
     }
-    rewriter.replaceOpWithMultiple(op, strides);
-    return success();
-  } else {
-    return failure();
-  }
 }
 
 ExtractPtrOpConversion::ExtractPtrOpConversion(LLVMTypeConverter &typeConverter,
@@ -165,20 +165,20 @@ ExtractPtrOpConversion::ExtractPtrOpConversion(LLVMTypeConverter &typeConverter,
 LogicalResult ExtractPtrOpConversion::matchAndRewrite(
     tle::ExtractPtrOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  auto input = adaptor.getInput();
-  if (isa<LLVM::LLVMPointerType>(input.getType())) {
-    rewriter.replaceOp(op, input);
-    return success();
-  } else {
-    return failure();
-  }
+    auto input = adaptor.getInput();
+    if (isa<LLVM::LLVMPointerType>(input.getType())) {
+        rewriter.replaceOp(op, input);
+        return success();
+    } else {
+        return failure();
+    }
 }
 
 void tle::populateExtractOpToLLVMPatterns(LLVMTypeConverter &typeConverter,
                                           RewritePatternSet &patterns,
                                           PatternBenefit benefit) {
-  patterns.add<ExtractAllocatedPtrOpConversion, ExtractAlignedPtrOpConversion,
-               ExtractOffsetOpConversion, ExtractSizesOpConversion,
-               ExtractStridesOpConversion, ExtractPtrOpConversion>(
-      typeConverter, benefit);
+    patterns.add<ExtractAllocatedPtrOpConversion, ExtractAlignedPtrOpConversion,
+                 ExtractOffsetOpConversion, ExtractSizesOpConversion,
+                 ExtractStridesOpConversion, ExtractPtrOpConversion>(
+        typeConverter, benefit);
 }

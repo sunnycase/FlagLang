@@ -1,8 +1,8 @@
 {
-  "profiles": {
-    "Nncase.Tests": {
-      "commandName": "Project",
-      "nativeDebugging": false
+    "profiles": {
+        "Nncase.Tests": {
+            "commandName": "Project",
+            "nativeDebugging": false
+        }
     }
-  }
 }

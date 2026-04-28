@@ -60,7 +60,6 @@ PYBIND11_MODULE(libtriton, m) {
         .value("Schedule", nncase_dump_flags_schedule)
         .value("CodeGen", nncase_dump_flags_codegen);
 
-
     py::enum_<nncase_dimension_kind_t>(m, "DimensionKind")
         .value("Fixed", nncase_dimension_kind_fixed)
         .value("Dynamic", nncase_dimension_kind_dynamic)

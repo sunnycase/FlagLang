@@ -33,7 +33,7 @@ TEST(FixedShapeRMSNorm, NoVectorize0) {
     // no vectorize
     auto ntt_output = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 16, 2>);
     vectorized_rms_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06, 1_dim,
-                    ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                        ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
 
     const float array_golden[] = {
         0.000000,  1.055427,  2.221709,  3.498847,  4.886838,  6.385685,
@@ -60,7 +60,7 @@ TEST(FixedShapeRMSNorm, NoVectorize1) {
     // no vectorize
     auto ntt_output = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 16, 4>);
     vectorized_rms_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06, 2_dim,
-                    ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                        ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
 
     const float array_golden[] = {
         1.000000, 3.069045, 6.207134, 10.414268, 1.712697, 3.781742, 6.207135,
@@ -91,7 +91,7 @@ TEST(FixedShapeRMSNorm, NoVectorize2) {
     // no vectorize with pad
     auto ntt_output = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 13, 2>);
     vectorized_rms_norm(buffer_1, buffer_4, buffer_7, ntt_output, 1e-06, 1_dim,
-                    ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                        ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
 
     const float array_golden[] = {
         0.000000,  1.068599,  2.274398,  3.617395,  5.097591,  6.714986,
@@ -129,7 +129,7 @@ TEST(FixedShapeRMSNorm, Vectorize0) {
     pack(buffer_1, buffer_4, ntt::fixed_shape_v<0>);
     pack(buffer_2, buffer_5, ntt::fixed_shape_v<0>);
     vectorized_rms_norm(buffer_3, buffer_4, buffer_5, buffer_6, 1E-06, 1_dim,
-                    ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+                        ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
 
     auto ntt_output = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 16, 2>);
     unpack(buffer_6, ntt_output, ntt::fixed_shape_v<1>);
@@ -171,8 +171,9 @@ TEST(FixedShapeRMSNorm, Vectorize1) {
     ntt::pack(bias, bias_vectorized, ntt::fixed_shape_v<0>);
     auto output_vectorized = ntt::make_tensor<ntt::vector<float, P>>(
         ntt::fixed_shape_v<1, 2, 16 / P>);
-    vectorized_rms_norm(input_vectorized, scale_vectorized, bias_vectorized, output_vectorized,
-                    1E-06, 2_dim, ntt::fixed_shape_v<2>, ntt::fixed_shape_v<>);
+    vectorized_rms_norm(input_vectorized, scale_vectorized, bias_vectorized,
+                        output_vectorized, 1E-06, 2_dim, ntt::fixed_shape_v<2>,
+                        ntt::fixed_shape_v<>);
 
     auto ntt_output = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 2, 16>);
     unpack(output_vectorized, ntt_output, ntt::fixed_shape_v<2>);
@@ -208,7 +209,7 @@ TEST(FixedShapeRMSNorm, Vectorize2) {
         ntt::fixed_shape_v<1, 16 / P, 4>);
     pack(buffer_0, buffer_3, ntt::fixed_shape_v<1>);
     vectorized_rms_norm(buffer_3, buffer_1, buffer_2, buffer_4, 1E-06, 2_dim,
-                    ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+                        ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
 
     auto ntt_output = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 16, 4>);
     unpack(buffer_4, ntt_output, ntt::fixed_shape_v<1>);
@@ -246,8 +247,8 @@ TEST(FixedShapeRMSNorm, Vectorize3) {
     auto vectorized_output = ntt::make_tensor<ntt::vector<float, P>>(
         ntt::fixed_shape_v<1, 16 / P, 8>);
     pack(input, vectorized_input, ntt::fixed_shape_v<1>);
-    vectorized_rms_norm(vectorized_input, scale, bias, vectorized_output, 1E-06, 2_dim,
-                    ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+    vectorized_rms_norm(vectorized_input, scale, bias, vectorized_output, 1E-06,
+                        2_dim, ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
 
     auto ntt_output = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 16, 8>);
     unpack(vectorized_output, ntt_output, ntt::fixed_shape_v<1>);
@@ -305,8 +306,9 @@ TEST(FixedShapeRMSNorm, Vectorize4) {
     pack(input, vectorized_input, ntt::fixed_shape_v<2>);
     pack(scale, vectorized_scale, ntt::fixed_shape_v<1>);
     pack(bias, vectorized_bias, ntt::fixed_shape_v<1>);
-    vectorized_rms_norm(vectorized_input, vectorized_scale, vectorized_bias, vectorized_output,
-                    1E-06, 1_dim, ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+    vectorized_rms_norm(vectorized_input, vectorized_scale, vectorized_bias,
+                        vectorized_output, 1E-06, 1_dim, ntt::fixed_shape_v<1>,
+                        ntt::fixed_shape_v<>);
 
     auto ntt_output = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 16, 8>);
     unpack(vectorized_output, ntt_output, ntt::fixed_shape_v<2>);
@@ -353,7 +355,7 @@ TEST(RankedShapeRMSNorm, NoVectorize0) {
     // no vectorize
     auto ntt_output = ntt::make_tensor<float>(ntt::make_shape(1, 16, 2));
     vectorized_rms_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06, 1_dim,
-                    ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                        ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
 
     float array_golden[] = {
         0.000000,  1.055427,  2.221709,  3.498847,  4.886838,  6.385685,
@@ -380,7 +382,7 @@ TEST(RankedShapeRMSNorm, NoVectorize1) {
     // no vectorize
     auto ntt_output = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 16, 4>);
     vectorized_rms_norm(buffer_0, buffer_1, buffer_2, ntt_output, 1e-06, 2_dim,
-                    ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                        ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
 
     const float array_golden[] = {
         1.000000, 3.069045, 6.207134, 10.414268, 1.712697, 3.781742, 6.207135,
@@ -412,7 +414,7 @@ TEST(RankedShapeRMSNorm, NoVectorize2) {
     // no vectorize with pad
     auto ntt_output = ntt::make_tensor<float>(ntt::make_shape(1, 13, 2));
     vectorized_rms_norm(buffer_1, buffer_4, buffer_7, ntt_output, 1e-06, 1_dim,
-                    ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
+                        ntt::fixed_shape_v<>, ntt::fixed_shape_v<>);
 
     const float array_golden[] = {
         0.000000,  1.068599,  2.274398,  3.617395,  5.097591,  6.714986,
@@ -450,7 +452,7 @@ TEST(RankedShapeRMSNorm, Vectorize0) {
     pack(buffer_1, buffer_4, ntt::fixed_shape_v<0>);
     pack(buffer_2, buffer_5, ntt::fixed_shape_v<0>);
     vectorized_rms_norm(buffer_3, buffer_4, buffer_5, buffer_6, 1E-06, 1_dim,
-                    ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+                        ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
 
     auto ntt_output = ntt::make_tensor<float>(ntt::make_shape(1, 16, 2));
     unpack(buffer_6, ntt_output, ntt::fixed_shape_v<1>);
@@ -492,8 +494,9 @@ TEST(RankedShapeRMSNorm, Vectorize1) {
     ntt::pack(bias, bias_vectorized, ntt::fixed_shape_v<0>);
     auto output_vectorized =
         ntt::make_tensor<ntt::vector<float, P>>(ntt::make_shape(1, 2, 16 / P));
-    vectorized_rms_norm(input_vectorized, scale_vectorized, bias_vectorized, output_vectorized,
-                    1E-06, 2_dim, ntt::fixed_shape_v<2>, ntt::fixed_shape_v<>);
+    vectorized_rms_norm(input_vectorized, scale_vectorized, bias_vectorized,
+                        output_vectorized, 1E-06, 2_dim, ntt::fixed_shape_v<2>,
+                        ntt::fixed_shape_v<>);
 
     auto ntt_output = ntt::make_tensor<float>(ntt::make_shape(1, 2, 16));
     unpack(output_vectorized, ntt_output, ntt::fixed_shape_v<2>);
@@ -529,7 +532,7 @@ TEST(RankedShapeRMSNorm, Vectorize2) {
         ntt::make_tensor<ntt::vector<float, P>>(ntt::make_shape(1, 16 / P, 4));
     pack(buffer_0, buffer_3, ntt::fixed_shape_v<1>);
     vectorized_rms_norm(buffer_3, buffer_1, buffer_2, buffer_4, 1E-06, 2_dim,
-                    ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+                        ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
 
     auto ntt_output = ntt::make_tensor<float>(ntt::make_shape(1, 16, 4));
     unpack(buffer_4, ntt_output, ntt::fixed_shape_v<1>);
@@ -568,8 +571,8 @@ TEST(RankedShapeRMSNorm, Vectorize3) {
     auto vectorized_output =
         ntt::make_tensor<ntt::vector<float, P>>(ntt::make_shape(1, 16 / P, 8));
     pack(input, vectorized_input, ntt::fixed_shape_v<1>);
-    vectorized_rms_norm(vectorized_input, scale, bias, vectorized_output, 1E-06, 2_dim,
-                    ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+    vectorized_rms_norm(vectorized_input, scale, bias, vectorized_output, 1E-06,
+                        2_dim, ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
 
     auto ntt_output = ntt::make_tensor<float>(ntt::make_shape(1, 16, 8));
     unpack(vectorized_output, ntt_output, ntt::fixed_shape_v<1>);
@@ -627,8 +630,9 @@ TEST(RankedShapeRMSNorm, Vectorize4) {
     pack(input, vectorized_input, ntt::fixed_shape_v<2>);
     pack(scale, vectorized_scale, ntt::fixed_shape_v<1>);
     pack(bias, vectorized_bias, ntt::fixed_shape_v<1>);
-    vectorized_rms_norm(vectorized_input, vectorized_scale, vectorized_bias, vectorized_output,
-                    1E-06, 1_dim, ntt::fixed_shape_v<1>, ntt::fixed_shape_v<>);
+    vectorized_rms_norm(vectorized_input, vectorized_scale, vectorized_bias,
+                        vectorized_output, 1E-06, 1_dim, ntt::fixed_shape_v<1>,
+                        ntt::fixed_shape_v<>);
 
     auto ntt_output = ntt::make_tensor<float>(ntt::make_shape(1, 16, 8));
     unpack(vectorized_output, ntt_output, ntt::fixed_shape_v<2>);

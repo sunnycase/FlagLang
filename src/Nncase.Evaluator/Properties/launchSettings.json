@@ -1,7 +1,7 @@
 {
-  "profiles": {
-    "Nncase.Evaluator": {
-      "commandName": "Project"
+    "profiles": {
+        "Nncase.Evaluator": {
+            "commandName": "Project"
+        }
     }
-  }
 }

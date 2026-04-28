@@ -13,20 +13,20 @@ Value getRawThreadId(OpBuilder &rewriter, Location loc);
 namespace LLVM {
 
 struct SegmentObject {
-  Value base;
-  Value segmentBase;
-  Value indexPtr;
+    Value base;
+    Value segmentBase;
+    Value indexPtr;
 
-  SegmentObject(Value base, Value segmentBase, Value indexPtr)
-      : base(base), segmentBase(segmentBase), indexPtr(indexPtr) {}
+    SegmentObject(Value base, Value segmentBase, Value indexPtr)
+        : base(base), segmentBase(segmentBase), indexPtr(indexPtr) {}
 
-  Value getStruct(Location loc, ConversionPatternRewriter &rewriter);
+    Value getStruct(Location loc, ConversionPatternRewriter &rewriter);
 
-  static LLVMStructType getStructType(MLIRContext *ctx, int memorySpace,
-                                      int indexPtrAddrSpace);
+    static LLVMStructType getStructType(MLIRContext *ctx, int memorySpace,
+                                        int indexPtrAddrSpace);
 
-  static SegmentObject fromStruct(Location loc, Value segmentStruct,
-                                  ConversionPatternRewriter &rewriter);
+    static SegmentObject fromStruct(Location loc, Value segmentStruct,
+                                    ConversionPatternRewriter &rewriter);
 };
 
 } // namespace LLVM
@@ -35,10 +35,10 @@ namespace triton {
 namespace proton::gpu {
 
 struct CircularStoreDataPack {
-  Value isWriter;
-  Value record;
-  Value ptr;
-  uint32_t addrSpace;
+    Value isWriter;
+    Value record;
+    Value ptr;
+    uint32_t addrSpace;
 };
 
 CircularStoreDataPack

@@ -15,15 +15,15 @@ namespace mlir::triton::gluon {
 
 namespace {
 struct Inline : public gluon::impl::GluonInlineBase<Inline> {
-  void runOnOperation() override;
+    void runOnOperation() override;
 };
 } // namespace
 
 void Inline::runOnOperation() {
-  mlir::PassManager pm(&getContext());
-  pm.addPass(createInlinerPass(/*opPipelines=*/{}, [](OpPassManager &pm) {
-    pm.addPass(gluon::createGluonCanonicalize());
-  }));
-  if (failed(pm.run(getOperation())))
-    return signalPassFailure();
+    mlir::PassManager pm(&getContext());
+    pm.addPass(createInlinerPass(/*opPipelines=*/{}, [](OpPassManager &pm) {
+        pm.addPass(gluon::createGluonCanonicalize());
+    }));
+    if (failed(pm.run(getOperation())))
+        return signalPassFailure();
 }

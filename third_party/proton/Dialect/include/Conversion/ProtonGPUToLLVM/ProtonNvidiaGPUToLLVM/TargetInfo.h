@@ -6,25 +6,26 @@
 
 namespace mlir::triton::proton::gpu::NVIDIA {
 class TargetInfo : public mlir::triton::proton::gpu::TargetInfoBase {
-public:
-  explicit TargetInfo(const mlir::triton::NVIDIA::TargetInfo &helper)
-      : mlir::triton::proton::gpu::TargetInfoBase(helper) {}
+  public:
+    explicit TargetInfo(const mlir::triton::NVIDIA::TargetInfo &helper)
+        : mlir::triton::proton::gpu::TargetInfoBase(helper) {}
 
-  const mlir::triton::NVIDIA::TargetInfo &getTritonTargetInfo() const override {
-    return static_cast<const mlir::triton::NVIDIA::TargetInfo &>(helper);
-  }
+    const mlir::triton::NVIDIA::TargetInfo &
+    getTritonTargetInfo() const override {
+        return static_cast<const mlir::triton::NVIDIA::TargetInfo &>(helper);
+    }
 
-  Value clock(ConversionPatternRewriter &rewriter, Location loc,
-              bool isClock64) const override;
+    Value clock(ConversionPatternRewriter &rewriter, Location loc,
+                bool isClock64) const override;
 
-  Value processorId(ConversionPatternRewriter &rewriter,
-                    Location loc) const override;
+    Value processorId(ConversionPatternRewriter &rewriter,
+                      Location loc) const override;
 
-  int getAddressSpace(Attribute addressSpace) const override;
+    int getAddressSpace(Attribute addressSpace) const override;
 
-  int getIndexPtrAddrSpace() const override;
+    int getIndexPtrAddrSpace() const override;
 
-  ~TargetInfo() {}
+    ~TargetInfo() {}
 };
 } // namespace mlir::triton::proton::gpu::NVIDIA
 

@@ -20,12 +20,12 @@ namespace mlir::triton::gpu {
 // ldmatrix.v4 / stmatrix.v4
 // ldmatrix.trans.v4 / stmatrix.trans.v4
 struct LocalMemOpTile {
-  // If laneContig.size() < log2(128/bitwidth), we assume that
-  // the first log2(128/bitwidth) - laneContig.size() bases are registers
-  llvm::SmallVector<int32_t> laneContig;
-  // If laneAddr.size() < 3, we assume that the first
-  // 3 - laneAddr.size() bases are registers
-  llvm::SmallVector<int32_t> laneAddr;
+    // If laneContig.size() < log2(128/bitwidth), we assume that
+    // the first log2(128/bitwidth) - laneContig.size() bases are registers
+    llvm::SmallVector<int32_t> laneContig;
+    // If laneAddr.size() < 3, we assume that the first
+    // 3 - laneAddr.size() bases are registers
+    llvm::SmallVector<int32_t> laneAddr;
 };
 
 // Given a set of possible instructions given by

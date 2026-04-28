@@ -14,39 +14,39 @@ namespace mlir::triton::proton::gpu {
 struct ScheduleBufferStorePass
     : public impl::ScheduleBufferStorePassBase<ScheduleBufferStorePass> {
 
-  using impl::ScheduleBufferStorePassBase<
-      ScheduleBufferStorePass>::ScheduleBufferStorePassBase;
+    using impl::ScheduleBufferStorePassBase<
+        ScheduleBufferStorePass>::ScheduleBufferStorePassBase;
 
-  void runOnOperation() override {
-    ModuleOp m = getOperation();
-    MLIRContext *context = m.getContext();
-    OpBuilder builder(context);
+    void runOnOperation() override {
+        ModuleOp m = getOperation();
+        MLIRContext *context = m.getContext();
+        OpBuilder builder(context);
 
-    // TODO(srir): Add support for non-inline kernels
-    FuncOp func = *m.getOps<triton::FuncOp>().begin();
-    auto startStoreList = llvm::SmallVector<CircularStoreOp, 8>();
-    auto endStoreMap = llvm::SmallDenseMap<int, CircularStoreOp, 8>();
+        // TODO(srir): Add support for non-inline kernels
+        FuncOp func = *m.getOps<triton::FuncOp>().begin();
+        auto startStoreList = llvm::SmallVector<CircularStoreOp, 8>();
+        auto endStoreMap = llvm::SmallDenseMap<int, CircularStoreOp, 8>();
 
-    func.walk([&](CircularStoreOp store) {
-      if (store.getIsStart())
-        startStoreList.push_back(store);
-      else
-        endStoreMap[store.getScopeId()] = store;
-    });
+        func.walk([&](CircularStoreOp store) {
+            if (store.getIsStart())
+                startStoreList.push_back(store);
+            else
+                endStoreMap[store.getScopeId()] = store;
+        });
 
-    for (auto store : startStoreList) {
-      int scopeId = store.getScopeId();
-      auto endStore = endStoreMap[scopeId];
-      if (!endStore) {
-        mlir::emitError(func.getLoc(), "proton end store not found");
-        signalPassFailure();
-        return;
-      }
-      builder.setInsertionPoint(endStore);
-      builder.clone(*store);
-      store->erase();
+        for (auto store : startStoreList) {
+            int scopeId = store.getScopeId();
+            auto endStore = endStoreMap[scopeId];
+            if (!endStore) {
+                mlir::emitError(func.getLoc(), "proton end store not found");
+                signalPassFailure();
+                return;
+            }
+            builder.setInsertionPoint(endStore);
+            builder.clone(*store);
+            store->erase();
+        }
     }
-  }
 };
 
 } // namespace mlir::triton::proton::gpu

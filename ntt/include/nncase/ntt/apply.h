@@ -27,8 +27,8 @@ namespace detail {
 template <size_t Axis, class Index, class Shape, class TTile, class Offsets,
           class Callable, class TStrides>
 NTT_HOST_DEVICE NTT_ALWAYS_INLINE constexpr void
-apply_impl(Index &index, Offsets offsets, const Shape &shape,
-           const TTile &tile, Callable &&callable, const TStrides &strides) {
+apply_impl(Index &index, Offsets offsets, const Shape &shape, const TTile &tile,
+           Callable &&callable, const TStrides &strides) {
     constexpr auto strides_count = Offsets::rank();
     auto call = [&]<size_t... I>(std::index_sequence<I...>) {
         if constexpr (strides_count) {

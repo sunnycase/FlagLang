@@ -120,7 +120,7 @@ public unsafe struct MaskVector16B8Fat : IMaskVector, IEquatable<MaskVector16B8F
 
     public static int Count => 16;
 
-    public static MaskVector16B8Fat Create(bool[] array) 
+    public static MaskVector16B8Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -200,7 +200,7 @@ public unsafe struct MaskVector16B8Slim : IMaskVector, IEquatable<MaskVector16B8
 
     public static int Count => 16;
 
-    public static MaskVector16B8Slim Create(bool[] array) 
+    public static MaskVector16B8Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -316,7 +316,7 @@ public unsafe struct MaskVector32B8Fat : IMaskVector, IEquatable<MaskVector32B8F
 
     public static int Count => 32;
 
-    public static MaskVector32B8Fat Create(bool[] array) 
+    public static MaskVector32B8Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -398,7 +398,7 @@ public unsafe struct MaskVector32B8Slim : IMaskVector, IEquatable<MaskVector32B8
 
     public static int Count => 32;
 
-    public static MaskVector32B8Slim Create(bool[] array) 
+    public static MaskVector32B8Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -546,7 +546,7 @@ public unsafe struct MaskVector64B8Fat : IMaskVector, IEquatable<MaskVector64B8F
 
     public static int Count => 64;
 
-    public static MaskVector64B8Fat Create(bool[] array) 
+    public static MaskVector64B8Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -632,7 +632,7 @@ public unsafe struct MaskVector64B8Slim : IMaskVector, IEquatable<MaskVector64B8
 
     public static int Count => 64;
 
-    public static MaskVector64B8Slim Create(bool[] array) 
+    public static MaskVector64B8Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -844,7 +844,7 @@ public unsafe struct MaskVector128B8Fat : IMaskVector, IEquatable<MaskVector128B
 
     public static int Count => 128;
 
-    public static MaskVector128B8Fat Create(bool[] array) 
+    public static MaskVector128B8Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -938,7 +938,7 @@ public unsafe struct MaskVector128B8Slim : IMaskVector, IEquatable<MaskVector128
 
     public static int Count => 128;
 
-    public static MaskVector128B8Slim Create(bool[] array) 
+    public static MaskVector128B8Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1030,7 +1030,7 @@ public unsafe struct MaskVector8B16Fat : IMaskVector, IEquatable<MaskVector8B16F
 
     public static int Count => 8;
 
-    public static MaskVector8B16Fat Create(bool[] array) 
+    public static MaskVector8B16Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1110,7 +1110,7 @@ public unsafe struct MaskVector8B16Slim : IMaskVector, IEquatable<MaskVector8B16
 
     public static int Count => 8;
 
-    public static MaskVector8B16Slim Create(bool[] array) 
+    public static MaskVector8B16Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1210,7 +1210,7 @@ public unsafe struct MaskVector16B16Fat : IMaskVector, IEquatable<MaskVector16B1
 
     public static int Count => 16;
 
-    public static MaskVector16B16Fat Create(bool[] array) 
+    public static MaskVector16B16Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1292,7 +1292,7 @@ public unsafe struct MaskVector16B16Slim : IMaskVector, IEquatable<MaskVector16B
 
     public static int Count => 16;
 
-    public static MaskVector16B16Slim Create(bool[] array) 
+    public static MaskVector16B16Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1408,7 +1408,7 @@ public unsafe struct MaskVector32B16Fat : IMaskVector, IEquatable<MaskVector32B1
 
     public static int Count => 32;
 
-    public static MaskVector32B16Fat Create(bool[] array) 
+    public static MaskVector32B16Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1494,7 +1494,7 @@ public unsafe struct MaskVector32B16Slim : IMaskVector, IEquatable<MaskVector32B
 
     public static int Count => 32;
 
-    public static MaskVector32B16Slim Create(bool[] array) 
+    public static MaskVector32B16Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1642,7 +1642,7 @@ public unsafe struct MaskVector64B16Fat : IMaskVector, IEquatable<MaskVector64B1
 
     public static int Count => 64;
 
-    public static MaskVector64B16Fat Create(bool[] array) 
+    public static MaskVector64B16Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1736,7 +1736,7 @@ public unsafe struct MaskVector64B16Slim : IMaskVector, IEquatable<MaskVector64B
 
     public static int Count => 64;
 
-    public static MaskVector64B16Slim Create(bool[] array) 
+    public static MaskVector64B16Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1824,7 +1824,7 @@ public unsafe struct MaskVector4B32Fat : IMaskVector, IEquatable<MaskVector4B32F
 
     public static int Count => 4;
 
-    public static MaskVector4B32Fat Create(bool[] array) 
+    public static MaskVector4B32Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1904,7 +1904,7 @@ public unsafe struct MaskVector4B32Slim : IMaskVector, IEquatable<MaskVector4B32
 
     public static int Count => 4;
 
-    public static MaskVector4B32Slim Create(bool[] array) 
+    public static MaskVector4B32Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -1996,7 +1996,7 @@ public unsafe struct MaskVector8B32Fat : IMaskVector, IEquatable<MaskVector8B32F
 
     public static int Count => 8;
 
-    public static MaskVector8B32Fat Create(bool[] array) 
+    public static MaskVector8B32Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2078,7 +2078,7 @@ public unsafe struct MaskVector8B32Slim : IMaskVector, IEquatable<MaskVector8B32
 
     public static int Count => 8;
 
-    public static MaskVector8B32Slim Create(bool[] array) 
+    public static MaskVector8B32Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2178,7 +2178,7 @@ public unsafe struct MaskVector16B32Fat : IMaskVector, IEquatable<MaskVector16B3
 
     public static int Count => 16;
 
-    public static MaskVector16B32Fat Create(bool[] array) 
+    public static MaskVector16B32Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2264,7 +2264,7 @@ public unsafe struct MaskVector16B32Slim : IMaskVector, IEquatable<MaskVector16B
 
     public static int Count => 16;
 
-    public static MaskVector16B32Slim Create(bool[] array) 
+    public static MaskVector16B32Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2380,7 +2380,7 @@ public unsafe struct MaskVector32B32Fat : IMaskVector, IEquatable<MaskVector32B3
 
     public static int Count => 32;
 
-    public static MaskVector32B32Fat Create(bool[] array) 
+    public static MaskVector32B32Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2474,7 +2474,7 @@ public unsafe struct MaskVector32B32Slim : IMaskVector, IEquatable<MaskVector32B
 
     public static int Count => 32;
 
-    public static MaskVector32B32Slim Create(bool[] array) 
+    public static MaskVector32B32Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2560,7 +2560,7 @@ public unsafe struct MaskVector2B64Fat : IMaskVector, IEquatable<MaskVector2B64F
 
     public static int Count => 2;
 
-    public static MaskVector2B64Fat Create(bool[] array) 
+    public static MaskVector2B64Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2640,7 +2640,7 @@ public unsafe struct MaskVector2B64Slim : IMaskVector, IEquatable<MaskVector2B64
 
     public static int Count => 2;
 
-    public static MaskVector2B64Slim Create(bool[] array) 
+    public static MaskVector2B64Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2728,7 +2728,7 @@ public unsafe struct MaskVector4B64Fat : IMaskVector, IEquatable<MaskVector4B64F
 
     public static int Count => 4;
 
-    public static MaskVector4B64Fat Create(bool[] array) 
+    public static MaskVector4B64Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2810,7 +2810,7 @@ public unsafe struct MaskVector4B64Slim : IMaskVector, IEquatable<MaskVector4B64
 
     public static int Count => 4;
 
-    public static MaskVector4B64Slim Create(bool[] array) 
+    public static MaskVector4B64Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2902,7 +2902,7 @@ public unsafe struct MaskVector8B64Fat : IMaskVector, IEquatable<MaskVector8B64F
 
     public static int Count => 8;
 
-    public static MaskVector8B64Fat Create(bool[] array) 
+    public static MaskVector8B64Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -2988,7 +2988,7 @@ public unsafe struct MaskVector8B64Slim : IMaskVector, IEquatable<MaskVector8B64
 
     public static int Count => 8;
 
-    public static MaskVector8B64Slim Create(bool[] array) 
+    public static MaskVector8B64Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -3088,7 +3088,7 @@ public unsafe struct MaskVector16B64Fat : IMaskVector, IEquatable<MaskVector16B6
 
     public static int Count => 16;
 
-    public static MaskVector16B64Fat Create(bool[] array) 
+    public static MaskVector16B64Fat Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -3182,7 +3182,7 @@ public unsafe struct MaskVector16B64Slim : IMaskVector, IEquatable<MaskVector16B
 
     public static int Count => 16;
 
-    public static MaskVector16B64Slim Create(bool[] array) 
+    public static MaskVector16B64Slim Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -3257,4 +3257,3 @@ public unsafe struct MaskVector16B64Slim : IMaskVector, IEquatable<MaskVector16B
 
     public Span<ulong> AsRawSpan() => MemoryMarshal.CreateSpan(ref Unsafe.AsRef(in _item_0_0), 16);
 }
-

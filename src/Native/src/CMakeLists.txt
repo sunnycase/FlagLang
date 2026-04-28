@@ -1,7 +1,7 @@
 ﻿cmake_minimum_required (VERSION 3.13)
 #find_package(CUDAToolkit REQUIRED)
 
-set(SRCS 
+set(SRCS
         api.cpp
         dim_value.cpp
         object.cpp

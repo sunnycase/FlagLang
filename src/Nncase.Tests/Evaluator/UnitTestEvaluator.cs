@@ -1,5 +1,6 @@
 ﻿// Copyright (c) SunnyCase. All rights reserved.
-// Licensed under the Apache license. See LICENSE file in the project root for full license information.
+// Licensed under the Apache license. See LICENSE file in the project root for
+// full license information.
 
 using System;
 using System.Collections.Generic;
@@ -23,24 +24,27 @@ using Tuple = Nncase.IR.Tuple;
 
 namespace Nncase.Tests.EvaluatorTest;
 
-public class UnitTestEvaluator : TestClassBase
-{
+public class UnitTestEvaluator : TestClassBase {
     [Fact]
-    public void TestEvalFuncCall()
-    {
+    public void TestEvalFuncCall() {
         var cfunc = (int x) => ((x * 10) - 200) / 5;
 
         var x = new Var("x", TensorType.Scalar(DataTypes.Int32));
         var func = new Function("main", new IRBlock(((x * 10) - 200) / 5, x));
 
-        Assert.Equal(cfunc(10), new Call(func, (Expr)10).Evaluate().AsTensor().ToScalar<int>());
+        Assert.Equal(
+            cfunc(10),
+            new Call(func, (Expr)10).Evaluate().AsTensor().ToScalar<int>());
 
-        Assert.Equal(cfunc(10) + cfunc(12), (new Call(func, (Expr)10) + new Call(func, (Expr)12)).Evaluate().AsTensor().ToScalar<int>());
+        Assert.Equal(cfunc(10) + cfunc(12),
+                     (new Call(func, (Expr)10) + new Call(func, (Expr)12))
+                         .Evaluate()
+                         .AsTensor()
+                         .ToScalar<int>());
     }
 
     [Fact]
-    public void TestOrtKI()
-    {
+    public void TestOrtKI() {
         var a = Const.FromTensor(Tensor.From<int>(new[] { 1, 2, 3 }));
         var b = Const.FromTensor(Tensor.From<int>(new[] { 1, 2, 3 }));
 
@@ -58,74 +62,84 @@ public class UnitTestEvaluator : TestClassBase
     }
 
     [Fact]
-    public void TestStackAndCast()
-    {
-        var padh_before = Tensors.Cast(Tensor.From<float>(new[] { 1.0f }), Nncase.DataTypes.Int32);
-        var padh_after = Tensors.Cast(Tensor.From<float>(new[] { 2.0f }), Nncase.DataTypes.Int32);
-        var padw_before = Tensors.Cast(Tensor.From<float>(new[] { 3.0f }), Nncase.DataTypes.Int32);
-        var padw_after = Tensors.Cast(Tensor.From<float>(new[] { 4.0f }), Nncase.DataTypes.Int32);
+    public void TestStackAndCast() {
+        var padh_before = Tensors.Cast(Tensor.From<float>(new[] { 1.0f }),
+                                       Nncase.DataTypes.Int32);
+        var padh_after = Tensors.Cast(Tensor.From<float>(new[] { 2.0f }),
+                                      Nncase.DataTypes.Int32);
+        var padw_before = Tensors.Cast(Tensor.From<float>(new[] { 3.0f }),
+                                       Nncase.DataTypes.Int32);
+        var padw_after = Tensors.Cast(Tensor.From<float>(new[] { 4.0f }),
+                                      Nncase.DataTypes.Int32);
 
         var expr = Tensors.Stack(
-            new Tuple(
-                Tensors.Concat(new Tuple(padh_before, padh_after), 0),
-                Tensors.Concat(new Tuple(padw_before, padw_after), 0)),
+            new Tuple(Tensors.Concat(new Tuple(padh_before, padh_after), 0),
+                      Tensors.Concat(new Tuple(padw_before, padw_after), 0)),
             0);
         CompilerServices.InferenceType(expr);
         var result = expr.Evaluate().AsTensor().ToOrtTensor();
-        Assert.Equal(OrtKISharp.Tensor.MakeTensor(new[] { 1, 2, 3, 4 }, new long[] { 2, 2 }), result);
+        Assert.Equal(OrtKISharp.Tensor.MakeTensor(new[] { 1, 2, 3, 4 },
+                                                  new long[] { 2, 2 }),
+                     result);
     }
 
     [Fact]
-    public void TestTFResizeImage()
-    {
+    public void TestTFResizeImage() {
         var input = OrtKI.Random(1, 3, 224, 224).ToTensor();
-        var image = Imaging.ResizeImage(ImageResizeMode.Bilinear, input, Array.Empty<int>(), new[] { 1, 3, 112, 112 }, isTFResize: true);
+        var image = Imaging.ResizeImage(
+            ImageResizeMode.Bilinear, input, Array.Empty<int>(),
+            new[] { 1, 3, 112, 112 }, isTFResize: true);
         image.InferenceType();
-        Assert.Equal([1, 3, 112, 112], image.Evaluate().AsTensor().Dimensions.ToArray());
+        Assert.Equal([1, 3, 112, 112],
+                     image.Evaluate().AsTensor().Dimensions.ToArray());
     }
 
     [Fact]
-    public void TestOnnxResizeImage()
-    {
+    public void TestOnnxResizeImage() {
         var input = OrtKI.Random(1, 3, 224, 224).ToTensor();
-        var image = Imaging.ResizeImage(ImageResizeMode.Bilinear, input, Array.Empty<float>(), new[] { 1, 3, 112, 112 }, isTFResize: false);
+        var image = Imaging.ResizeImage(
+            ImageResizeMode.Bilinear, input, Array.Empty<float>(),
+            new[] { 1, 3, 112, 112 }, isTFResize: false);
         image.InferenceType();
-        Assert.Equal([1, 3, 112, 112], image.Evaluate().AsTensor().Dimensions.ToArray());
+        Assert.Equal([1, 3, 112, 112],
+                     image.Evaluate().AsTensor().Dimensions.ToArray());
     }
 
     [Fact]
-    public void TestLoadStore()
-    {
+    public void TestLoadStore() {
         var loop_i = new DimVar();
-        T.CreateBuffer(new(DataTypes.Float32, new[] { 1, 2, 3 }), MemoryLocation.Input, out var bf);
+        T.CreateBuffer(new(DataTypes.Float32, new[] { 1, 2, 3 }),
+                       MemoryLocation.Input, out var bf);
         var load = T.Load(bf, loop_i);
         CompilerServices.InferenceType(load);
-        var store = T.Store(bf, loop_i, IR.F.Tensors.Cast(IR.F.Shapes.AsTensor(loop_i), DataTypes.Float32));
+        var store = T.Store(
+            bf, loop_i,
+            IR.F.Tensors.Cast(IR.F.Shapes.AsTensor(loop_i), DataTypes.Float32));
         CompilerServices.InferenceType(store);
     }
 
     [Fact]
-    public void TestNop()
-    {
+    public void TestNop() {
         var nop = T.Nop();
         CompilerServices.InferenceType(nop);
     }
 
     [Fact]
-    public void TestRamp()
-    {
+    public void TestRamp() {
         var ramp = T.Ramp(1, 2, 0);
         CompilerServices.InferenceType(ramp);
     }
 
     [Fact]
-    public void TestEvaluatorUtil()
-    {
+    public void TestEvaluatorUtil() {
         var pad = OrtKI.Random(1);
-        Assert.Throws<InvalidOperationException>(() => EvaluatorUtil.ToOnnxPadFormat(pad));
+        Assert.Throws<InvalidOperationException>(
+            () => EvaluatorUtil.ToOnnxPadFormat(pad));
 
         var pads = OrtKI.Random(2, 2);
-        var expect = OrtKI.Transpose(pads.Cast(OrtDataType.Int64), new long[] { 1, 0 }).ToArray<long>();
+        var expect =
+            OrtKI.Transpose(pads.Cast(OrtDataType.Int64), new long[] { 1, 0 })
+                .ToArray<long>();
         Assert.Equal(expect, EvaluatorUtil.ToOnnxPadFormat(pads));
     }
 }

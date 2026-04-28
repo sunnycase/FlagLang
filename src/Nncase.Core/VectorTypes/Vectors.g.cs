@@ -96,7 +96,7 @@ public unsafe struct Vector4<T> : IVector<T>, IEquatable<Vector4<T>>
         }
     }
 
-    public static Vector4<T> Create(T[] array) 
+    public static Vector4<T> Create(T[] array)
     {
         Vector4<T> vec = default;
         var src = array.AsSpan();
@@ -147,7 +147,7 @@ public unsafe struct Vector8<T> : IVector<T>, IEquatable<Vector8<T>>
         }
     }
 
-    public static Vector8<T> Create(T[] array) 
+    public static Vector8<T> Create(T[] array)
     {
         Vector8<T> vec = default;
         var src = array.AsSpan();
@@ -206,7 +206,7 @@ public unsafe struct Vector16<T> : IVector<T>, IEquatable<Vector16<T>>
         }
     }
 
-    public static Vector16<T> Create(T[] array) 
+    public static Vector16<T> Create(T[] array)
     {
         Vector16<T> vec = default;
         var src = array.AsSpan();
@@ -281,7 +281,7 @@ public unsafe struct Vector32<T> : IVector<T>, IEquatable<Vector32<T>>
         }
     }
 
-    public static Vector32<T> Create(T[] array) 
+    public static Vector32<T> Create(T[] array)
     {
         Vector32<T> vec = default;
         var src = array.AsSpan();
@@ -388,7 +388,7 @@ public unsafe struct Vector64<T> : IVector<T>, IEquatable<Vector64<T>>
         }
     }
 
-    public static Vector64<T> Create(T[] array) 
+    public static Vector64<T> Create(T[] array)
     {
         Vector64<T> vec = default;
         var src = array.AsSpan();
@@ -559,7 +559,7 @@ public unsafe struct Vector128<T> : IVector<T>, IEquatable<Vector128<T>>
         }
     }
 
-    public static Vector128<T> Create(T[] array) 
+    public static Vector128<T> Create(T[] array)
     {
         Vector128<T> vec = default;
         var src = array.AsSpan();
@@ -610,7 +610,7 @@ public unsafe struct Vector2x4<T> : IVector<T>, IEquatable<Vector2x4<T>>
         }
     }
 
-    public static Vector2x4<T> Create(T[] array) 
+    public static Vector2x4<T> Create(T[] array)
     {
         Vector2x4<T> vec = default;
         var src = array.AsSpan();
@@ -619,7 +619,7 @@ public unsafe struct Vector2x4<T> : IVector<T>, IEquatable<Vector2x4<T>>
         return vec;
     }
 
-    public static Vector2x4<T> Create(T[,] array) 
+    public static Vector2x4<T> Create(T[,] array)
     {
         Vector2x4<T> vec = default;
         var src = array.AsSpan2D();
@@ -698,7 +698,7 @@ public unsafe struct Vector2x8<T> : IVector<T>, IEquatable<Vector2x8<T>>
         }
     }
 
-    public static Vector2x8<T> Create(T[] array) 
+    public static Vector2x8<T> Create(T[] array)
     {
         Vector2x8<T> vec = default;
         var src = array.AsSpan();
@@ -707,7 +707,7 @@ public unsafe struct Vector2x8<T> : IVector<T>, IEquatable<Vector2x8<T>>
         return vec;
     }
 
-    public static Vector2x8<T> Create(T[,] array) 
+    public static Vector2x8<T> Create(T[,] array)
     {
         Vector2x8<T> vec = default;
         var src = array.AsSpan2D();
@@ -802,7 +802,7 @@ public unsafe struct Vector2x16<T> : IVector<T>, IEquatable<Vector2x16<T>>
         }
     }
 
-    public static Vector2x16<T> Create(T[] array) 
+    public static Vector2x16<T> Create(T[] array)
     {
         Vector2x16<T> vec = default;
         var src = array.AsSpan();
@@ -811,7 +811,7 @@ public unsafe struct Vector2x16<T> : IVector<T>, IEquatable<Vector2x16<T>>
         return vec;
     }
 
-    public static Vector2x16<T> Create(T[,] array) 
+    public static Vector2x16<T> Create(T[,] array)
     {
         Vector2x16<T> vec = default;
         var src = array.AsSpan2D();
@@ -938,7 +938,7 @@ public unsafe struct Vector2x32<T> : IVector<T>, IEquatable<Vector2x32<T>>
         }
     }
 
-    public static Vector2x32<T> Create(T[] array) 
+    public static Vector2x32<T> Create(T[] array)
     {
         Vector2x32<T> vec = default;
         var src = array.AsSpan();
@@ -947,7 +947,7 @@ public unsafe struct Vector2x32<T> : IVector<T>, IEquatable<Vector2x32<T>>
         return vec;
     }
 
-    public static Vector2x32<T> Create(T[,] array) 
+    public static Vector2x32<T> Create(T[,] array)
     {
         Vector2x32<T> vec = default;
         var src = array.AsSpan2D();
@@ -1026,7 +1026,7 @@ public unsafe struct Vector4x4<T> : IVector<T>, IEquatable<Vector4x4<T>>
         }
     }
 
-    public static Vector4x4<T> Create(T[] array) 
+    public static Vector4x4<T> Create(T[] array)
     {
         Vector4x4<T> vec = default;
         var src = array.AsSpan();
@@ -1035,7 +1035,7 @@ public unsafe struct Vector4x4<T> : IVector<T>, IEquatable<Vector4x4<T>>
         return vec;
     }
 
-    public static Vector4x4<T> Create(T[,] array) 
+    public static Vector4x4<T> Create(T[,] array)
     {
         Vector4x4<T> vec = default;
         var src = array.AsSpan2D();
@@ -1130,7 +1130,7 @@ public unsafe struct Vector4x8<T> : IVector<T>, IEquatable<Vector4x8<T>>
         }
     }
 
-    public static Vector4x8<T> Create(T[] array) 
+    public static Vector4x8<T> Create(T[] array)
     {
         Vector4x8<T> vec = default;
         var src = array.AsSpan();
@@ -1139,7 +1139,7 @@ public unsafe struct Vector4x8<T> : IVector<T>, IEquatable<Vector4x8<T>>
         return vec;
     }
 
-    public static Vector4x8<T> Create(T[,] array) 
+    public static Vector4x8<T> Create(T[,] array)
     {
         Vector4x8<T> vec = default;
         var src = array.AsSpan2D();
@@ -1266,7 +1266,7 @@ public unsafe struct Vector4x16<T> : IVector<T>, IEquatable<Vector4x16<T>>
         }
     }
 
-    public static Vector4x16<T> Create(T[] array) 
+    public static Vector4x16<T> Create(T[] array)
     {
         Vector4x16<T> vec = default;
         var src = array.AsSpan();
@@ -1275,7 +1275,7 @@ public unsafe struct Vector4x16<T> : IVector<T>, IEquatable<Vector4x16<T>>
         return vec;
     }
 
-    public static Vector4x16<T> Create(T[,] array) 
+    public static Vector4x16<T> Create(T[,] array)
     {
         Vector4x16<T> vec = default;
         var src = array.AsSpan2D();
@@ -1466,7 +1466,7 @@ public unsafe struct Vector4x32<T> : IVector<T>, IEquatable<Vector4x32<T>>
         }
     }
 
-    public static Vector4x32<T> Create(T[] array) 
+    public static Vector4x32<T> Create(T[] array)
     {
         Vector4x32<T> vec = default;
         var src = array.AsSpan();
@@ -1475,7 +1475,7 @@ public unsafe struct Vector4x32<T> : IVector<T>, IEquatable<Vector4x32<T>>
         return vec;
     }
 
-    public static Vector4x32<T> Create(T[,] array) 
+    public static Vector4x32<T> Create(T[,] array)
     {
         Vector4x32<T> vec = default;
         var src = array.AsSpan2D();
@@ -1602,7 +1602,7 @@ public unsafe struct Vector8x8<T> : IVector<T>, IEquatable<Vector8x8<T>>
         }
     }
 
-    public static Vector8x8<T> Create(T[] array) 
+    public static Vector8x8<T> Create(T[] array)
     {
         Vector8x8<T> vec = default;
         var src = array.AsSpan();
@@ -1611,7 +1611,7 @@ public unsafe struct Vector8x8<T> : IVector<T>, IEquatable<Vector8x8<T>>
         return vec;
     }
 
-    public static Vector8x8<T> Create(T[,] array) 
+    public static Vector8x8<T> Create(T[,] array)
     {
         Vector8x8<T> vec = default;
         var src = array.AsSpan2D();
@@ -1930,7 +1930,7 @@ public unsafe struct Vector16x16<T> : IVector<T>, IEquatable<Vector16x16<T>>
         }
     }
 
-    public static Vector16x16<T> Create(T[] array) 
+    public static Vector16x16<T> Create(T[] array)
     {
         Vector16x16<T> vec = default;
         var src = array.AsSpan();
@@ -1939,7 +1939,7 @@ public unsafe struct Vector16x16<T> : IVector<T>, IEquatable<Vector16x16<T>>
         return vec;
     }
 
-    public static Vector16x16<T> Create(T[,] array) 
+    public static Vector16x16<T> Create(T[,] array)
     {
         Vector16x16<T> vec = default;
         var src = array.AsSpan2D();
@@ -2514,7 +2514,7 @@ public unsafe struct Vector32x16<T> : IVector<T>, IEquatable<Vector32x16<T>>
         }
     }
 
-    public static Vector32x16<T> Create(T[] array) 
+    public static Vector32x16<T> Create(T[] array)
     {
         Vector32x16<T> vec = default;
         var src = array.AsSpan();
@@ -2523,7 +2523,7 @@ public unsafe struct Vector32x16<T> : IVector<T>, IEquatable<Vector32x16<T>>
         return vec;
     }
 
-    public static Vector32x16<T> Create(T[,] array) 
+    public static Vector32x16<T> Create(T[,] array)
     {
         Vector32x16<T> vec = default;
         var src = array.AsSpan2D();
@@ -3610,7 +3610,7 @@ public unsafe struct Vector32x32<T> : IVector<T>, IEquatable<Vector32x32<T>>
         }
     }
 
-    public static Vector32x32<T> Create(T[] array) 
+    public static Vector32x32<T> Create(T[] array)
     {
         Vector32x32<T> vec = default;
         var src = array.AsSpan();
@@ -3619,7 +3619,7 @@ public unsafe struct Vector32x32<T> : IVector<T>, IEquatable<Vector32x32<T>>
         return vec;
     }
 
-    public static Vector32x32<T> Create(T[,] array) 
+    public static Vector32x32<T> Create(T[,] array)
     {
         Vector32x32<T> vec = default;
         var src = array.AsSpan2D();
@@ -5730,7 +5730,7 @@ public unsafe struct Vector32x64<T> : IVector<T>, IEquatable<Vector32x64<T>>
         }
     }
 
-    public static Vector32x64<T> Create(T[] array) 
+    public static Vector32x64<T> Create(T[] array)
     {
         Vector32x64<T> vec = default;
         var src = array.AsSpan();
@@ -5739,7 +5739,7 @@ public unsafe struct Vector32x64<T> : IVector<T>, IEquatable<Vector32x64<T>>
         return vec;
     }
 
-    public static Vector32x64<T> Create(T[,] array) 
+    public static Vector32x64<T> Create(T[,] array)
     {
         Vector32x64<T> vec = default;
         var src = array.AsSpan2D();
@@ -9898,7 +9898,7 @@ public unsafe struct Vector32x128<T> : IVector<T>, IEquatable<Vector32x128<T>>
         }
     }
 
-    public static Vector32x128<T> Create(T[] array) 
+    public static Vector32x128<T> Create(T[] array)
     {
         Vector32x128<T> vec = default;
         var src = array.AsSpan();
@@ -9907,7 +9907,7 @@ public unsafe struct Vector32x128<T> : IVector<T>, IEquatable<Vector32x128<T>>
         return vec;
     }
 
-    public static Vector32x128<T> Create(T[,] array) 
+    public static Vector32x128<T> Create(T[,] array)
     {
         Vector32x128<T> vec = default;
         var src = array.AsSpan2D();
@@ -12018,7 +12018,7 @@ public unsafe struct Vector64x32<T> : IVector<T>, IEquatable<Vector64x32<T>>
         }
     }
 
-    public static Vector64x32<T> Create(T[] array) 
+    public static Vector64x32<T> Create(T[] array)
     {
         Vector64x32<T> vec = default;
         var src = array.AsSpan();
@@ -12027,7 +12027,7 @@ public unsafe struct Vector64x32<T> : IVector<T>, IEquatable<Vector64x32<T>>
         return vec;
     }
 
-    public static Vector64x32<T> Create(T[,] array) 
+    public static Vector64x32<T> Create(T[,] array)
     {
         Vector64x32<T> vec = default;
         var src = array.AsSpan2D();
@@ -16186,7 +16186,7 @@ public unsafe struct Vector64x64<T> : IVector<T>, IEquatable<Vector64x64<T>>
         }
     }
 
-    public static Vector64x64<T> Create(T[] array) 
+    public static Vector64x64<T> Create(T[] array)
     {
         Vector64x64<T> vec = default;
         var src = array.AsSpan();
@@ -16195,7 +16195,7 @@ public unsafe struct Vector64x64<T> : IVector<T>, IEquatable<Vector64x64<T>>
         return vec;
     }
 
-    public static Vector64x64<T> Create(T[,] array) 
+    public static Vector64x64<T> Create(T[,] array)
     {
         Vector64x64<T> vec = default;
         var src = array.AsSpan2D();
@@ -24450,7 +24450,7 @@ public unsafe struct Vector64x128<T> : IVector<T>, IEquatable<Vector64x128<T>>
         }
     }
 
-    public static Vector64x128<T> Create(T[] array) 
+    public static Vector64x128<T> Create(T[] array)
     {
         Vector64x128<T> vec = default;
         var src = array.AsSpan();
@@ -24459,7 +24459,7 @@ public unsafe struct Vector64x128<T> : IVector<T>, IEquatable<Vector64x128<T>>
         return vec;
     }
 
-    public static Vector64x128<T> Create(T[,] array) 
+    public static Vector64x128<T> Create(T[,] array)
     {
         Vector64x128<T> vec = default;
         var src = array.AsSpan2D();
@@ -32714,7 +32714,7 @@ public unsafe struct Vector128x64<T> : IVector<T>, IEquatable<Vector128x64<T>>
         }
     }
 
-    public static Vector128x64<T> Create(T[] array) 
+    public static Vector128x64<T> Create(T[] array)
     {
         Vector128x64<T> vec = default;
         var src = array.AsSpan();
@@ -32723,7 +32723,7 @@ public unsafe struct Vector128x64<T> : IVector<T>, IEquatable<Vector128x64<T>>
         return vec;
     }
 
-    public static Vector128x64<T> Create(T[,] array) 
+    public static Vector128x64<T> Create(T[,] array)
     {
         Vector128x64<T> vec = default;
         var src = array.AsSpan2D();
@@ -32772,4 +32772,3 @@ public unsafe struct Vector128x64<T> : IVector<T>, IEquatable<Vector128x64<T>>
         return sb.ToString();
     }
 }
-

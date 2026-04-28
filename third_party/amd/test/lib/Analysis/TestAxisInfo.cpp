@@ -5,14 +5,14 @@ namespace {
 
 struct AMDTestAxisInfoPass : public mlir::test::TestAxisInfoPass {
 
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(AMDTestAxisInfoPass);
+    MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(AMDTestAxisInfoPass);
 
-  StringRef getArgument() const final { return "test-print-amd-alignment"; }
+    StringRef getArgument() const final { return "test-print-amd-alignment"; }
 
-protected:
-  ModuleAxisInfoAnalysis getAnalysis(ModuleOp moduleOp) const final {
-    return AMD::ModuleAxisInfoAnalysis(moduleOp);
-  }
+  protected:
+    ModuleAxisInfoAnalysis getAnalysis(ModuleOp moduleOp) const final {
+        return AMD::ModuleAxisInfoAnalysis(moduleOp);
+    }
 };
 } // namespace
 

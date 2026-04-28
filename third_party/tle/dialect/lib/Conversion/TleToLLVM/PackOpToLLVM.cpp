@@ -13,10 +13,10 @@ namespace ttg = mlir::triton::gpu;
 namespace tle = mlir::triton::tle;
 
 struct PackOpConversion : public ConvertOpToLLVMPattern<tle::PackOp> {
-  PackOpConversion(LLVMTypeConverter &typeConverter, PatternBenefit benefit);
-  LogicalResult
-  matchAndRewrite(tle::PackOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
+    PackOpConversion(LLVMTypeConverter &typeConverter, PatternBenefit benefit);
+    LogicalResult
+    matchAndRewrite(tle::PackOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override;
 };
 
 } // namespace
@@ -28,34 +28,34 @@ PackOpConversion::PackOpConversion(LLVMTypeConverter &typeConverter,
 LogicalResult
 PackOpConversion::matchAndRewrite(tle::PackOp op, OpAdaptor adaptor,
                                   ConversionPatternRewriter &rewriter) const {
-  auto regionOp = op->getParentOfType<tle::DSLRegionOp>();
-  if (ttg::MemDescType memdesc =
-          dyn_cast<ttg::MemDescType>(op.getOutput().getType())) {
-    LLVM::LLVMStructType llvmStructType =
-        cast<LLVM::LLVMStructType>(typeConverter->convertType(memdesc));
-    LLVM::ExtractValueOp basePtr = rewriter.create<LLVM::ExtractValueOp>(
-        op.getLoc(), adaptor.getInput(), SmallVector<int64_t>{0});
-    Value llvmStruct =
-        rewriter.create<LLVM::PoisonOp>(op.getLoc(), llvmStructType);
-    LLVM::InsertValueOp insertOp = rewriter.create<LLVM::InsertValueOp>(
-        op.getLoc(), llvmStructType, llvmStruct, basePtr,
-        SmallVector<int64_t>{0});
-    for (int64_t i = 1; i < llvmStructType.getBody().size(); ++i) {
-      LLVM::ConstantOp zeroOp = rewriter.create<LLVM::ConstantOp>(
-          op.getLoc(), rewriter.getIntegerType(32), 0);
-      insertOp = rewriter.create<LLVM::InsertValueOp>(
-          op.getLoc(), llvmStructType, insertOp, zeroOp,
-          SmallVector<int64_t>{i});
+    auto regionOp = op->getParentOfType<tle::DSLRegionOp>();
+    if (ttg::MemDescType memdesc =
+            dyn_cast<ttg::MemDescType>(op.getOutput().getType())) {
+        LLVM::LLVMStructType llvmStructType =
+            cast<LLVM::LLVMStructType>(typeConverter->convertType(memdesc));
+        LLVM::ExtractValueOp basePtr = rewriter.create<LLVM::ExtractValueOp>(
+            op.getLoc(), adaptor.getInput(), SmallVector<int64_t>{0});
+        Value llvmStruct =
+            rewriter.create<LLVM::PoisonOp>(op.getLoc(), llvmStructType);
+        LLVM::InsertValueOp insertOp = rewriter.create<LLVM::InsertValueOp>(
+            op.getLoc(), llvmStructType, llvmStruct, basePtr,
+            SmallVector<int64_t>{0});
+        for (int64_t i = 1; i < llvmStructType.getBody().size(); ++i) {
+            LLVM::ConstantOp zeroOp = rewriter.create<LLVM::ConstantOp>(
+                op.getLoc(), rewriter.getIntegerType(32), 0);
+            insertOp = rewriter.create<LLVM::InsertValueOp>(
+                op.getLoc(), llvmStructType, insertOp, zeroOp,
+                SmallVector<int64_t>{i});
+        }
+        rewriter.replaceOp(op, insertOp->getResults());
+        return success();
+    } else {
+        return failure();
     }
-    rewriter.replaceOp(op, insertOp->getResults());
-    return success();
-  } else {
-    return failure();
-  }
 }
 
 void tle::populatePackOpToLLVMPatterns(LLVMTypeConverter &typeConverter,
                                        RewritePatternSet &patterns,
                                        PatternBenefit benefit) {
-  patterns.add<PackOpConversion>(typeConverter, benefit);
+    patterns.add<PackOpConversion>(typeConverter, benefit);
 }

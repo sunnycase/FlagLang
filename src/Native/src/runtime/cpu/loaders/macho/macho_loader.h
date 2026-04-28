@@ -24,7 +24,7 @@ class macho_loader {
   public:
     macho_loader() noexcept
         :
-#if 0 
+#if 0
      ofi_(nullptr),
 #endif
           mod_(nullptr),

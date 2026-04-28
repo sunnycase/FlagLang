@@ -19,14 +19,14 @@
 
 /**
  * @@brief topology aware runtime
- * 
+ *
  */
 namespace tar {
   @foreach (var comb in combinations)
   {
     var groupSize = (int)TensorUtilities.GetProduct(comb.Select(i => hierarchy[i]).ToArray());
     var groups = worldSize / groupSize;
-    
+
     var shape = hierarchy.ToArray();
     var groupName = GetName(comb);
     foreach (var i in comb) {
@@ -65,7 +65,7 @@ template <size_t Level> NTT_DEVICE static std::byte *get_cache_address() {
 
 /**
  * @@brief topology aware collective
- * 
+ *
  */
 namespace tac {
 
@@ -110,7 +110,7 @@ class tensor_reduce_sync_impl {
           var reduce_group_index = string.Join(", ", Enumerable.Range(0, hierarchy.Length).Select(i => comb.Contains(i) ? "0" : "ntt::distributed::" + hierarchyNames[i] + "id()"));
         @:if constexpr (Kind == tar::reduce_kind::@(GetName(comb, string.Empty))) {
         @:    tar::@(GetName(comb))(@(reduce_group_index)).arrive_and_wait();
-        @:} 
+        @:}
         @:else
         }
         {
@@ -204,7 +204,7 @@ class tensor_reduce_sync_impl {
         auto node_number_g = ntt::linear_offset(cur_index_g, group_hierarchy);
 
         // reduce-scatter, communicate (group_size - 1) times
-        for (auto i = 0; i < group_size - 1; i++) 
+        for (auto i = 0; i < group_size - 1; i++)
         {
             auto new_shape = ntt::generate_shape<Rank>([&](auto j) {
                 if (j == axis) {

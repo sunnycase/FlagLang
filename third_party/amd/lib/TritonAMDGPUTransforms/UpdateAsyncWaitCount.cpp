@@ -33,18 +33,18 @@ namespace {
 // memory.
 int getNumberOfLoadInstructions(RankedTensorType srcTy,
                                 ttg::MemDescType dstTy) {
-  LinearLayout srcLayout = tt::gpu::toLinearLayout(srcTy);
-  LinearLayout sharedLayout = tt::gpu::toLinearLayout(dstTy);
-  LinearLayout srcToSharedLayout = srcLayout.invertAndCompose(sharedLayout);
+    LinearLayout srcLayout = tt::gpu::toLinearLayout(srcTy);
+    LinearLayout sharedLayout = tt::gpu::toLinearLayout(dstTy);
+    LinearLayout srcToSharedLayout = srcLayout.invertAndCompose(sharedLayout);
 
-  // On GFX9 we cannot split direct to lds loads into multiple ones because we
-  // need coalesced writes. So we can divide the number of registers by the
-  // contiguity to get the number of load instructions.
-  int contig = srcToSharedLayout.getNumConsecutiveInOut();
-  int numberOfRegisters = srcToSharedLayout.getInDimSize(
-      StringAttr::get(srcTy.getContext(), "register"));
-  int loadInstructionCount = std::max(1, numberOfRegisters / contig);
-  return loadInstructionCount;
+    // On GFX9 we cannot split direct to lds loads into multiple ones because we
+    // need coalesced writes. So we can divide the number of registers by the
+    // contiguity to get the number of load instructions.
+    int contig = srcToSharedLayout.getNumConsecutiveInOut();
+    int numberOfRegisters = srcToSharedLayout.getInDimSize(
+        StringAttr::get(srcTy.getContext(), "register"));
+    int loadInstructionCount = std::max(1, numberOfRegisters / contig);
+    return loadInstructionCount;
 }
 
 // The pipeliner always insert ops following an order of ttg.async_load ->
@@ -52,32 +52,36 @@ int getNumberOfLoadInstructions(RankedTensorType srcTy,
 // scan the operands of ttg.async_commit_group to count the number of issued
 // async load intrinsics.
 int getNumberOfLoadInstructions(Operation *op) {
-  if (isa<ttg::AsyncCommitGroupOp>(op)) {
-    int count = 0;
-    for (auto token : op->getOperands()) {
-      auto defOp = token.getDefiningOp();
-      if (!defOp)
-        continue;
-      if (auto copyOp = llvm::dyn_cast<ttg::AsyncCopyGlobalToLocalOp>(defOp)) {
-        count += getNumberOfLoadInstructions(copyOp.getSrc().getType(),
-                                             copyOp.getResult().getType());
-      } else if (auto copyOp =
-                     llvm::dyn_cast<amdgpu::BufferLoadToLocalOp>(defOp)) {
-        auto srcTy = cast<RankedTensorType>(LLVM::AMD::getPointerTypeWithShape(
-            copyOp.getPtr(), copyOp.getOffsets()));
-        count += getNumberOfLoadInstructions(srcTy, copyOp.getDest().getType());
-      }
+    if (isa<ttg::AsyncCommitGroupOp>(op)) {
+        int count = 0;
+        for (auto token : op->getOperands()) {
+            auto defOp = token.getDefiningOp();
+            if (!defOp)
+                continue;
+            if (auto copyOp =
+                    llvm::dyn_cast<ttg::AsyncCopyGlobalToLocalOp>(defOp)) {
+                count += getNumberOfLoadInstructions(
+                    copyOp.getSrc().getType(), copyOp.getResult().getType());
+            } else if (auto copyOp =
+                           llvm::dyn_cast<amdgpu::BufferLoadToLocalOp>(defOp)) {
+                auto srcTy =
+                    cast<RankedTensorType>(LLVM::AMD::getPointerTypeWithShape(
+                        copyOp.getPtr(), copyOp.getOffsets()));
+                count += getNumberOfLoadInstructions(
+                    srcTy, copyOp.getDest().getType());
+            }
+        }
+        return count;
     }
-    return count;
-  }
-  if (isa<tt::LoadOp, tt::StoreOp, amdgpu::BufferLoadToLocalOp,
-          amdgpu::BufferStoreOp, tt::AtomicRMWOp, tt::AtomicCASOp,
-          amdgpu::BufferAtomicRMWOp>(op)) {
-    op->emitRemark("Global memory operation between async wait and "
-                   "async_loads. This will hinder the interleaving of memory "
-                   "operations and might impact performance.");
-  }
-  return 0;
+    if (isa<tt::LoadOp, tt::StoreOp, amdgpu::BufferLoadToLocalOp,
+            amdgpu::BufferStoreOp, tt::AtomicRMWOp, tt::AtomicCASOp,
+            amdgpu::BufferAtomicRMWOp>(op)) {
+        op->emitRemark(
+            "Global memory operation between async wait and "
+            "async_loads. This will hinder the interleaving of memory "
+            "operations and might impact performance.");
+    }
+    return 0;
 }
 
 // LLVM cannot infer the dependency between direct to lds (async) loads and
@@ -86,24 +90,25 @@ int getNumberOfLoadInstructions(Operation *op) {
 // interleaving with. This allows us to manually emit the waitcnt during
 // lowering.
 void updateWaitCount(ttg::AsyncWaitOp waitOp, RewriterBase &rewriter) {
-  int waitCnt = std::numeric_limits<int>::max();
+    int waitCnt = std::numeric_limits<int>::max();
 
-  // AsyncWait can await multiple tokens so we get the minimum from all
-  // tokens
-  for (auto token : waitOp.getOperands()) {
-    // Traverse def chain from waitOp to the producer of the token and count
-    // the minumum number of vmcnt instructions
-    auto tokenWaitCnt =
-        deduceMinCountOnDefChain(token, waitOp, [](Operation *op) {
-          return getNumberOfLoadInstructions(op);
-        });
-    waitCnt = std::min(waitCnt, tokenWaitCnt);
-  }
+    // AsyncWait can await multiple tokens so we get the minimum from all
+    // tokens
+    for (auto token : waitOp.getOperands()) {
+        // Traverse def chain from waitOp to the producer of the token and count
+        // the minumum number of vmcnt instructions
+        auto tokenWaitCnt =
+            deduceMinCountOnDefChain(token, waitOp, [](Operation *op) {
+                return getNumberOfLoadInstructions(op);
+            });
+        waitCnt = std::min(waitCnt, tokenWaitCnt);
+    }
 
-  if (waitCnt == std::numeric_limits<int>::max() || waitOp.getNum() == waitCnt)
-    return;
+    if (waitCnt == std::numeric_limits<int>::max() ||
+        waitOp.getNum() == waitCnt)
+        return;
 
-  rewriter.modifyOpInPlace(waitOp, [&]() { waitOp.setNum(waitCnt); });
+    rewriter.modifyOpInPlace(waitOp, [&]() { waitOp.setNum(waitCnt); });
 }
 
 } // anonymous namespace
@@ -111,25 +116,25 @@ void updateWaitCount(ttg::AsyncWaitOp waitOp, RewriterBase &rewriter) {
 struct TritonAMDGPUUpdateAsyncWaitCountPass
     : impl::TritonAMDGPUUpdateAsyncWaitCountBase<
           TritonAMDGPUUpdateAsyncWaitCountPass> {
-  using Base::Base;
+    using Base::Base;
 
-  void runOnOperation() override {
-    tt::AMD::TargetInfo targetInfo(archGenerationName);
-    if (!isCDNA(targetInfo.getISAFamily())) {
-      return;
+    void runOnOperation() override {
+        tt::AMD::TargetInfo targetInfo(archGenerationName);
+        if (!isCDNA(targetInfo.getISAFamily())) {
+            return;
+        }
+
+        ModuleOp m = getOperation();
+
+        SmallVector<ttg::AsyncWaitOp> waitOps;
+        getOperation()->walk(
+            [&](ttg::AsyncWaitOp waitOp) { waitOps.push_back(waitOp); });
+
+        for (auto waitOp : waitOps) {
+            IRRewriter builder(waitOp->getContext());
+            updateWaitCount(waitOp, builder);
+        }
     }
-
-    ModuleOp m = getOperation();
-
-    SmallVector<ttg::AsyncWaitOp> waitOps;
-    getOperation()->walk(
-        [&](ttg::AsyncWaitOp waitOp) { waitOps.push_back(waitOp); });
-
-    for (auto waitOp : waitOps) {
-      IRRewriter builder(waitOp->getContext());
-      updateWaitCount(waitOp, builder);
-    }
-  }
 };
 
 } // namespace mlir

@@ -7,11 +7,11 @@ namespace proton {
 namespace cupti {
 
 struct ExternLibCupti : public ExternLibBase {
-  using RetType = CUptiResult;
-  static constexpr const char *name = "libcupti.so";
-  static inline std::string defaultDir = "";
-  static constexpr RetType success = CUPTI_SUCCESS;
-  static void *lib;
+    using RetType = CUptiResult;
+    static constexpr const char *name = "libcupti.so";
+    static inline std::string defaultDir = "";
+    static constexpr RetType success = CUPTI_SUCCESS;
+    static void *lib;
 };
 
 void *ExternLibCupti::lib = nullptr;

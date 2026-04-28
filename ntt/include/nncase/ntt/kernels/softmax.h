@@ -23,7 +23,7 @@ namespace softmax_detail {
 template <Tensor TIn, class TOut, FixedDimension TAxis,
           FixedDimensions VectorizedAxes>
 void vectorized_softmax_impl(const TIn &input, TOut &&output, const TAxis &axis,
-                         const VectorizedAxes &) {
+                             const VectorizedAxes &) {
     using TElem = typename TIn::element_type;
     auto input_shape = input.shape();
 
@@ -88,8 +88,10 @@ void vectorized_softmax_impl(const TIn &input, TOut &&output, const TAxis &axis,
 template <Tensor TIn, class TOut, FixedDimension TAxis,
           FixedDimensions VectorizedAxes = shape_t<>>
 void vectorized_softmax(const TIn &input, TOut &&output, const TAxis &axis,
-                    const VectorizedAxes &vectorizedAxes = {}) noexcept {
-    static_assert(VectorizedAxes::rank() < 2, "currently not support 2d vectorize");
-    softmax_detail::vectorized_softmax_impl(input, output, axis, vectorizedAxes);
+                        const VectorizedAxes &vectorizedAxes = {}) noexcept {
+    static_assert(VectorizedAxes::rank() < 2,
+                  "currently not support 2d vectorize");
+    softmax_detail::vectorized_softmax_impl(input, output, axis,
+                                            vectorizedAxes);
 }
 } // namespace nncase::ntt

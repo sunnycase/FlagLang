@@ -20,7 +20,7 @@ namespace triton {
 namespace gpu {
 
 struct SharedMemory : public SideEffects::Resource::Base<SharedMemory> {
-  StringRef getName() final { return "<SharedMemory>"; }
+    StringRef getName() final { return "<SharedMemory>"; }
 };
 
 unsigned getTotalElemsPerThread(Type type);

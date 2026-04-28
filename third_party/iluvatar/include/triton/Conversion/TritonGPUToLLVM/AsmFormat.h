@@ -18,7 +18,7 @@ using llvm::StringRef;
 
 inline std::string strJoin(llvm::ArrayRef<std::string> strs,
                            llvm::StringRef delimiter) {
-  return llvm::join(strs.begin(), strs.end(), delimiter);
+    return llvm::join(strs.begin(), strs.end(), delimiter);
 }
 
 } // namespace triton

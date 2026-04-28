@@ -80,18 +80,18 @@ static cl::opt<std::string> TensorStr(
 //===--------------------------------------------------------------------===//
 
 static LogicalResult layoutPrint(RankedTensorType tensorType, raw_ostream &os) {
-  // DistributedEncodingTrait and SharedEncodingTrait implements the
-  // toLinearLayout interface.
-  mlir::Attribute layout = tensorType.getEncoding();
-  if (isa<mlir::triton::gpu::DistributedEncodingTrait,
-          mlir::triton::gpu::SharedEncodingTrait>(layout)) {
-    os << triton::gpu::getLayoutStr(tensorType, UseHWPointOfView);
-    return success();
-  }
+    // DistributedEncodingTrait and SharedEncodingTrait implements the
+    // toLinearLayout interface.
+    mlir::Attribute layout = tensorType.getEncoding();
+    if (isa<mlir::triton::gpu::DistributedEncodingTrait,
+            mlir::triton::gpu::SharedEncodingTrait>(layout)) {
+        os << triton::gpu::getLayoutStr(tensorType, UseHWPointOfView);
+        return success();
+    }
 
-  llvm::errs() << "Unsupported tensor layout attribute: "
-               << tensorType.getEncoding() << "\n";
-  return failure();
+    llvm::errs() << "Unsupported tensor layout attribute: "
+                 << tensorType.getEncoding() << "\n";
+    return failure();
 }
 
 static LogicalResult printLayoutFromFile(MLIRContext *context,
@@ -99,80 +99,82 @@ static LogicalResult printLayoutFromFile(MLIRContext *context,
                                          ArrayRef<std::string> names,
                                          TensorType tensorTy,
                                          raw_string_ostream &ss) {
-  if (filename.empty())
+    if (filename.empty())
+        return success();
+
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> fileOrErr =
+        llvm::MemoryBuffer::getFileOrSTDIN(filename);
+    if (std::error_code ec = fileOrErr.getError()) {
+        llvm::errs() << "Could not open input file: " << ec.message() << "\n";
+        return failure();
+    }
+
+    llvm::SourceMgr sourceMgr;
+    sourceMgr.AddNewSourceBuffer(std::move(*fileOrErr), llvm::SMLoc());
+    ParserConfig config(context);
+    auto asmState = AsmParserState();
+
+    Block parsedIR;
+    if (failed(parseAsmSourceFile(sourceMgr, &parsedIR, config, &asmState))) {
+        llvm::errs() << "Fail to parse the input file: " << filename << "\n";
+        return failure();
+    }
+
+    auto printLambda = [&](StringRef name, mlir::Attribute attr) {
+        ss << "Print layout attribute: #" << name << " = " << attr << "\n";
+
+        auto rankedTensorTy = RankedTensorType::get(
+            tensorTy.getShape(), tensorTy.getElementType(), attr);
+
+        return layoutPrint(rankedTensorTy, ss);
+    };
+
+    if (names.empty())
+        // If no alias name is given, we print all layout attributes in the
+        // file.
+        for (const auto &def : asmState.getAttributeAliasDefs()) {
+            if (failed(printLambda(def.name, def.value)))
+                return failure();
+        }
+    else {
+        // Print the layout attributes with the given alias names.
+        for (const auto &alias : names) {
+            auto def = asmState.getAttributeAliasDef(alias);
+            if (!def) {
+                llvm::errs()
+                    << "Can't find the layout attribute: " << alias << "\n";
+                return failure();
+            }
+
+            if (failed(printLambda(alias, def->value)))
+                return failure();
+
+            ss << "\n";
+        }
+    }
+
     return success();
-
-  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> fileOrErr =
-      llvm::MemoryBuffer::getFileOrSTDIN(filename);
-  if (std::error_code ec = fileOrErr.getError()) {
-    llvm::errs() << "Could not open input file: " << ec.message() << "\n";
-    return failure();
-  }
-
-  llvm::SourceMgr sourceMgr;
-  sourceMgr.AddNewSourceBuffer(std::move(*fileOrErr), llvm::SMLoc());
-  ParserConfig config(context);
-  auto asmState = AsmParserState();
-
-  Block parsedIR;
-  if (failed(parseAsmSourceFile(sourceMgr, &parsedIR, config, &asmState))) {
-    llvm::errs() << "Fail to parse the input file: " << filename << "\n";
-    return failure();
-  }
-
-  auto printLambda = [&](StringRef name, mlir::Attribute attr) {
-    ss << "Print layout attribute: #" << name << " = " << attr << "\n";
-
-    auto rankedTensorTy = RankedTensorType::get(
-        tensorTy.getShape(), tensorTy.getElementType(), attr);
-
-    return layoutPrint(rankedTensorTy, ss);
-  };
-
-  if (names.empty())
-    // If no alias name is given, we print all layout attributes in the file.
-    for (const auto &def : asmState.getAttributeAliasDefs()) {
-      if (failed(printLambda(def.name, def.value)))
-        return failure();
-    }
-  else {
-    // Print the layout attributes with the given alias names.
-    for (const auto &alias : names) {
-      auto def = asmState.getAttributeAliasDef(alias);
-      if (!def) {
-        llvm::errs() << "Can't find the layout attribute: " << alias << "\n";
-        return failure();
-      }
-
-      if (failed(printLambda(alias, def->value)))
-        return failure();
-
-      ss << "\n";
-    }
-  }
-
-  return success();
 }
 
 static LogicalResult printLayoutFromString(MLIRContext *context,
                                            StringRef layoutAttrStr,
                                            TensorType tensorTy,
                                            raw_string_ostream &ss) {
-  if (layoutAttrStr.empty())
-    return success();
+    if (layoutAttrStr.empty())
+        return success();
 
-  mlir::Attribute layout = parseAttribute(layoutAttrStr, context);
-  if (!layout) {
-    llvm::errs() << "Invalid layout attribute: " << layoutAttrStr << "\n";
-    return failure();
-  }
+    mlir::Attribute layout = parseAttribute(layoutAttrStr, context);
+    if (!layout) {
+        llvm::errs() << "Invalid layout attribute: " << layoutAttrStr << "\n";
+        return failure();
+    }
 
-  auto rankedTensorTy = RankedTensorType::get(
-      tensorTy.getShape(), tensorTy.getElementType(), layout);
+    auto rankedTensorTy = RankedTensorType::get(
+        tensorTy.getShape(), tensorTy.getElementType(), layout);
 
-  ss << "Print layout attribute: " << layout << "\n";
+    ss << "Print layout attribute: " << layout << "\n";
 
-  return layoutPrint(rankedTensorTy, ss);
+    return layoutPrint(rankedTensorTy, ss);
 }
 
 //===--------------------------------------------------------------------===//
@@ -180,55 +182,55 @@ static LogicalResult printLayoutFromString(MLIRContext *context,
 //===--------------------------------------------------------------------===//
 
 int main(int argc, char **argv) {
-  cl::HideUnrelatedOptions(PrinterCategory);
-  cl::ParseCommandLineOptions(argc, argv, "tensor layout printer\n");
+    cl::HideUnrelatedOptions(PrinterCategory);
+    cl::ParseCommandLineOptions(argc, argv, "tensor layout printer\n");
 
-  DialectRegistry registry;
-  registerTritonDialects(registry);
+    DialectRegistry registry;
+    registerTritonDialects(registry);
 
-  MLIRContext ctx(registry);
-  ctx.loadAllAvailableDialects();
+    MLIRContext ctx(registry);
+    ctx.loadAllAvailableDialects();
 
-  if (TensorStr.empty()) {
-    llvm::errs() << "Must specify the tensor type argument\n";
-    return 1;
-  }
-
-  mlir::Type parsedTy = parseType(TensorStr, &ctx);
-  if (!parsedTy) {
-    llvm::errs() << "Fail to parse the tensor type argument: " << TensorStr
-                 << "\n";
-    return 1;
-  }
-
-  TensorType tensorType = dyn_cast<TensorType>(parsedTy);
-  if (!tensorType) {
-    llvm::errs() << "Invalid tensor type argument: " << TensorStr << "\n";
-    return 1;
-  }
-
-  std::string storage;
-  raw_string_ostream ss(storage);
-
-  if (failed(printLayoutFromFile(&ctx, InputFile, AliasName, tensorType, ss)))
-    return 1;
-
-  if (failed(printLayoutFromString(&ctx, DataLayoutStr, tensorType, ss)))
-    return 1;
-
-  if (OutputFile.empty()) {
-    llvm::outs() << ss.str();
-  } else {
-    std::error_code ec;
-    llvm::raw_fd_ostream outFs(OutputFile, ec, llvm::sys::fs::OF_Text);
-    if (ec) {
-      llvm::errs() << "Error: " << ec.message() << " : unable to open "
-                   << OutputFile << " for output\n";
-      return 1;
+    if (TensorStr.empty()) {
+        llvm::errs() << "Must specify the tensor type argument\n";
+        return 1;
     }
-    outFs << ss.str();
-    outFs.close();
-  }
 
-  return 0;
+    mlir::Type parsedTy = parseType(TensorStr, &ctx);
+    if (!parsedTy) {
+        llvm::errs() << "Fail to parse the tensor type argument: " << TensorStr
+                     << "\n";
+        return 1;
+    }
+
+    TensorType tensorType = dyn_cast<TensorType>(parsedTy);
+    if (!tensorType) {
+        llvm::errs() << "Invalid tensor type argument: " << TensorStr << "\n";
+        return 1;
+    }
+
+    std::string storage;
+    raw_string_ostream ss(storage);
+
+    if (failed(printLayoutFromFile(&ctx, InputFile, AliasName, tensorType, ss)))
+        return 1;
+
+    if (failed(printLayoutFromString(&ctx, DataLayoutStr, tensorType, ss)))
+        return 1;
+
+    if (OutputFile.empty()) {
+        llvm::outs() << ss.str();
+    } else {
+        std::error_code ec;
+        llvm::raw_fd_ostream outFs(OutputFile, ec, llvm::sys::fs::OF_Text);
+        if (ec) {
+            llvm::errs() << "Error: " << ec.message() << " : unable to open "
+                         << OutputFile << " for output\n";
+            return 1;
+        }
+        outFs << ss.str();
+        outFs.close();
+    }
+
+    return 0;
 }

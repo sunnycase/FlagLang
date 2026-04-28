@@ -11,10 +11,10 @@ using namespace mlir::tx;
 /// Dialect creation, the instance will be owned by the context. This is the
 /// point of registration of custom types and operations for the dialect.
 void Tx81Dialect::initialize() {
-  addOperations<
+    addOperations<
 #define GET_OP_LIST
 #include "tsingmicro-tx81/Dialect/IR/Tx81Ops.cpp.inc"
-      >();
+        >();
 }
 
 //===----------------------------------------------------------------------===//

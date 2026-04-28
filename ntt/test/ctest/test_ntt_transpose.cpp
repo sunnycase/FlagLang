@@ -93,7 +93,8 @@ TEST(Transpose2DRankedShapeUnVectorized, WH) {
     transpose_2D_ranked_shape_devectorized<1, 0>();
 }
 
-template <size_t perm_h, size_t perm_w> void transpose_2D_fixed_shape_vectorized() {
+template <size_t perm_h, size_t perm_w>
+void transpose_2D_fixed_shape_vectorized() {
     constexpr size_t h = 16;
     constexpr size_t w = 32;
     constexpr size_t P = NTT_VLEN / (sizeof(float) * 8);

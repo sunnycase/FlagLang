@@ -20,14 +20,14 @@ namespace {
 
 // Convert tensor.empty + linalg.fill + linalg.matmul to mk.matmul
 struct MatmulConverter : public OpConversionPattern<linalg::MatmulOp> {
-private:
-  using OpConversionPattern<linalg::MatmulOp>::OpConversionPattern;
+  private:
+    using OpConversionPattern<linalg::MatmulOp>::OpConversionPattern;
 
-public:
-  LogicalResult
-  matchAndRewrite(linalg::MatmulOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
+  public:
+    LogicalResult
+    matchAndRewrite(linalg::MatmulOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+        Location loc = op.getLoc();
 #if 0
     auto tensorType = *op->getResultTypes().begin();
 
@@ -41,8 +41,8 @@ public:
         op.getNumOperands() == 3 ? op->getOperand(2) : nullptr);
     rewriter.replaceOp(op, dotOp);
 #endif
-    return success();
-  }
+        return success();
+    }
 };
 
 } // namespace
@@ -52,6 +52,6 @@ void mlir::triton::populateLinalgToMKCanonicalizationPatterns(
 
 void mlir::triton::populateLinalgToMKConversionPatterns(
     RewritePatternSet &patterns) {
-  // patterns.add<MatmulConverter>(patterns.getContext());
-  patterns.add<SigmoidFusionPattern>(patterns.getContext());
+    // patterns.add<MatmulConverter>(patterns.getContext());
+    patterns.add<SigmoidFusionPattern>(patterns.getContext());
 }

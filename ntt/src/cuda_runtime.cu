@@ -28,12 +28,9 @@ using namespace nncase::ntt::runtime;
 
 namespace nncase::ntt::distributed::detail {
 __device__ uintptr_t global_local_data_ptr[topology_element_count * 2];
-__device__ uintptr_t
-    global_thread_local_rdata_ptr[topology_element_count * 2];
-__device__ uintptr_t
-    global_thread_local_cache_ptr[topology_element_count * 3];
-__device__ uintptr_t
-    global_block_local_rdata_ptr[topology_element_count * 2];
+__device__ uintptr_t global_thread_local_rdata_ptr[topology_element_count * 2];
+__device__ uintptr_t global_thread_local_cache_ptr[topology_element_count * 3];
+__device__ uintptr_t global_block_local_rdata_ptr[topology_element_count * 2];
 } // namespace nncase::ntt::distributed::detail
 
 namespace nncase::ntt::runtime {
@@ -134,9 +131,8 @@ block_entry(const cuda_block_entry_params_t &params) {
     auto thread_local_rdata_desc =
         ntt::distributed::detail::global_thread_local_rdata_desc(program_ids);
     thread_local_rdata_desc[0] = (uintptr_t)thread_local_rdata.data();
-    thread_local_rdata_desc[1] =
-        (uintptr_t)(thread_local_rdata.data() +
-                    thread_local_rdata.size_bytes());
+    thread_local_rdata_desc[1] = (uintptr_t)(thread_local_rdata.data() +
+                                             thread_local_rdata.size_bytes());
     auto local_data_desc =
         ntt::distributed::detail::global_local_data_desc(program_ids);
     local_data_desc[0] = (uintptr_t)thread_local_data.data();

@@ -11,29 +11,29 @@ using namespace mlir;
 using namespace mlir::triton;
 
 class TritonGPUToLLVMTypeConverter : public LLVMTypeConverter {
-public:
-  using TypeConverter::convertType;
+  public:
+    using TypeConverter::convertType;
 
-  TritonGPUToLLVMTypeConverter(MLIRContext *ctx,
-                               const LowerToLLVMOptions &option,
-                               const TargetInfoBase &targetInfo,
-                               const DataLayoutAnalysis *analysis = nullptr);
-  TritonGPUToLLVMTypeConverter(MLIRContext *ctx,
-                               const TargetInfoBase &targetInfo,
-                               const DataLayoutAnalysis *analysis = nullptr);
+    TritonGPUToLLVMTypeConverter(MLIRContext *ctx,
+                                 const LowerToLLVMOptions &option,
+                                 const TargetInfoBase &targetInfo,
+                                 const DataLayoutAnalysis *analysis = nullptr);
+    TritonGPUToLLVMTypeConverter(MLIRContext *ctx,
+                                 const TargetInfoBase &targetInfo,
+                                 const DataLayoutAnalysis *analysis = nullptr);
 
-  Type convertTritonTensorType(RankedTensorType type,
-                               const TargetInfoBase &targetInfo);
-  Type convertMemDescType(triton::gpu::MemDescType type,
-                          const TargetInfoBase &targetInfo);
-  Type convertAsyncTokenType(triton::gpu::AsyncTokenType type);
+    Type convertTritonTensorType(RankedTensorType type,
+                                 const TargetInfoBase &targetInfo);
+    Type convertMemDescType(triton::gpu::MemDescType type,
+                            const TargetInfoBase &targetInfo);
+    Type convertAsyncTokenType(triton::gpu::AsyncTokenType type);
 
-  template <typename... T> void convertFP8Type() {
-    (addConversion([&](T type) -> std::optional<Type> {
-       return IntegerType::get(type.getContext(), 8);
-     }),
-     ...);
-  }
+    template <typename... T> void convertFP8Type() {
+        (addConversion([&](T type) -> std::optional<Type> {
+             return IntegerType::get(type.getContext(), 8);
+         }),
+         ...);
+    }
 };
 
 #endif

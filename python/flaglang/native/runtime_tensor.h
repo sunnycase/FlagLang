@@ -36,10 +36,10 @@ inline py::array runtime_tensor_to_numpy_copy(runtime_tensor tensor) {
     auto src_map =
         std::move(hrt::map(host, runtime::map_read).unwrap_or_throw());
     auto src_buffer = src_map.buffer();
-    auto array = py::array(
-        to_dtype(host.impl()->dtype()),
-        to_py_shape(host.impl()->dtype(), host.impl()->shape()),
-        to_py_strides(host.impl()->dtype(), host.impl()->strides()));
+    auto array =
+        py::array(to_dtype(host.impl()->dtype()),
+                  to_py_shape(host.impl()->dtype(), host.impl()->shape()),
+                  to_py_strides(host.impl()->dtype(), host.impl()->strides()));
     std::memcpy(array.mutable_data(), src_buffer.data(), src_buffer.size());
     return array;
 }

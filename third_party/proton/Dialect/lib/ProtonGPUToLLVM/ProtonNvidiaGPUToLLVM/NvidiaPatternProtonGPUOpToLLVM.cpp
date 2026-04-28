@@ -26,38 +26,40 @@ namespace {
 struct CircularStoreOpConversion
     : public ConvertOpToLLVMPattern<
           mlir::triton::proton::gpu::CircularStoreOp> {
-  explicit CircularStoreOpConversion(
-      LLVMTypeConverter &typeConverter,
-      const proton::gpu::TargetInfoBase &targetInfo, PatternBenefit benefit)
-      : mlir::ConvertOpToLLVMPattern<
-            mlir::triton::proton::gpu::CircularStoreOp>(typeConverter, benefit),
-        targetInfo(targetInfo) {}
+    explicit CircularStoreOpConversion(
+        LLVMTypeConverter &typeConverter,
+        const proton::gpu::TargetInfoBase &targetInfo, PatternBenefit benefit)
+        : mlir::ConvertOpToLLVMPattern<
+              mlir::triton::proton::gpu::CircularStoreOp>(typeConverter,
+                                                          benefit),
+          targetInfo(targetInfo) {}
 
-  LogicalResult
-  matchAndRewrite(mlir::triton::proton::gpu::CircularStoreOp op,
-                  OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto loc = op.getLoc();
+    LogicalResult
+    matchAndRewrite(mlir::triton::proton::gpu::CircularStoreOp op,
+                    OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+        auto loc = op.getLoc();
 
-    auto dataPack =
-        lowerCircularStoreOpHelper(op, adaptor.getSegment(), rewriter);
+        auto dataPack =
+            lowerCircularStoreOpHelper(op, adaptor.getSegment(), rewriter);
 
-    uint32_t addrSpace = dataPack.addrSpace;
-    if (addrSpace == 1) {
-      llvm::report_fatal_error("unimplemented");
-    } else if (addrSpace == 3) {
-      targetInfo.getTritonTargetInfo().storeDShared(
-          rewriter, loc, dataPack.ptr, std::nullopt, dataPack.record,
-          /*pred=*/dataPack.isWriter);
-    } else {
-      llvm::report_fatal_error("unsupported address space in circular store");
+        uint32_t addrSpace = dataPack.addrSpace;
+        if (addrSpace == 1) {
+            llvm::report_fatal_error("unimplemented");
+        } else if (addrSpace == 3) {
+            targetInfo.getTritonTargetInfo().storeDShared(
+                rewriter, loc, dataPack.ptr, std::nullopt, dataPack.record,
+                /*pred=*/dataPack.isWriter);
+        } else {
+            llvm::report_fatal_error(
+                "unsupported address space in circular store");
+        }
+        rewriter.eraseOp(op);
+        return success();
     }
-    rewriter.eraseOp(op);
-    return success();
-  }
 
-protected:
-  const proton::gpu::TargetInfoBase &targetInfo;
+  protected:
+    const proton::gpu::TargetInfoBase &targetInfo;
 };
 
 } // namespace
@@ -67,6 +69,6 @@ void populateProtonGPUOpNvidiaPatterns(LLVMTypeConverter &typeConverter,
                                        RewritePatternSet &patterns,
                                        const TargetInfo &targetInfo,
                                        PatternBenefit benefit) {
-  patterns.add<CircularStoreOpConversion>(typeConverter, targetInfo, benefit);
+    patterns.add<CircularStoreOpConversion>(typeConverter, targetInfo, benefit);
 }
 } // namespace mlir::triton::proton::gpu::NVIDIA

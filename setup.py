@@ -418,19 +418,17 @@ class CMakeBuild(build_ext):
 
     def run(self):
         if is_proton_build_enabled():
-            raise RuntimeError(
-                "TRITON_BUILD_PROTON=ON requested, but the FlagLang native CMake build does not "
-                "build or install triton._C.libproton. Set TRITON_BUILD_PROTON=OFF or add libproton "
-                "build/install support before enabling profiler packaging."
-            )
+            raise RuntimeError("TRITON_BUILD_PROTON=ON requested, but the FlagLang native CMake build does not "
+                               "build or install triton._C.libproton. Set TRITON_BUILD_PROTON=OFF or add libproton "
+                               "build/install support before enabling profiler packaging.")
 
         download_and_copy_dependencies()
 
         try:
             out = subprocess.check_output(["cmake", "--version"])
         except OSError:
-            raise RuntimeError("CMake must be installed to build the following extensions: "
-                               + ", ".join(e.name for e in self.extensions))
+            raise RuntimeError("CMake must be installed to build the following extensions: " +
+                               ", ".join(e.name for e in self.extensions))
 
         match = re.search(r"version\s*(?P<major>\d+)\.(?P<minor>\d+)([\d.]+)?", out.decode())
         cmake_major, cmake_minor = int(match.group("major")), int(match.group("minor"))
@@ -474,7 +472,7 @@ class CMakeBuild(build_ext):
         # python directories
         python_include_dir = sysconfig.get_path("platinclude")
         host_toolchain_path = get_host_toolchain_profile(self.base_dir)
-        
+
         # configuration
         cfg = get_build_type()
 
@@ -483,16 +481,20 @@ class CMakeBuild(build_ext):
 
         cmake_dir = get_cmake_dir()
         build_dir = cmake_dir / conan_build_type
-        subprocess.check_call(["conan", "install", self.base_dir, "--build=missing", "-s",
-                               "build_type=" + conan_build_type, f"-pr:a={str(host_toolchain_path)}",
-                               "-o", "&:python=True", "-o", "&:tests=False", "-o", f"&:python_root={python_root}",
-                               "-c", f"tools.cmake.cmake_layout:build_folder={cmake_dir}"])
-        subprocess.check_call(["cmake", "-B", ".", "-S", self.base_dir, "--preset", "conan-" + conan_build_type.lower(),
-                               # Pass explicit path to ninja otherwise cmake may cache a temporary path
-                               f"-DCMAKE_MAKE_PROGRAM={ninja_dir}"], cwd=build_dir)
+        subprocess.check_call([
+            "conan", "install", self.base_dir, "--build=missing", "-s", "build_type=" + conan_build_type,
+            f"-pr:a={str(host_toolchain_path)}", "-o", "&:python=True", "-o", "&:tests=False", "-o",
+            f"&:python_root={python_root}", "-c", f"tools.cmake.cmake_layout:build_folder={cmake_dir}"
+        ])
+        subprocess.check_call([
+            "cmake", "-B", ".", "-S", self.base_dir, "--preset", "conan-" + conan_build_type.lower(),
+            # Pass explicit path to ninja otherwise cmake may cache a temporary path
+            f"-DCMAKE_MAKE_PROGRAM={ninja_dir}"
+        ], cwd=build_dir)
         update_symlink(Path(self.base_dir) / "compile_commands.json", build_dir / "compile_commands.json")
         subprocess.check_call(["cmake", "--build", "."], cwd=build_dir)
-        subprocess.check_call(["cmake", "--install", ".", "--component", "flaglang-python", "--prefix", wheeldir], cwd=build_dir)
+        subprocess.check_call(["cmake", "--install", ".", "--component", "flaglang-python", "--prefix", wheeldir],
+                              cwd=build_dir)
         helper.install_extension(build_ext=self)
 
 
@@ -596,8 +598,8 @@ def get_flagtree_language_extra_packages():
         return
 
     package = f"triton.language.extra.{extra_name}"
-    package_dir = os.path.join(
-        "third_party", helper.flagtree_backend, "python", "triton", "language", "extra", extra_name)
+    package_dir = os.path.join("third_party", helper.flagtree_backend, "python", "triton", "language", "extra",
+                               extra_name)
     if not os.path.isdir(package_dir):
         raise RuntimeError(f"{package} package directory does not exist: {package_dir}")
     yield package, package_dir
@@ -824,7 +826,8 @@ setup(
     version="0.3.0" + os.environ.get("FLAGTREE_WHEEL_VERSION_SUFFIX", ""),
     author="FlagOS",
     author_email="contact@flagos.io",
-    description="A unified compiler supporting multiple AI chip backends for custom Deep Learning operations, which is forked from triton-lang/triton.",
+    description=
+    "A unified compiler supporting multiple AI chip backends for custom Deep Learning operations, which is forked from triton-lang/triton.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     install_requires=[

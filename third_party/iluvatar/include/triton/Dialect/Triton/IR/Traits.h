@@ -41,10 +41,10 @@ LogicalResult verifySameLoadStoreOperandsAndResultShape(Operation *op);
 
 template <class ConcreteType>
 class TensorSizeTrait : public TraitBase<ConcreteType, TensorSizeTrait> {
-public:
-  static LogicalResult verifyTrait(Operation *op) {
-    return impl::verifyTensorSize(op);
-  }
+  public:
+    static LogicalResult verifyTrait(Operation *op) {
+        return impl::verifyTensorSize(op);
+    }
 };
 
 // Trait applied to all Triton MLIR ops.  Checks that the layouts of tensors are
@@ -52,66 +52,67 @@ public:
 template <class ConcreteType>
 class VerifyTensorLayoutsTrait
     : public TraitBase<ConcreteType, VerifyTensorLayoutsTrait> {
-public:
-  static LogicalResult verifyTrait(Operation *op) {
-    return impl::verifyTensorLayouts(op);
-  }
+  public:
+    static LogicalResult verifyTrait(Operation *op) {
+        return impl::verifyTensorLayouts(op);
+    }
 };
 
 template <typename ConcreteType>
 class SameOperandsAndResultEncoding
     : public TraitBase<ConcreteType, SameOperandsAndResultEncoding> {
-public:
-  static LogicalResult verifyTrait(Operation *op) {
-    return impl::verifySameOperandsAndResultEncoding(op);
-  }
+  public:
+    static LogicalResult verifyTrait(Operation *op) {
+        return impl::verifySameOperandsAndResultEncoding(op);
+    }
 };
 
 template <typename ConcreteType>
 class SameOperandsEncoding
     : public TraitBase<ConcreteType, SameOperandsEncoding> {
-public:
-  static LogicalResult verifyTrait(Operation *op) {
-    return impl::verifySameOperandsEncoding(op);
-  }
+  public:
+    static LogicalResult verifyTrait(Operation *op) {
+        return impl::verifySameOperandsEncoding(op);
+    }
 };
 
 template <typename ConcreteType>
 class SameLoadStoreOperandsShape
     : public TraitBase<ConcreteType, SameLoadStoreOperandsShape> {
-public:
-  static LogicalResult verifyTrait(Operation *op) {
-    return impl::verifySameLoadStoreOperandsShape(op);
-  }
+  public:
+    static LogicalResult verifyTrait(Operation *op) {
+        return impl::verifySameLoadStoreOperandsShape(op);
+    }
 };
 
 template <typename ConcreteType>
 class SameLoadStoreOperandsAndResultShape
     : public TraitBase<ConcreteType, SameLoadStoreOperandsAndResultShape> {
-public:
-  static LogicalResult verifyTrait(Operation *op) {
-    return impl::verifySameLoadStoreOperandsAndResultShape(op);
-  }
+  public:
+    static LogicalResult verifyTrait(Operation *op) {
+        return impl::verifySameLoadStoreOperandsAndResultShape(op);
+    }
 };
 
 template <typename ConcreteType>
 class SameLoadStoreOperandsEncoding
     : public TraitBase<ConcreteType, SameLoadStoreOperandsEncoding> {
-public:
-  static LogicalResult verifyTrait(Operation *op) {
-    return impl::verifySameOperandsEncoding(op,
-                                            /*allowTensorPointerType=*/true);
-  }
+  public:
+    static LogicalResult verifyTrait(Operation *op) {
+        return impl::verifySameOperandsEncoding(
+            op,
+            /*allowTensorPointerType=*/true);
+    }
 };
 
 template <typename ConcreteType>
 class SameLoadStoreOperandsAndResultEncoding
     : public TraitBase<ConcreteType, SameLoadStoreOperandsAndResultEncoding> {
-public:
-  static LogicalResult verifyTrait(Operation *op) {
-    return impl::verifySameOperandsAndResultEncoding(
-        op, /*allowTensorPointerType=*/true);
-  }
+  public:
+    static LogicalResult verifyTrait(Operation *op) {
+        return impl::verifySameOperandsAndResultEncoding(
+            op, /*allowTensorPointerType=*/true);
+    }
 };
 
 } // namespace OpTrait

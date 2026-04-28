@@ -50,4 +50,3 @@ extern size_t bdim;
 extern size_t ddim;
 extern size_t cdim;
 } // namespace nncase::ntt::runtime
-

@@ -16,38 +16,38 @@ using namespace mlir::triton;
 // Triton Dialect
 //===----------------------------------------------------------------------===//
 void TritonDialect::registerTypes() {
-  addTypes<
+    addTypes<
 #define GET_TYPEDEF_LIST
 #include "triton/Dialect/Triton/IR/Types.cpp.inc"
-      >();
+        >();
 }
 
 Type PointerType::parse(AsmParser &parser) {
-  if (parser.parseLess())
-    return Type();
+    if (parser.parseLess())
+        return Type();
 
-  Type pointeeType;
-  if (parser.parseType(pointeeType))
-    return Type();
+    Type pointeeType;
+    if (parser.parseType(pointeeType))
+        return Type();
 
-  int addressSpace = 1;
-  if (succeeded(parser.parseOptionalComma())) {
-    if (parser.parseInteger(addressSpace))
-      return Type();
-  }
+    int addressSpace = 1;
+    if (succeeded(parser.parseOptionalComma())) {
+        if (parser.parseInteger(addressSpace))
+            return Type();
+    }
 
-  if (parser.parseGreater())
-    return Type();
+    if (parser.parseGreater())
+        return Type();
 
-  return PointerType::get(pointeeType, addressSpace);
+    return PointerType::get(pointeeType, addressSpace);
 }
 
 void PointerType::print(AsmPrinter &printer) const {
-  if (getAddressSpace() == 1) {
-    printer << "<" << getPointeeType() << ">";
-  } else {
-    printer << "<" << getPointeeType() << ", " << getAddressSpace() << ">";
-  }
+    if (getAddressSpace() == 1) {
+        printer << "<" << getPointeeType() << ">";
+    } else {
+        printer << "<" << getPointeeType() << ", " << getAddressSpace() << ">";
+    }
 }
 
 namespace mlir {
@@ -55,82 +55,83 @@ namespace mlir {
 namespace triton {
 
 unsigned getPointeeBitWidth(Type type) {
-  auto pointeeType = getPointeeType(type);
-  if (auto tensorTy = dyn_cast<RankedTensorType>(pointeeType))
-    return tensorTy.getElementType().getIntOrFloatBitWidth();
-  return pointeeType.getIntOrFloatBitWidth();
+    auto pointeeType = getPointeeType(type);
+    if (auto tensorTy = dyn_cast<RankedTensorType>(pointeeType))
+        return tensorTy.getElementType().getIntOrFloatBitWidth();
+    return pointeeType.getIntOrFloatBitWidth();
 }
 
 Type getI1SameShape(Type type) {
-  auto i1Type = IntegerType::get(type.getContext(), 1);
-  if (auto tensorTy = dyn_cast<RankedTensorType>(type))
-    return tensorTy.clone(i1Type);
-  return i1Type;
+    auto i1Type = IntegerType::get(type.getContext(), 1);
+    if (auto tensorTy = dyn_cast<RankedTensorType>(type))
+        return tensorTy.clone(i1Type);
+    return i1Type;
 }
 
 Type getPointeeType(Type type) {
-  if (auto tensorTy = dyn_cast<RankedTensorType>(type)) {
-    // Tensor of pointers
-    auto ptrType = dyn_cast<PointerType>(tensorTy.getElementType());
-    Type pointeeType = ptrType.getPointeeType();
-    return tensorTy.clone(pointeeType);
-  } else if (auto ptrType = dyn_cast<PointerType>(type)) {
-    // scalar pointer
-    Type pointeeType = ptrType.getPointeeType();
-    return pointeeType;
-  }
-  return type;
+    if (auto tensorTy = dyn_cast<RankedTensorType>(type)) {
+        // Tensor of pointers
+        auto ptrType = dyn_cast<PointerType>(tensorTy.getElementType());
+        Type pointeeType = ptrType.getPointeeType();
+        return tensorTy.clone(pointeeType);
+    } else if (auto ptrType = dyn_cast<PointerType>(type)) {
+        // scalar pointer
+        Type pointeeType = ptrType.getPointeeType();
+        return pointeeType;
+    }
+    return type;
 }
 
 Type getI32SameShape(Type type) {
-  auto i32Type = IntegerType::get(type.getContext(), 32);
-  if (auto tensorTy = dyn_cast<RankedTensorType>(type))
-    return tensorTy.clone(i32Type);
-  return i32Type;
+    auto i32Type = IntegerType::get(type.getContext(), 32);
+    if (auto tensorTy = dyn_cast<RankedTensorType>(type))
+        return tensorTy.clone(i32Type);
+    return i32Type;
 }
 
 Type getPointerTypeSameShape(Type type) {
-  if (auto tensorTy = dyn_cast<RankedTensorType>(type)) {
-    Type elementType = tensorTy.getElementType();
-    PointerType ptrType = PointerType::get(elementType, 1);
-    return tensorTy.clone(ptrType);
-  } else {
-    return PointerType::get(type, 1);
-  }
+    if (auto tensorTy = dyn_cast<RankedTensorType>(type)) {
+        Type elementType = tensorTy.getElementType();
+        PointerType ptrType = PointerType::get(elementType, 1);
+        return tensorTy.clone(ptrType);
+    } else {
+        return PointerType::get(type, 1);
+    }
 }
 
 Type getPointerTypeToElement(Type type) {
-  Type elementType = getElementTypeOrSelf(type);
-  PointerType ptrType = PointerType::get(elementType, 1);
-  return ptrType;
+    Type elementType = getElementTypeOrSelf(type);
+    PointerType ptrType = PointerType::get(elementType, 1);
+    return ptrType;
 }
 
 // upstream Triton only uses address space 1 for Pointer Type
 Type getPointerType(Type type, int addressSpace) {
-  return PointerType::get(type, addressSpace);
+    return PointerType::get(type, addressSpace);
 }
 
 int getAddressSpace(Type type) {
-  if (auto ptrType = dyn_cast<PointerType>(type))
-    return ptrType.getAddressSpace();
-  return 1;
+    if (auto ptrType = dyn_cast<PointerType>(type))
+        return ptrType.getAddressSpace();
+    return 1;
 }
 
 bool isTensorPointerType(Type type) {
-  if (auto ptrType = dyn_cast<PointerType>(type))
-    return isa<RankedTensorType>(ptrType.getPointeeType());
-  return false;
+    if (auto ptrType = dyn_cast<PointerType>(type))
+        return isa<RankedTensorType>(ptrType.getPointeeType());
+    return false;
 }
 
 bool isTensorOrTensorPointerType(Type type) {
-  return isa<RankedTensorType>(type) || isTensorPointerType(type);
+    return isa<RankedTensorType>(type) || isTensorPointerType(type);
 }
 
 Type getElementTypeOfTensorPointerType(Type type) {
-  if (auto ptrType = dyn_cast<PointerType>(type))
-    if (auto tensorTy = dyn_cast<RankedTensorType>(ptrType.getPointeeType()))
-      return tensorTy.getElementType();
-  return {};
+    if (auto ptrType = dyn_cast<PointerType>(type))
+        if (auto tensorTy =
+                dyn_cast<RankedTensorType>(ptrType.getPointeeType()))
+            return tensorTy.getElementType();
+    return {};
 }
 
 } // namespace triton

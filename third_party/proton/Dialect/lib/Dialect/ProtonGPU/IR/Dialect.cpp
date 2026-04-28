@@ -13,21 +13,21 @@ const int mlir::triton::proton::gpu::getBytesPerClockEntry() { return 8; }
 const int mlir::triton::proton::gpu::getCircularHeaderSize() { return 16; }
 
 void mlir::triton::proton::gpu::ProtonGPUDialect::initialize() {
-  registerTypes();
-  addAttributes<
+    registerTypes();
+    addAttributes<
 #define GET_ATTRDEF_LIST
 #include "Dialect/ProtonGPU/IR/AttrDefs.cpp.inc"
-      >();
-  addOperations<
+        >();
+    addOperations<
 #define GET_OP_LIST
 #include "Dialect/ProtonGPU/IR/Ops.cpp.inc"
-      >();
+        >();
 }
 
 const int mlir::triton::proton::gpu::getTotalNumWarps(ModuleOp mod) {
-  int numWarps = mlir::triton::gpu::lookupNumWarps(mod);
-  if (auto totalNumWarps =
-          mod->getAttrOfType<IntegerAttr>("ttg.total-num-warps"))
-    numWarps = totalNumWarps.getInt();
-  return numWarps;
+    int numWarps = mlir::triton::gpu::lookupNumWarps(mod);
+    if (auto totalNumWarps =
+            mod->getAttrOfType<IntegerAttr>("ttg.total-num-warps"))
+        numWarps = totalNumWarps.getInt();
+    return numWarps;
 }

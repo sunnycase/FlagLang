@@ -13,7 +13,7 @@
     <PackageReference Include="System.Linq.Async" />
     <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
-    
+
   <ItemGroup>
     <ProjectReference Include="..\Nncase.Core\Nncase.Core.csproj" />
     <ProjectReference Include="..\Nncase.Passes\Nncase.Passes.csproj" />

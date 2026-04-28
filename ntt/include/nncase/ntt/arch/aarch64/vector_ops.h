@@ -52,7 +52,8 @@ struct vmma<Acc, true, ntt::vector<float, 4, 4>, ntt::vector<float, 4, 4>,
 
         // c,n,m,lane => c = c + (m[lane] * n)
         if (Acc) {
-            ret(0_dim) = vfmaq_laneq_f32(out(0_dim), rhs(0_dim), lhs(0_dim), 0); // k = 0
+            ret(0_dim) =
+                vfmaq_laneq_f32(out(0_dim), rhs(0_dim), lhs(0_dim), 0); // k = 0
             ret(1_dim) = vfmaq_laneq_f32(out(1_dim), rhs(0_dim), lhs(0_dim), 1);
             ret(2_dim) = vfmaq_laneq_f32(out(2_dim), rhs(0_dim), lhs(0_dim), 2);
             ret(3_dim) = vfmaq_laneq_f32(out(3_dim), rhs(0_dim), lhs(0_dim), 3);

@@ -10,13 +10,13 @@
 
 namespace mlir::triton::tle {
 void TleDialect::initialize() {
-  addAttributes<
+    addAttributes<
 #define GET_ATTRDEF_LIST
 #include "tle/dialect/include/IR/TleAttrDefs.cpp.inc"
-      >();
-  addOperations<
+        >();
+    addOperations<
 #define GET_OP_LIST
 #include "tle/dialect/include/IR/Ops.cpp.inc"
-      >();
+        >();
 }
 } // namespace mlir::triton::tle

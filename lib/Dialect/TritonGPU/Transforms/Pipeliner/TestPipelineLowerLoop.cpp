@@ -17,14 +17,14 @@ namespace gpu {
 
 struct TestPipelineLowerLoop
     : public impl::TritonGPUTestPipelineLowerLoopBase<TestPipelineLowerLoop> {
-  using impl::TritonGPUTestPipelineLowerLoopBase<
-      TestPipelineLowerLoop>::TritonGPUTestPipelineLowerLoopBase;
+    using impl::TritonGPUTestPipelineLowerLoopBase<
+        TestPipelineLowerLoop>::TritonGPUTestPipelineLowerLoopBase;
 
-  void runOnOperation() override {
-    ModuleOp m = getOperation();
+    void runOnOperation() override {
+        ModuleOp m = getOperation();
 
-    lowerLoops(m);
-  }
+        lowerLoops(m);
+    }
 };
 
 } // namespace gpu

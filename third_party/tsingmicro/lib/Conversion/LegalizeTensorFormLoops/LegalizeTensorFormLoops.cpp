@@ -23,48 +23,49 @@ namespace triton {
 
 namespace {
 struct ForOpRewrite : public OpRewritePattern<scf::ForOp> {
-  using OpRewritePattern<scf::ForOp>::OpRewritePattern;
+    using OpRewritePattern<scf::ForOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(scf::ForOp forOp,
-                                PatternRewriter &rewriter) const override {
-    auto result = failure();
-    auto yieldOp = cast<scf::YieldOp>(forOp.getBody()->getTerminator());
-    rewriter.setInsertionPoint(yieldOp);
-    for (auto op : llvm::enumerate(yieldOp->getOperands())) {
-      auto val = op.value();
-      auto itArg = forOp.getRegionIterArgs()[op.index()];
-      if (!isa<TensorType>(val.getType()) || val == itArg)
-        continue;
-      auto copyOp = dyn_cast<linalg::CopyOp>(val.getDefiningOp());
+    LogicalResult matchAndRewrite(scf::ForOp forOp,
+                                  PatternRewriter &rewriter) const override {
+        auto result = failure();
+        auto yieldOp = cast<scf::YieldOp>(forOp.getBody()->getTerminator());
+        rewriter.setInsertionPoint(yieldOp);
+        for (auto op : llvm::enumerate(yieldOp->getOperands())) {
+            auto val = op.value();
+            auto itArg = forOp.getRegionIterArgs()[op.index()];
+            if (!isa<TensorType>(val.getType()) || val == itArg)
+                continue;
+            auto copyOp = dyn_cast<linalg::CopyOp>(val.getDefiningOp());
 
-      // TODO: Use BufferizableOpInterface to analyze whether the operand is
-      // equivalent to the corresponding iter bbArg.
-      if (!copyOp || copyOp.getOutputs()[0] != itArg) {
-        auto reduceVal =
-            rewriter.create<linalg::CopyOp>(forOp.getLoc(), val, itArg);
-        yieldOp->setOperand(op.index(), reduceVal->getResult(0));
-        result = success();
-      }
+            // TODO: Use BufferizableOpInterface to analyze whether the operand
+            // is equivalent to the corresponding iter bbArg.
+            if (!copyOp || copyOp.getOutputs()[0] != itArg) {
+                auto reduceVal =
+                    rewriter.create<linalg::CopyOp>(forOp.getLoc(), val, itArg);
+                yieldOp->setOperand(op.index(), reduceVal->getResult(0));
+                result = success();
+            }
+        }
+
+        return result;
     }
-
-    return result;
-  }
 };
 
 class LegalizeTensorFormLoopsPass
     : public triton::impl::LegalizeTensorFormLoopsBase<
           LegalizeTensorFormLoopsPass> {
-  using LegalizeTensorFormLoopsBase<
-      LegalizeTensorFormLoopsPass>::LegalizeTensorFormLoopsBase;
+    using LegalizeTensorFormLoopsBase<
+        LegalizeTensorFormLoopsPass>::LegalizeTensorFormLoopsBase;
 
-public:
-  void runOnOperation() override {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<ForOpRewrite>(&getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
+  public:
+    void runOnOperation() override {
+        RewritePatternSet patterns(&getContext());
+        patterns.add<ForOpRewrite>(&getContext());
+        if (failed(
+                applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+            signalPassFailure();
+        }
     }
-  }
 };
 
 } // namespace

@@ -13,48 +13,49 @@ namespace mlir::triton::proton::gpu {
 struct AllocateProtonSharedMemoryPass
     : public impl::AllocateProtonSharedMemoryPassBase<
           AllocateProtonSharedMemoryPass> {
-  void runOnOperation() override {
-    ModuleOp mod = getOperation();
-    MLIRContext *ctx = &getContext();
+    void runOnOperation() override {
+        ModuleOp mod = getOperation();
+        MLIRContext *ctx = &getContext();
 
-    int sharedMemUsed = 0;
-    if (mod->hasAttr("ttg.shared"))
-      sharedMemUsed =
-          mod->getAttrOfType<mlir::IntegerAttr>("ttg.shared").getInt();
+        int sharedMemUsed = 0;
+        if (mod->hasAttr("ttg.shared"))
+            sharedMemUsed =
+                mod->getAttrOfType<mlir::IntegerAttr>("ttg.shared").getInt();
 
-    assert(llvm::range_size(mod.getOps<triton::FuncOp>()) == 1);
-    FuncOp func = *mod.getOps<triton::FuncOp>().begin();
+        assert(llvm::range_size(mod.getOps<triton::FuncOp>()) == 1);
+        FuncOp func = *mod.getOps<triton::FuncOp>().begin();
 
-    int totalSharedMemSize = 0;
-    int count = 0;
-    func.walk([&](triton::gpu::LocalAllocOp alloc) {
-      // We ignore the shared memory allocations that have been allocated by the
-      // triton conversion pass.
-      if (!alloc->hasAttr("allocation.offset")) {
-        int offset =
-            llvm::alignTo(sharedMemUsed, proton::gpu::getBytesPerClockEntry());
-        alloc->setAttr("allocation.offset",
-                       IntegerAttr::get(IntegerType::get(ctx, 32), offset));
-        // Compute the proton buffer size in bytes.
-        auto memDescTy =
-            mlir::cast<triton::gpu::MemDescType>(alloc.getResult().getType());
-        int bufferSizeInBytes =
-            mlir::ShapedType::getNumElements(memDescTy.getShape()) *
-            memDescTy.getElementType().getIntOrFloatBitWidth() / 8;
+        int totalSharedMemSize = 0;
+        int count = 0;
+        func.walk([&](triton::gpu::LocalAllocOp alloc) {
+            // We ignore the shared memory allocations that have been allocated
+            // by the triton conversion pass.
+            if (!alloc->hasAttr("allocation.offset")) {
+                int offset = llvm::alignTo(
+                    sharedMemUsed, proton::gpu::getBytesPerClockEntry());
+                alloc->setAttr(
+                    "allocation.offset",
+                    IntegerAttr::get(IntegerType::get(ctx, 32), offset));
+                // Compute the proton buffer size in bytes.
+                auto memDescTy = mlir::cast<triton::gpu::MemDescType>(
+                    alloc.getResult().getType());
+                int bufferSizeInBytes =
+                    mlir::ShapedType::getNumElements(memDescTy.getShape()) *
+                    memDescTy.getElementType().getIntOrFloatBitWidth() / 8;
 
-        totalSharedMemSize = offset + bufferSizeInBytes;
-        count++;
-      }
-    });
+                totalSharedMemSize = offset + bufferSizeInBytes;
+                count++;
+            }
+        });
 
-    if (count == 0) {
-      totalSharedMemSize = sharedMemUsed;
+        if (count == 0) {
+            totalSharedMemSize = sharedMemUsed;
+        }
+
+        mod->setAttr("ttg.shared",
+                     mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32),
+                                            totalSharedMemSize));
     }
-
-    mod->setAttr("ttg.shared",
-                 mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32),
-                                        totalSharedMemSize));
-  }
 };
 
 } // namespace mlir::triton::proton::gpu

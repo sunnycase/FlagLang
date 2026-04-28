@@ -25,10 +25,21 @@ prototype_pattern = {
 }
 
 ptx_param_storage_types = {
-    "b8", "b16", "b32", "b64",
-    "s8", "s16", "s32", "s64",
-    "u8", "u16", "u32", "u64",
-    "f16", "f32", "f64",
+    "b8",
+    "b16",
+    "b32",
+    "b64",
+    "s8",
+    "s16",
+    "s32",
+    "s64",
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "f16",
+    "f32",
+    "f64",
     "pred",
 }
 
@@ -37,7 +48,11 @@ ptx_param_modifiers_with_value = {
 }
 
 ptx_param_modifiers = {
-    "ptr", "global", "const", "local", "shared",
+    "ptr",
+    "global",
+    "const",
+    "local",
+    "shared",
 }
 
 
@@ -197,8 +212,7 @@ class ASTSource:
         if isinstance(attrs, AttrsDescriptor):
             for key in attrs.equal_to_1:
                 path = _normalize_path_key(fn, key)
-                self.constants.setdefault(
-                    path, _equal_to_1_constant_value(self.signature, fn, path))
+                self.constants.setdefault(path, _equal_to_1_constant_value(self.signature, fn, path))
         self.attrs = _normalize_attrs(fn, attrs)
         self._attrs_key = attrs.hash() if isinstance(attrs, AttrsDescriptor) else str(self.attrs)
 
@@ -536,8 +550,8 @@ def compile(src, target=None, options=None, _env_vars=None):
         if callable(cache_artifacts):
             for artifact_ext, artifact in cache_artifacts().items():
                 artifact_filename = f"{file_name}.{artifact_ext}"
-                metadata_group[artifact_filename] = fn_cache_manager.put(_serialize_ir_for_storage(artifact, artifact_ext),
-                                                                         artifact_filename)
+                metadata_group[artifact_filename] = fn_cache_manager.put(
+                    _serialize_ir_for_storage(artifact, artifact_ext), artifact_filename)
                 if fn_dump_manager is not None:
                     fn_dump_manager.put(_serialize_ir_for_storage(artifact, artifact_ext), artifact_filename)
         # use an env variable to parse ir from file

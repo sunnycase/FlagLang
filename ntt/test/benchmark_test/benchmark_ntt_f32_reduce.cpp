@@ -46,7 +46,7 @@ constexpr size_t P = NTT_VLEN / (sizeof(float) * 8);
                                                                                \
     std::ostringstream oss;                                                    \
     oss << module << "_" << reduce_mode << "_" << reduce_direction << "_"      \
-        << vectorize_mode << " took " << std::setprecision(0) << std::fixed         \
+        << vectorize_mode << " took " << std::setprecision(0) << std::fixed    \
         << static_cast<float>(t2 - t1) / run_num << " cycles";                 \
     return oss.str();
 
@@ -74,7 +74,7 @@ constexpr size_t P = NTT_VLEN / (sizeof(float) * 8);
                                                                                \
     std::ostringstream oss;                                                    \
     oss << module << "_" << reduce_mode << "_" << reduce_direction << "_"      \
-        << vectorize_mode << " took " << std::setprecision(0) << std::fixed         \
+        << vectorize_mode << " took " << std::setprecision(0) << std::fixed    \
         << static_cast<float>(t2 - t1) / run_num << " cycles";                 \
     return oss.str();
 
@@ -102,7 +102,7 @@ constexpr size_t P = NTT_VLEN / (sizeof(float) * 8);
                                                                                \
     std::ostringstream oss;                                                    \
     oss << module << "_" << reduce_mode << "_" << reduce_direction << "_"      \
-        << vectorize_mode << " took " << std::setprecision(0) << std::fixed         \
+        << vectorize_mode << " took " << std::setprecision(0) << std::fixed    \
         << static_cast<float>(t2 - t1) / run_num << " cycles";                 \
     return oss.str();
 
@@ -130,7 +130,7 @@ constexpr size_t P = NTT_VLEN / (sizeof(float) * 8);
                                                                                \
     std::ostringstream oss;                                                    \
     oss << module << "_" << reduce_mode << "_" << reduce_direction << "_"      \
-        << vectorize_mode << " took " << std::setprecision(0) << std::fixed         \
+        << vectorize_mode << " took " << std::setprecision(0) << std::fixed    \
         << static_cast<float>(t2 - t1) / run_num << " cycles";                 \
     return oss.str();
 

@@ -13,18 +13,18 @@ using namespace mlir;
 namespace tle = mlir::triton::tle;
 
 struct DSLRegionOpConversion : public ConvertOpToLLVMPattern<tle::DSLRegionOp> {
-  DSLRegionOpConversion(LLVMTypeConverter &typeConverter,
-                        PatternBenefit benefit);
-  LogicalResult
-  matchAndRewrite(tle::DSLRegionOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
+    DSLRegionOpConversion(LLVMTypeConverter &typeConverter,
+                          PatternBenefit benefit);
+    LogicalResult
+    matchAndRewrite(tle::DSLRegionOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override;
 };
 
 struct YieldOpConversion : public ConvertOpToLLVMPattern<tle::YieldOp> {
-  YieldOpConversion(LLVMTypeConverter &typeConverter, PatternBenefit benefit);
-  LogicalResult
-  matchAndRewrite(tle::YieldOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
+    YieldOpConversion(LLVMTypeConverter &typeConverter, PatternBenefit benefit);
+    LogicalResult
+    matchAndRewrite(tle::YieldOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override;
 };
 
 } // namespace
@@ -36,21 +36,21 @@ DSLRegionOpConversion::DSLRegionOpConversion(LLVMTypeConverter &typeConverter,
 LogicalResult DSLRegionOpConversion::matchAndRewrite(
     tle::DSLRegionOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  auto newOp = rewriter.cloneWithoutRegions<tle::DSLRegionOp>(op);
-  Region &body = op.getBody();
-  Region &newBody = newOp.getBody();
-  rewriter.inlineRegionBefore(body, newBody, newBody.end());
+    auto newOp = rewriter.cloneWithoutRegions<tle::DSLRegionOp>(op);
+    Region &body = op.getBody();
+    Region &newBody = newOp.getBody();
+    rewriter.inlineRegionBefore(body, newBody, newBody.end());
 
-  if (failed(rewriter.convertRegionTypes(&newBody, *getTypeConverter()))) {
-    return rewriter.notifyMatchFailure(op, "could not convert body types");
-  }
-  newOp->setOperands(adaptor.getOperands());
-  for (OpResult result : newOp.getResults()) {
-    result.setType(getTypeConverter()->convertType(result.getType()));
-  }
-  rewriter.replaceOp(op, newOp->getResults());
+    if (failed(rewriter.convertRegionTypes(&newBody, *getTypeConverter()))) {
+        return rewriter.notifyMatchFailure(op, "could not convert body types");
+    }
+    newOp->setOperands(adaptor.getOperands());
+    for (OpResult result : newOp.getResults()) {
+        result.setType(getTypeConverter()->convertType(result.getType()));
+    }
+    rewriter.replaceOp(op, newOp->getResults());
 
-  return success();
+    return success();
 }
 
 YieldOpConversion::YieldOpConversion(LLVMTypeConverter &typeConverter,
@@ -60,13 +60,13 @@ YieldOpConversion::YieldOpConversion(LLVMTypeConverter &typeConverter,
 LogicalResult
 YieldOpConversion::matchAndRewrite(tle::YieldOp op, OpAdaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
-  rewriter.replaceOpWithNewOp<tle::YieldOp>(op, adaptor.getOperands());
-  return success();
+    rewriter.replaceOpWithNewOp<tle::YieldOp>(op, adaptor.getOperands());
+    return success();
 }
 
 void tle::populateDSLRegionOpToLLVMPatterns(
     mlir::LLVMTypeConverter &typeConverter, RewritePatternSet &patterns,
     PatternBenefit benefit) {
-  patterns.add<DSLRegionOpConversion, YieldOpConversion>(typeConverter,
-                                                         benefit);
+    patterns.add<DSLRegionOpConversion, YieldOpConversion>(typeConverter,
+                                                           benefit);
 }

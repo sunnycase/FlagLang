@@ -10,22 +10,22 @@ class Partition;
 using StageCluster = std::optional<std::pair<int, int>>;
 
 struct PartitionBuilder : public ImplicitLocOpBuilder {
-  using ImplicitLocOpBuilder::ImplicitLocOpBuilder;
+    using ImplicitLocOpBuilder::ImplicitLocOpBuilder;
 
-  Value intCst(int value, unsigned width = 32);
-  Value boolCst(bool value);
+    Value intCst(int value, unsigned width = 32);
+    Value boolCst(bool value);
 
-  void assignStage(Operation *op, StageCluster stageCluster);
-  void assignPartition(Operation *op, Partition &partition);
+    void assignStage(Operation *op, StageCluster stageCluster);
+    void assignPartition(Operation *op, Partition &partition);
 
-  template <typename OpT, typename... Args>
-  auto createInto(Partition &partition, StageCluster stageCluster,
-                  Args &&...args) {
-    auto op = create<OpT>(std::forward<Args>(args)...);
-    assignPartition(op, partition);
-    assignStage(op, stageCluster);
-    return op;
-  }
+    template <typename OpT, typename... Args>
+    auto createInto(Partition &partition, StageCluster stageCluster,
+                    Args &&...args) {
+        auto op = create<OpT>(std::forward<Args>(args)...);
+        assignPartition(op, partition);
+        assignStage(op, stageCluster);
+        return op;
+    }
 };
 
 // Get the stage and cluster for an operation, if it has one assigned.

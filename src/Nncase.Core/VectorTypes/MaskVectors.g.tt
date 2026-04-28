@@ -40,7 +40,7 @@ foreach (var (elemType, elemBits) in elemTypeAndBitsValues)
     {
         var lanes = bits / elemBits;
         foreach (var style in styleValues)
-        { 
+        {
             var typeName = $"MaskVector{lanes}B{elemBits}{style}";#>
         (MaskVectorStyle.<#=style#>, <#=elemBits#>, <#=lanes#>) => typeof(<#=typeName#>),
 <#}}}#>
@@ -59,7 +59,7 @@ foreach (var (elemType, elemBits) in elemTypeAndBitsValues)
     {
         var lanes = bits / elemBits;
         foreach (var style in styleValues)
-        { 
+        {
             var typeName = $"MaskVector{lanes}B{elemBits}{style}";#>
         registrator.RegisterInstance(new MaskVectorType(MaskVectorStyle.<#=style#>, <#=elemBits#>, <#=lanes#>));
 <#}}}#>
@@ -95,7 +95,7 @@ public unsafe struct <#=typeName#> : IMaskVector, IEquatable<<#=typeName#>>
 
     public static int Count => <#=lanes#>;
 
-    public static <#=typeName#> Create(bool[] array) 
+    public static <#=typeName#> Create(bool[] array)
     {
         if (array.Length != Count)
         {
@@ -161,7 +161,7 @@ public unsafe struct <#=typeName#> : IMaskVector, IEquatable<<#=typeName#>>
     }
 
 <#foreach (var op in new string[] { }) {#>
-    public static <#=typeName#> operator <#=op#>(<#=typeName#> left, <#=typeName#> right) 
+    public static <#=typeName#> operator <#=op#>(<#=typeName#> left, <#=typeName#> right)
     {
         <#=typeName#> res = default;
         var lhs = left.AsSpan();

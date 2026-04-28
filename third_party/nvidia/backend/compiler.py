@@ -1,7 +1,7 @@
 from triton.backends.compiler import BaseBackend, GPUTarget, Language
 #from triton._C.libtriton import ir, passes, llvm, nvidia
 #from triton._C.libtriton import tle
-from triton._C.libtriton import ir, hosting
+from triton._C.libtriton import ir
 from triton import knobs
 from triton.runtime.errors import PTXASError
 
@@ -173,16 +173,13 @@ def _require_native_ir_module(src):
         raise NotImplementedError(
             "FlagLang native CUDA backend can parse .ttir/.ttgir MLIR files for metadata, "
             "but it cannot lower external MLIR source text to a native nncase ir.module. "
-            "Compile Triton AST kernels through the native frontend so lowering starts from ir.module."
-        )
+            "Compile Triton AST kernels through the native frontend so lowering starts from ir.module.")
 
     module_type = getattr(ir, "module", None)
     if module_type is None or not isinstance(src, module_type):
         entry = _module_entry_name(src)
-        raise TypeError(
-            "Unsupported native module for CUDA cubin emission: expected actual post-TTIR native "
-            f"ir.module, got entry {entry!r} of type {type(src).__name__}."
-        )
+        raise TypeError("Unsupported native module for CUDA cubin emission: expected actual post-TTIR native "
+                        f"ir.module, got entry {entry!r} of type {type(src).__name__}.")
 
 
 def _unwrap_native_cuda_stage(src):
@@ -194,12 +191,7 @@ def _native_stage_text(value):
 
 
 def _validate_native_cubin(cubin: bytes, entry_name: str):
-    if (
-        len(cubin) < 64 or
-        cubin[0:4] != b"\x7fELF" or
-        cubin[4] != 2 or
-        cubin[5] != 1
-    ):
+    if (len(cubin) < 64 or cubin[0:4] != b"\x7fELF" or cubin[4] != 2 or cubin[5] != 1):
         raise ValueError("Native CUDA compile helper returned bytes that are not a CUDA ELF cubin artifact.")
 
     cuobjdump = knobs.nvidia.cuobjdump.path
@@ -396,16 +388,26 @@ def _native_compile_options(src, metadata, opt, capability):
     src = _unwrap_native_cuda_stage(src)
     cluster_dims = tuple(opt.cluster_dims or (1, 1, 1))
     return {
-        "entry_name": _module_entry_name(src),
-        "arch": sm_arch_from_capability(capability),
-        "capability": capability,
-        "num_warps": opt.num_warps,
-        "num_ctas": opt.num_ctas,
-        "cluster_dims": cluster_dims,
-        "warp_size": opt.warp_size,
-        "threads_per_warp": opt.warp_size,
-        "threads_per_cta": opt.num_warps * opt.warp_size,
-        "binary_ext": "cubin",
+        "entry_name":
+        _module_entry_name(src),
+        "arch":
+        sm_arch_from_capability(capability),
+        "capability":
+        capability,
+        "num_warps":
+        opt.num_warps,
+        "num_ctas":
+        opt.num_ctas,
+        "cluster_dims":
+        cluster_dims,
+        "warp_size":
+        opt.warp_size,
+        "threads_per_warp":
+        opt.warp_size,
+        "threads_per_cta":
+        opt.num_warps * opt.warp_size,
+        "binary_ext":
+        "cubin",
         "required_metadata": [
             "name",
             "shared",
@@ -419,11 +421,16 @@ def _native_compile_options(src, metadata, opt, capability):
             "profile_scratch_align",
         ],
         "stage_names": ["triton_tir", "nncase_ir", "after_compile", "tir", "ntt_cu", "compiler_log", "cubin"],
-        "dump_dir": os.environ.get("TRITON_DUMP_DIR"),
-        "cuobjdump": knobs.nvidia.cuobjdump.path,
-        "enable_auto_dist": False,
-        "runtime_argument_count": metadata.get("runtime_argument_count", 0),
-        "runtime_argument_order": list(metadata.get("runtime_argument_order", [])),
+        "dump_dir":
+        os.environ.get("TRITON_DUMP_DIR"),
+        "cuobjdump":
+        knobs.nvidia.cuobjdump.path,
+        "enable_auto_dist":
+        False,
+        "runtime_argument_count":
+        metadata.get("runtime_argument_count", 0),
+        "runtime_argument_order":
+        list(metadata.get("runtime_argument_order", [])),
         "runtime_argument_types": [str(item) for item in metadata.get("runtime_argument_types", [])],
     }
 
@@ -434,8 +441,7 @@ def _compile_native_module_to_cubin(src, metadata, opt, capability) -> NativeCud
     compile_to_cubin = getattr(ir, "compile_to_cubin", None)
     if not callable(compile_to_cubin):
         raise RuntimeError(
-            "FlagLang native CUDA compile helper is unavailable; refusing to emit handwritten PTX shortcut."
-        )
+            "FlagLang native CUDA compile helper is unavailable; refusing to emit handwritten PTX shortcut.")
 
     result = compile_to_cubin(src, _native_compile_options(src, metadata, opt, capability))
     return _normalize_native_cuda_compilation(result)
@@ -524,7 +530,7 @@ class CUDABackend(BaseBackend):
     def __init__(self, target: GPUTarget) -> None:
         super().__init__(target)
         self.binary_ext = "cubin"
-        
+
     def make_context(self, options: object):
         target = ir.target("cuda")
         options = ir.compile_options()
@@ -700,7 +706,6 @@ class CUDABackend(BaseBackend):
 
     def gluon_to_ttgir(self, src, metadata, options, capability):
         mod = src
-        pm = ir.pass_manager(mod.context, "ttgir")
         # pm.enable_debug()
 
         # passes.gluon.add_inliner(pm)
@@ -718,11 +723,8 @@ class CUDABackend(BaseBackend):
         if isinstance(src, NativeCudaIRStage):
             return src
 
-        ptx_version = get_ptx_version_from_options(options, capability)
-
         mod = src
         # TritonGPU -> LLVM-IR (MLIR)
-        pm = ir.pass_manager(mod.context, "llir")
         return mod
         # pm.enable_debug()
 

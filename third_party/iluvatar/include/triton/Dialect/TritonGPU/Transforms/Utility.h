@@ -76,39 +76,39 @@ getNumElementsPerThread(Operation *op, SmallVector<unsigned> order,
  *   Shell: dot -Tjpg func.dot -o func.jpg
  */
 class GraphDumper {
-public:
-  using NodeInfo = std::map<std::string, std::string>;
+  public:
+    using NodeInfo = std::map<std::string, std::string>;
 
-  // Override this function to mark specific Values
-  virtual NodeInfo onValue(Value value) const;
-  // Override this function to mark specific Operations
-  virtual NodeInfo onOperation(Operation *op) const;
+    // Override this function to mark specific Values
+    virtual NodeInfo onValue(Value value) const;
+    // Override this function to mark specific Operations
+    virtual NodeInfo onOperation(Operation *op) const;
 
-  std::string dump(triton::FuncOp func) const;
-  void dumpToFile(triton::FuncOp func, const std::string &filename) const;
+    std::string dump(triton::FuncOp func) const;
+    void dumpToFile(triton::FuncOp func, const std::string &filename) const;
 
-protected:
-  std::string getShapeStr(const Type &type) const;
+  protected:
+    std::string getShapeStr(const Type &type) const;
 
-  std::string getUniqueId(Value value) const;
-  std::string getUniqueId(Operation *op) const;
+    std::string getUniqueId(Value value) const;
+    std::string getUniqueId(Operation *op) const;
 
-  std::string emitNode(const std::string &id, const NodeInfo style) const;
-  std::string emitEdge(const std::string &srcId,
-                       const std::string &destId) const;
+    std::string emitNode(const std::string &id, const NodeInfo style) const;
+    std::string emitEdge(const std::string &srcId,
+                         const std::string &destId) const;
 
-  std::string emitValueNode(Value value) const;
-  std::string emitOperationNode(Operation *op) const;
+    std::string emitValueNode(Value value) const;
+    std::string emitOperationNode(Operation *op) const;
 };
 
 /* A subclass of GraphDumper that marks different layout kinds in different
  * colors.*/
 class GraphLayoutMarker : public GraphDumper {
-public:
-  NodeInfo onValue(Value value) const override;
+  public:
+    NodeInfo onValue(Value value) const override;
 
-protected:
-  std::string getColor(const Type &type) const;
+  protected:
+    std::string getColor(const Type &type) const;
 };
 
 // Infers the encoding of the result of op given the source encoding.

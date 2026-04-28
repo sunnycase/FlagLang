@@ -12,12 +12,12 @@ namespace mlir::triton::gpu {
 ///
 /// Enable generation of hardware specific code in different backends.
 class FMAVectorMultiplier {
-public:
-  /// \returns scalar product of two arrays, plus c: a·b + c
-  virtual Value multiplyVectors(ArrayRef<Value> a, ArrayRef<Value> b,
-                                Value c) = 0;
+  public:
+    /// \returns scalar product of two arrays, plus c: a·b + c
+    virtual Value multiplyVectors(ArrayRef<Value> a, ArrayRef<Value> b,
+                                  Value c) = 0;
 
-  virtual ~FMAVectorMultiplier() = default;
+    virtual ~FMAVectorMultiplier() = default;
 };
 
 /// Implements a framework for FMA dot conversion to llvm.

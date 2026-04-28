@@ -7,22 +7,22 @@ namespace proton {
 
 class InstrumentationMetadata {
 
-public:
-  InstrumentationMetadata(const std::string &metadataPath)
-      : metadataPath(metadataPath) {
-    parse();
-  }
+  public:
+    InstrumentationMetadata(const std::string &metadataPath)
+        : metadataPath(metadataPath) {
+        parse();
+    }
 
-  size_t getScratchMemorySize() const { return scratchMemorySize; }
+    size_t getScratchMemorySize() const { return scratchMemorySize; }
 
-  size_t getNumWarps() const { return numWarps; }
+    size_t getNumWarps() const { return numWarps; }
 
-private:
-  void parse();
+  private:
+    void parse();
 
-  const std::string metadataPath;
-  size_t scratchMemorySize{};
-  size_t numWarps{};
+    const std::string metadataPath;
+    size_t scratchMemorySize{};
+    size_t numWarps{};
 };
 
 } // namespace proton

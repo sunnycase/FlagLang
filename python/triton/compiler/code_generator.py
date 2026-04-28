@@ -77,7 +77,6 @@ _NATIVE_CONTROL_FLOW_BUILDER_METHODS = (
     "create_for_op",
 )
 
-
 _RETURN_TERMINATED = object()
 
 
@@ -322,6 +321,7 @@ class CodeGenerator(ast.NodeVisitor):
         self.context = context
         self.is_gluon = is_gluon
         if is_gluon:
+            from .._C.libtriton import gluon_ir
             from triton.experimental.gluon.language._semantic import GluonSemantic
             self.builder = gluon_ir.GluonOpBuilder(context)
             self.semantic = GluonSemantic(self.builder)
@@ -397,8 +397,7 @@ class CodeGenerator(ast.NodeVisitor):
         if missing:
             builder_type = type(self.builder).__name__
             raise self._unsupported(
-                node,
-                f"{construct} requires native IR structured control-flow lowering, but builder "
+                node, f"{construct} requires native IR structured control-flow lowering, but builder "
                 f"{builder_type} is missing required methods: {', '.join(missing)}.")
 
     def _is_constexpr_global(self, name):
@@ -671,7 +670,8 @@ class CodeGenerator(ast.NodeVisitor):
             if callable(getattr(self.fn, "reset_type", None)):
                 self.fn.reset_type(self.prototype.serialize(self.builder))
             if not has_terminator:
-                self.builder.ret([self.builder.create_poison(ty) for ty in self.prototype.return_types_ir(self.builder)])
+                self.builder.ret(
+                    [self.builder.create_poison(ty) for ty in self.prototype.return_types_ir(self.builder)])
         self.fn.finalize()
 
         if insert_pt:

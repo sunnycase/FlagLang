@@ -32,10 +32,10 @@ namespace nvidia_gpu {
 
 // Used by Triton runtime
 struct ClusterInfo {
-  ClusterInfo() : clusterDimX(1), clusterDimY(1), clusterDimZ(1) {}
-  int clusterDimX;
-  int clusterDimY;
-  int clusterDimZ;
+    ClusterInfo() : clusterDimX(1), clusterDimY(1), clusterDimZ(1) {}
+    int clusterDimX;
+    int clusterDimY;
+    int clusterDimZ;
 };
 
 std::unique_ptr<Pass> createTritonNvidiaGPUPlanCTAPass(

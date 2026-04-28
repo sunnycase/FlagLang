@@ -130,7 +130,8 @@ get_resize_scales(TShape in_shape, int32_t out_h, int32_t out_w,
 
 inline constexpr void
 set_resize_bilinear(size_t value, float scale, size_t length_resized,
-                    size_t shape_size, get_coordinate_func_t get_coordinate_func,
+                    size_t shape_size,
+                    get_coordinate_func_t get_coordinate_func,
                     float &scaled_value, int32_t &v0, int32_t &v1) {
     scaled_value = get_coordinate_func(
         static_cast<float>(value), scale, static_cast<float>(length_resized),

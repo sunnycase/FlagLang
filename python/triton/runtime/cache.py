@@ -10,8 +10,7 @@ import sysconfig
 
 from triton import __version__, knobs
 
-
-_FLAGLANG_CACHE_INVALIDATING_ENV_VARS = ("NNCASE_CUDA_COMPILER",)
+_FLAGLANG_CACHE_INVALIDATING_ENV_VARS = ("NNCASE_CUDA_COMPILER", )
 
 
 def _with_flaglang_cache_invalidating_env_vars(env_vars):

@@ -12,7 +12,7 @@
   <ItemGroup>
     <PackageReference Include="Razor.Templating.Core" />
   </ItemGroup>
-  
+
   <ItemGroup>
     <ProjectReference Include="..\..\Nncase.Diagnostics\Nncase.Diagnostics.csproj" />
     <ProjectReference Include="..\..\Nncase.Passes\Nncase.Passes.csproj" />
@@ -31,7 +31,7 @@
     <Folder Include="Runtime\cmake\" />
     <Folder Include="Runtime\src\" />
   </ItemGroup>
-    
+
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />

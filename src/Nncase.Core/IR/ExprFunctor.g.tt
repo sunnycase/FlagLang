@@ -46,7 +46,7 @@ foreach (var ir in irs)
     /// Visit <see cref="<#=ir.Namespace#><#=ir.Name#>"/>.
     /// </summary>
     internal protected virtual TExprResult Visit<#=ir.Name#>(<#=ir.Namespace#><#=ir.Name#> expr) => base.Visit<#=ir.Name#>(expr, default);
-    
+
     /// <inheritdoc/>
     internal protected sealed override TExprResult Visit<#=ir.Name#>(<#=ir.Namespace#><#=ir.Name#> expr, Unit context) => Visit<#=ir.Name#>(expr);
 <#

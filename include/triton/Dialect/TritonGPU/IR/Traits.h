@@ -13,13 +13,13 @@ namespace OpTrait {
 template <typename ConcreteType>
 class MemDescViewTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, MemDescViewTrait> {
-  // Optional: Add methods or verification logic here
+    // Optional: Add methods or verification logic here
 };
 
 template <typename ConcreteType>
 class LocalLoadTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, LocalLoadTrait> {
-  // Optional: Add methods or verification logic here
+    // Optional: Add methods or verification logic here
 };
 
 } // namespace OpTrait

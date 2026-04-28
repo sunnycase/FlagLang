@@ -19,11 +19,9 @@
 
 namespace nncase::ntt::distributed {
 namespace detail {
-inline constexpr size_t topology_element_count =
-    (size_t)nncase::ntt::dim_value(program_dim<topology::chip>() *
-                                   program_dim<topology::block>() *
-                                   program_dim<topology::warp>() *
-                                   program_dim<topology::thread>());
+inline constexpr size_t topology_element_count = (size_t)nncase::ntt::dim_value(
+    program_dim<topology::chip>() * program_dim<topology::block>() *
+    program_dim<topology::warp>() * program_dim<topology::thread>());
 
 extern __device__ uintptr_t global_local_data_ptr[topology_element_count * 2];
 extern __device__ uintptr_t

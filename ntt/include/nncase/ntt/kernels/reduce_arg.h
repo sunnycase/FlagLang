@@ -22,9 +22,11 @@
 // namespace nncase::ntt {
 // namespace reduce_arg_detail {
 // template <reduce_op Op, bool KeepDims, bool SelectLastIdx, Tensor TIn,
-//           Tensor TOut, FixedDimension TReduceAxis, FixedDimensions VectorizedAxes>
+//           Tensor TOut, FixedDimension TReduceAxis, FixedDimensions
+//           VectorizedAxes>
 // void reduce_arg_impl(const TIn &input, TOut &output,
-//                      const TReduceAxis &reduce_axis, const VectorizedAxes &) {
+//                      const TReduceAxis &reduce_axis, const VectorizedAxes &)
+//                      {
 //     using TIElem = typename TIn::element_type;
 //     using TOElem = typename TOut::element_type;
 //     static_assert(Scalar<TOElem> && Scalar<TIElem>,
@@ -131,8 +133,9 @@
 //                 [[maybe_unused]] const TReduceAxis &reduce_axis,
 //                 [[maybe_unused]] const VectorizedAxes &vectorized_axes = {},
 //                 [[maybe_unused]] const PadedNums &paded_nums = {}) noexcept {
-//     static_assert(VectorizedAxes::rank() == 0, "currently not support vectorize.");
-//     static_assert(PadedNums::rank() == 0, "not support padding");
+//     static_assert(VectorizedAxes::rank() == 0, "currently not support
+//     vectorize."); static_assert(PadedNums::rank() == 0, "not support
+//     padding");
 
 //     reduce_arg_detail::reduce_arg_impl<Op, KeepDims, SelectLastIdx, TIn,
 //                                        std::decay_t<TOut>>

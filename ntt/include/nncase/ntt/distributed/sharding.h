@@ -22,7 +22,8 @@
 #include <type_traits>
 
 namespace nncase::ntt::distributed {
-template <class T> concept Sharding = requires(T t) {
+template <class T>
+concept Sharding = requires(T t) {
     typename T::mesh_type;
     typename T::axis_policies_type;
 };
@@ -232,12 +233,14 @@ constexpr auto tensor_axes_of_non_split_shard_policies() noexcept {
 template <size_t Axis, class TSharding, class GlobalShape>
 constexpr auto local_shard_dim(const TSharding &sharding,
                                const GlobalShape &global_shape) noexcept {
-    static_assert(GlobalShape::rank() == TSharding::rank(), "Invalid sharding.");
+    static_assert(GlobalShape::rank() == TSharding::rank(),
+                  "Invalid sharding.");
 
     using mesh_type = typename TSharding::mesh_type;
     const auto local_index = mesh_type::local_index();
     return ntt::get<Axis>(sharding.axis_policies)
-        .template shard_dim<typename TSharding::mesh_type>(global_shape[fixed_dim_v<Axis>], local_index);
+        .template shard_dim<typename TSharding::mesh_type>(
+            global_shape[fixed_dim_v<Axis>], local_index);
 }
 
 template <class Sharding, Shape GlobalShape>

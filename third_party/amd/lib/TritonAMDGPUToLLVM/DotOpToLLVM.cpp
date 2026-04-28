@@ -27,41 +27,43 @@ LogicalResult convertWMMA(triton::DotOp op, triton::DotOp::Adaptor adaptor,
 
 namespace {
 struct DotOpConversion : public ConvertOpToLLVMPattern<triton::DotOp> {
-  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+    using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
 
-  LogicalResult
-  matchAndRewrite(triton::DotOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Location loc = op->getLoc();
-    // D = A * B + C
-    Value D = op.getResult();
+    LogicalResult
+    matchAndRewrite(triton::DotOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+        Location loc = op->getLoc();
+        // D = A * B + C
+        Value D = op.getResult();
 
-    auto dEncoding = cast<RankedTensorType>(D.getType()).getEncoding();
-    if (isa<AMDMfmaEncodingAttr>(dEncoding)) {
-      return AMD::convertMFMA(op, adaptor, getTypeConverter(), rewriter);
+        auto dEncoding = cast<RankedTensorType>(D.getType()).getEncoding();
+        if (isa<AMDMfmaEncodingAttr>(dEncoding)) {
+            return AMD::convertMFMA(op, adaptor, getTypeConverter(), rewriter);
+        }
+        if (isa<AMDWmmaEncodingAttr>(dEncoding)) {
+            return AMD::convertWMMA(op, adaptor, getTypeConverter(), rewriter);
+        }
+
+        if (isa<BlockedEncodingAttr>(
+                cast<RankedTensorType>(D.getType()).getEncoding()))
+            return AMD::convertAMDFMADot(op, adaptor, getTypeConverter(),
+                                         rewriter);
+
+        llvm::report_fatal_error(
+            "Unsupported DotOp found when converting TritonGPU to LLVM.");
     }
-    if (isa<AMDWmmaEncodingAttr>(dEncoding)) {
-      return AMD::convertWMMA(op, adaptor, getTypeConverter(), rewriter);
-    }
-
-    if (isa<BlockedEncodingAttr>(
-            cast<RankedTensorType>(D.getType()).getEncoding()))
-      return AMD::convertAMDFMADot(op, adaptor, getTypeConverter(), rewriter);
-
-    llvm::report_fatal_error(
-        "Unsupported DotOp found when converting TritonGPU to LLVM.");
-  }
 };
 
 struct ScaledDotOpConversion
     : public ConvertOpToLLVMPattern<triton::DotScaledOp> {
-  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+    using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
 
-  LogicalResult
-  matchAndRewrite(triton::DotScaledOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    return AMD::convertScaledMFMA(op, adaptor, getTypeConverter(), rewriter);
-  }
+    LogicalResult
+    matchAndRewrite(triton::DotScaledOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+        return AMD::convertScaledMFMA(op, adaptor, getTypeConverter(),
+                                      rewriter);
+    }
 };
 } // namespace
 
@@ -70,7 +72,7 @@ void populateDotOpToLLVMPatterns(LLVMTypeConverter &typeConverter,
                                  RewritePatternSet &patterns,
                                  ModuleAxisInfoAnalysis &axisInfoAnalysis,
                                  PatternBenefit benefit) {
-  patterns.add<DotOpConversion>(typeConverter, benefit);
-  patterns.add<ScaledDotOpConversion>(typeConverter, benefit);
+    patterns.add<DotOpConversion>(typeConverter, benefit);
+    patterns.add<ScaledDotOpConversion>(typeConverter, benefit);
 }
 } // namespace mlir::triton::AMD

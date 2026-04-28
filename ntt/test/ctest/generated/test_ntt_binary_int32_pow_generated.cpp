@@ -26,300 +26,357 @@
 using namespace nncase;
 using namespace ortki;
 
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
+    //---init ntt_input_lhs---
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
+    //---init ntt_input_rhs---
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
+    //---generate output tensor---
+    // ------------------------------------------------------------------
+    // 2. call NTT operation to get NTT output (under test)
+    // ------------------------------------------------------------------
+    // Create output tensor
+    auto ntt_output =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
 
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
-    //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
-    //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
-    //---generate output tensor---
-    // ------------------------------------------------------------------
-    // 2. call NTT operation to get NTT output (under test)
-    // ------------------------------------------------------------------
-    // Create output tensor
-    auto ntt_output = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_scalar_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_scalar_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_scalar_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_scalar_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_2D_vector_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_2D_vector_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_2D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_2D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_2D_vector_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_2D_vector_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -327,286 +384,338 @@ TEST(BinaryTestpow_Int32, Int32_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_r
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_scalar_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_scalar_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_scalar_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_scalar_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_2D_vector_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_2D_vector_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_2D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_2D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_fixed_2D_vector_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_fixed_2D_vector_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -614,286 +723,338 @@ TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_r
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_scalar_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_scalar_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_scalar_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_scalar_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_fixed_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -901,280 +1062,328 @@ TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<int32_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
-TEST(BinaryTestpow_Int32, Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestpow_Int32,
+    Int32_lhs_dynamic_2D_vector_raw_tensor_rhs_dynamic_2D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(int32_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, -15, 15, false, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, -7, 7, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
-    
+    auto ntt_output = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
+
     // Execute binary operation
     ntt::binary<ntt::ops::pow>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, false, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, false, false);
     // Execute Ort operation
     auto ort_output = ortki_Pow(ort_input_lhs, ort_input_rhs);
-    
+
     auto ort_golden = ort_output;
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_golden = ntt::make_tensor<ntt::vector<int32_t, 4, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 4));
-    }
-    
+}
+
 int main(int argc, char *argv[]) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

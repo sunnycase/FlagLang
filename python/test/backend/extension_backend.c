@@ -3,21 +3,21 @@
 #include <stdlib.h>
 
 static PyObject *getDeviceProperties(PyObject *self, PyObject *args) {
-  // create a struct to hold device properties
-  return Py_BuildValue("{s:i, s:i, s:i, s:i, s:i}", "max_shared_mem", 1024,
-                       "multiprocessor_count", 16, "sm_clock_rate", 2100,
-                       "mem_clock_rate", 2300, "mem_bus_width", 2400);
+    // create a struct to hold device properties
+    return Py_BuildValue("{s:i, s:i, s:i, s:i, s:i}", "max_shared_mem", 1024,
+                         "multiprocessor_count", 16, "sm_clock_rate", 2100,
+                         "mem_clock_rate", 2300, "mem_bus_width", 2400);
 }
 
 static PyObject *loadBinary(PyObject *self, PyObject *args) {
-  // get allocated registers and spilled registers from the function
-  int n_regs = 0;
-  int n_spills = 0;
-  int n_max_threads = 1024;
-  int mod = 0;
-  int fun = 0;
-  return Py_BuildValue("(KKiii)", (uint64_t)mod, (uint64_t)fun, n_regs,
-                       n_spills, n_max_threads);
+    // get allocated registers and spilled registers from the function
+    int n_regs = 0;
+    int n_spills = 0;
+    int n_max_threads = 1024;
+    int mod = 0;
+    int fun = 0;
+    return Py_BuildValue("(KKiii)", (uint64_t)mod, (uint64_t)fun, n_regs,
+                         n_spills, n_max_threads);
 }
 
 static PyMethodDef ModuleMethods[] = {
@@ -34,10 +34,10 @@ static struct PyModuleDef ModuleDef = {PyModuleDef_HEAD_INIT, "ext_utils",
                                        ModuleMethods};
 
 PyMODINIT_FUNC PyInit_ext_utils(void) {
-  PyObject *m = PyModule_Create(&ModuleDef);
-  if (m == NULL) {
-    return NULL;
-  }
-  PyModule_AddFunctions(m, ModuleMethods);
-  return m;
+    PyObject *m = PyModule_Create(&ModuleDef);
+    if (m == NULL) {
+        return NULL;
+    }
+    PyModule_AddFunctions(m, ModuleMethods);
+    return m;
 }

@@ -16,8 +16,8 @@ using namespace mlir::triton::proton::gpu;
 // ProtonGPU Dialect
 //===----------------------------------------------------------------------===//
 void ::mlir::triton::proton::gpu::ProtonGPUDialect::registerTypes() {
-  addTypes<
+    addTypes<
 #define GET_TYPEDEF_LIST
 #include "Dialect/ProtonGPU/IR/Types.cpp.inc"
-      >();
+        >();
 }

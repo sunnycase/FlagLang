@@ -424,7 +424,6 @@ _RVV_FLOAT16_POW_OP(8, 2, 16)
 // __RVV_FLOAT_IS_EVEN(4, 4, 16,  half(2048.0f), fp16_inf)
 // __RVV_FLOAT_IS_EVEN(8, 2, 16,  half(2048.0f), fp16_inf)
 
-
 // const half fp16_nan = half::quiet_NaN();
 // const half fp16_0 = half(0.f);
 // _RVV_FLOAT_POW_OP(1, 16, 16)

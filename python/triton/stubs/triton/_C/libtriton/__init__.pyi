@@ -10,11 +10,11 @@ __all__: list[str] = ['DimensionKind', 'DumpFlags', 'RuntimeTensor', 'Target', '
 class DimensionKind:
     """
     Members:
-    
+
       Fixed
-    
+
       Dynamic
-    
+
       Unknown
     """
     Dynamic: typing.ClassVar[DimensionKind]  # value = <DimensionKind.Dynamic: 1>
@@ -50,27 +50,27 @@ class DimensionKind:
 class DumpFlags:
     """
     Members:
-    
+
       Nothing
-    
+
       ImportOps
-    
+
       PassIR
-    
+
       EGraphCost
-    
+
       Rewrite
-    
+
       Calibration
-    
+
       Evaluator
-    
+
       Compile
-    
+
       Tiling
-    
+
       Schedule
-    
+
       CodeGen
     """
     Calibration: typing.ClassVar[DumpFlags]  # value = <DumpFlags.Calibration: 32>

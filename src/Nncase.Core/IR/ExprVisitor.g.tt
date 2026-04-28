@@ -85,7 +85,7 @@ foreach (var ir in irs.Where(x => x.IsDerived))
     /// Visit <see cref="<#=ir.Namespace#><#=ir.Name#>"/>.
     /// </summary>
     internal protected virtual TExprResult Visit<#=ir.Name#>(<#=ir.Namespace#><#=ir.Name#> expr) => base.Visit<#=ir.Name#>(expr, default);
-    
+
     /// <inheritdoc/>
     internal protected sealed override TExprResult Visit<#=ir.Name#>(<#=ir.Namespace#><#=ir.Name#> expr, Unit context) => Visit<#=ir.Name#>(expr);
 <#
@@ -100,7 +100,7 @@ foreach (var ir in irs)
     /// Visit leaf <see cref="<#=ir.Namespace#><#=ir.Name#>"/>.
     /// </summary>
     protected virtual TExprResult VisitLeaf<#=ir.Name#>(<#=ir.Namespace#><#=ir.Name#> expr) => base.VisitLeaf<#=ir.Name#>(expr, default);
-    
+
     /// <inheritdoc/>
     protected sealed override TExprResult VisitLeaf<#=ir.Name#>(<#=ir.Namespace#><#=ir.Name#> expr, Unit context) => VisitLeaf<#=ir.Name#>(expr);
 

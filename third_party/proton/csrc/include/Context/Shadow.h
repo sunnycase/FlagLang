@@ -18,28 +18,28 @@ namespace proton {
 ///   - The main thread initializes the main context stack during session setup.
 ///   - The backward phase spawns multiple CPU threads.
 class ShadowContextSource : public ContextSource, public ScopeInterface {
-public:
-  ShadowContextSource() {
-    mainContextStack = &threadContextStack[this];
-    threadContextInitialized[this] = true;
-  }
+  public:
+    ShadowContextSource() {
+        mainContextStack = &threadContextStack[this];
+        threadContextInitialized[this] = true;
+    }
 
-  void enterScope(const Scope &scope) override;
+    void enterScope(const Scope &scope) override;
 
-  void exitScope(const Scope &scope) override;
+    void exitScope(const Scope &scope) override;
 
-  size_t getDepth() override;
+    size_t getDepth() override;
 
-private:
-  std::vector<Context> getContextsImpl() override;
+  private:
+    std::vector<Context> getContextsImpl() override;
 
-  void initializeThreadContext();
+    void initializeThreadContext();
 
-  std::vector<Context> *mainContextStack{};
-  static thread_local std::map<ShadowContextSource *, bool>
-      threadContextInitialized;
-  static thread_local std::map<ShadowContextSource *, std::vector<Context>>
-      threadContextStack;
+    std::vector<Context> *mainContextStack{};
+    static thread_local std::map<ShadowContextSource *, bool>
+        threadContextInitialized;
+    static thread_local std::map<ShadowContextSource *, std::vector<Context>>
+        threadContextStack;
 };
 
 } // namespace proton

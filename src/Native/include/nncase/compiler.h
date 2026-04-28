@@ -390,11 +390,10 @@ typedef struct {
 
     size_t (*base_expr_print)(clr_object_handle_t expr, char *buffer,
                               size_t buffer_length);
-    size_t (*ir_module_get_entry_name)(clr_object_handle_t module,
-                                       char *buffer, size_t buffer_length);
+    size_t (*ir_module_get_entry_name)(clr_object_handle_t module, char *buffer,
+                                       size_t buffer_length);
     size_t (*ir_module_describe_vector_add)(clr_object_handle_t module,
-                                            char *buffer,
-                                            size_t buffer_length);
+                                            char *buffer, size_t buffer_length);
 } nncase_api_mt_t;
 
 NNCASE_API nncase_api_mt_t *nncase_clr_api();
@@ -748,8 +747,8 @@ class call : public expr {
         for (const auto &arg : args) {
             arg_handles.push_back(arg.get());
         }
-        obj_ = nncase_clr_api()->call_create(
-            target.get(), arg_handles.data(), arg_handles.size());
+        obj_ = nncase_clr_api()->call_create(target.get(), arg_handles.data(),
+                                             arg_handles.size());
     }
 
     size_t get_num_results() {
@@ -992,7 +991,8 @@ class native_cuda_compile_result : public clr_object_base {
   public:
     using clr_object_base::clr_object_base;
 
-    native_cuda_compile_result(ir_module module, std::string_view options_json) {
+    native_cuda_compile_result(ir_module module,
+                               std::string_view options_json) {
         obj_ = nncase_clr_api()->ir_module_compile_to_cubin(
             module.get(), options_json.data(), options_json.length());
     }

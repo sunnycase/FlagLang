@@ -19,7 +19,8 @@ namespace py = pybind11;
 #define CONCATENATE1(x, y) x##y
 
 #define FOR_EACH(MACRO, ...)                                                   \
-  CONCATENATE(FOR_EACH_, FOR_EACH_NARG_HELPER(__VA_ARGS__))(MACRO, __VA_ARGS__)
+    CONCATENATE(FOR_EACH_, FOR_EACH_NARG_HELPER(__VA_ARGS__))(MACRO,           \
+                                                              __VA_ARGS__)
 #define FOR_EACH_NARG_HELPER(...) FOR_EACH_NARG(__VA_ARGS__)
 
 // New macro to remove parentheses
@@ -30,7 +31,7 @@ namespace py = pybind11;
 
 // Modified FOR_EACH to handle parentheses
 #define FOR_EACH_P(MACRO, ARGS_WITH_PARENS)                                    \
-  FOR_EACH_P_INTERMEDIATE(MACRO, REMOVE_PARENS ARGS_WITH_PARENS)
+    FOR_EACH_P_INTERMEDIATE(MACRO, REMOVE_PARENS ARGS_WITH_PARENS)
 
 #define DECLARE_BACKEND(name) void init_triton_##name(pybind11::module &&m);
 
@@ -46,13 +47,13 @@ void init_gluon_ir(pybind11::module &&m);
 FOR_EACH_P(DECLARE_BACKEND, TRITON_BACKENDS_TUPLE)
 
 PYBIND11_MODULE(libtriton, m) {
-  m.doc() = "Python bindings to the C++ Triton API";
-  init_triton_stacktrace_hook(m);
-  init_triton_env_vars(m);
-  init_triton_ir(m.def_submodule("ir"));
-  init_triton_passes(m.def_submodule("passes"));
-  init_triton_interpreter(m.def_submodule("interpreter"));
-  init_triton_llvm(m.def_submodule("llvm"));
-  init_gluon_ir(m.def_submodule("gluon_ir"));
-  FOR_EACH_P(INIT_BACKEND, TRITON_BACKENDS_TUPLE)
+    m.doc() = "Python bindings to the C++ Triton API";
+    init_triton_stacktrace_hook(m);
+    init_triton_env_vars(m);
+    init_triton_ir(m.def_submodule("ir"));
+    init_triton_passes(m.def_submodule("passes"));
+    init_triton_interpreter(m.def_submodule("interpreter"));
+    init_triton_llvm(m.def_submodule("llvm"));
+    init_gluon_ir(m.def_submodule("gluon_ir"));
+    FOR_EACH_P(INIT_BACKEND, TRITON_BACKENDS_TUPLE)
 }

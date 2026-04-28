@@ -28,39 +28,40 @@ namespace gpu {
 class TritonGPUReduceDataDuplicationPass
     : public impl::TritonGPUReduceDataDuplicationBase<
           TritonGPUReduceDataDuplicationPass> {
-public:
-  void runOnOperation() override {
-    ModuleOp mod = getOperation();
-    mod.walk([&](triton::gpu::ConvertLayoutOp cvtOp) -> void {
-      OpBuilder builder(cvtOp);
-      auto srcType = cast<RankedTensorType>(cvtOp.getSrc().getType());
-      auto dstType = cast<RankedTensorType>(cvtOp.getType());
-      auto srcEncoding = srcType.getEncoding();
-      if (isa<triton::gpu::SharedEncodingTrait>(srcEncoding))
-        return;
-      auto dstDotOp =
-          dyn_cast<triton::gpu::DotOperandEncodingAttr>(dstType.getEncoding());
-      if (!dstDotOp)
-        return;
-      if (!cvtNeedsSharedMemory(srcType, dstType))
-        return;
-      auto order = getOrderForMemory(srcType);
-      auto sharedMemorySpace =
-          triton::gpu::SharedMemorySpaceAttr::get(srcType.getContext());
-      auto tmpType = triton::gpu::MemDescType::get(
-          dstType.getShape(), dstType.getElementType(),
-          triton::gpu::SwizzledSharedEncodingAttr::get(
-              mod.getContext(), dstDotOp, srcType.getShape(), order,
-              triton::gpu::getCTALayout(srcEncoding), srcType.getElementType()),
-          sharedMemorySpace);
-      auto tmp = builder.create<triton::gpu::LocalAllocOp>(
-          cvtOp.getLoc(), tmpType, cvtOp.getSrc());
-      auto newConvert = builder.create<triton::gpu::LocalLoadOp>(cvtOp.getLoc(),
-                                                                 dstType, tmp);
-      cvtOp.replaceAllUsesWith(newConvert.getResult());
-      cvtOp.erase();
-    });
-  }
+  public:
+    void runOnOperation() override {
+        ModuleOp mod = getOperation();
+        mod.walk([&](triton::gpu::ConvertLayoutOp cvtOp) -> void {
+            OpBuilder builder(cvtOp);
+            auto srcType = cast<RankedTensorType>(cvtOp.getSrc().getType());
+            auto dstType = cast<RankedTensorType>(cvtOp.getType());
+            auto srcEncoding = srcType.getEncoding();
+            if (isa<triton::gpu::SharedEncodingTrait>(srcEncoding))
+                return;
+            auto dstDotOp = dyn_cast<triton::gpu::DotOperandEncodingAttr>(
+                dstType.getEncoding());
+            if (!dstDotOp)
+                return;
+            if (!cvtNeedsSharedMemory(srcType, dstType))
+                return;
+            auto order = getOrderForMemory(srcType);
+            auto sharedMemorySpace =
+                triton::gpu::SharedMemorySpaceAttr::get(srcType.getContext());
+            auto tmpType = triton::gpu::MemDescType::get(
+                dstType.getShape(), dstType.getElementType(),
+                triton::gpu::SwizzledSharedEncodingAttr::get(
+                    mod.getContext(), dstDotOp, srcType.getShape(), order,
+                    triton::gpu::getCTALayout(srcEncoding),
+                    srcType.getElementType()),
+                sharedMemorySpace);
+            auto tmp = builder.create<triton::gpu::LocalAllocOp>(
+                cvtOp.getLoc(), tmpType, cvtOp.getSrc());
+            auto newConvert = builder.create<triton::gpu::LocalLoadOp>(
+                cvtOp.getLoc(), dstType, tmp);
+            cvtOp.replaceAllUsesWith(newConvert.getResult());
+            cvtOp.erase();
+        });
+    }
 };
 
 } // namespace gpu

@@ -8,27 +8,27 @@
 
 namespace mlir::triton::proton {
 struct ProtonInlinerInterface : public DialectInlinerInterface {
-  using DialectInlinerInterface::DialectInlinerInterface;
+    using DialectInlinerInterface::DialectInlinerInterface;
 
-  bool isLegalToInline(Operation *call, Operation *callable,
-                       bool wouldBeCloned) const final {
-    return true;
-  }
-  bool isLegalToInline(Region *dest, Region *src, bool wouldBeCloned,
-                       IRMapping &valueMapping) const final {
-    return true;
-  }
-  bool isLegalToInline(Operation *, Region *, bool wouldBeCloned,
-                       IRMapping &) const final {
-    return true;
-  }
+    bool isLegalToInline(Operation *call, Operation *callable,
+                         bool wouldBeCloned) const final {
+        return true;
+    }
+    bool isLegalToInline(Region *dest, Region *src, bool wouldBeCloned,
+                         IRMapping &valueMapping) const final {
+        return true;
+    }
+    bool isLegalToInline(Operation *, Region *, bool wouldBeCloned,
+                         IRMapping &) const final {
+        return true;
+    }
 };
 
 void ProtonDialect::initialize() {
-  addOperations<
+    addOperations<
 #define GET_OP_LIST
 #include "Dialect/Proton/IR/Ops.cpp.inc"
-      >();
-  addInterfaces<ProtonInlinerInterface>();
+        >();
+    addInterfaces<ProtonInlinerInterface>();
 }
 } // namespace mlir::triton::proton

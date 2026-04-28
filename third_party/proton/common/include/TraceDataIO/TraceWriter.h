@@ -17,8 +17,8 @@ namespace proton {
 const uint64_t kKernelTimeGap = 10000000;
 
 struct KernelMetadata {
-  std::map<int, std::string> scopeName;
-  std::string kernelName;
+    std::map<int, std::string> scopeName;
+    std::string kernelName;
 };
 
 using KernelTrace = std::pair<std::shared_ptr<CircularLayoutParserResult>,
@@ -30,43 +30,43 @@ using KernelTrace = std::pair<std::shared_ptr<CircularLayoutParserResult>,
 // subclass the StreamTraceWriter such as StreamPerfettoTraceWriter that
 // produces a protobuf format trace.
 class StreamTraceWriter {
-public:
-  explicit StreamTraceWriter(const std::vector<KernelTrace> &streamTrace,
-                             const std::string &path);
+  public:
+    explicit StreamTraceWriter(const std::vector<KernelTrace> &streamTrace,
+                               const std::string &path);
 
-  virtual ~StreamTraceWriter() = default;
+    virtual ~StreamTraceWriter() = default;
 
-  void dump();
+    void dump();
 
-  virtual void write(std::ostream &outfile) = 0;
+    virtual void write(std::ostream &outfile) = 0;
 
-protected:
-  const std::string path;
-  const std::vector<KernelTrace> &streamTrace;
+  protected:
+    const std::string path;
+    const std::vector<KernelTrace> &streamTrace;
 };
 
 class StreamChromeTraceWriter : public StreamTraceWriter {
-public:
-  explicit StreamChromeTraceWriter(const std::vector<KernelTrace> &streamTrace,
-                                   const std::string &path);
+  public:
+    explicit StreamChromeTraceWriter(
+        const std::vector<KernelTrace> &streamTrace, const std::string &path);
 
-  void write(std::ostream &outfile) override final;
+    void write(std::ostream &outfile) override final;
 
-private:
-  void writeKernel(nlohmann::json &object, const KernelTrace &kernelTrace,
-                   uint64_t kernelTimeStart);
+  private:
+    void writeKernel(nlohmann::json &object, const KernelTrace &kernelTrace,
+                     uint64_t kernelTimeStart);
 
-  const std::vector<std::string> kChromeColor = {"cq_build_passed",
-                                                 "cq_build_failed",
-                                                 "thread_state_iowait",
-                                                 "thread_state_running",
-                                                 "thread_state_runnable",
-                                                 "thread_state_unknown",
-                                                 "rail_response",
-                                                 "rail_idle",
-                                                 "rail_load",
-                                                 "cq_build_attempt_passed",
-                                                 "cq_build_attempt_failed"};
+    const std::vector<std::string> kChromeColor = {"cq_build_passed",
+                                                   "cq_build_failed",
+                                                   "thread_state_iowait",
+                                                   "thread_state_running",
+                                                   "thread_state_runnable",
+                                                   "thread_state_unknown",
+                                                   "rail_response",
+                                                   "rail_idle",
+                                                   "rail_load",
+                                                   "cq_build_attempt_passed",
+                                                   "cq_build_attempt_failed"};
 };
 
 } // namespace proton

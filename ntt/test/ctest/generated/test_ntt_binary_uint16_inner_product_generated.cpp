@@ -26,674 +26,802 @@
 using namespace nncase;
 using namespace ortki;
 
-
-static ortki::OrtKITensor* ortki_inner_product(ortki::OrtKITensor* ort_input_lhs, ortki::OrtKITensor* ort_input_rhs, bool  element_is_vec) {
-   ortki::OrtKITensor* product_tensor = ortki_Mul(ort_input_lhs, ort_input_rhs);
-   if (!element_is_vec)
-       return product_tensor;
-   int64_t axis_data[] = {-1};                         
-   const int64_t axis_shape[] = {1};                   
-   size_t axis_rank = 1;                               
-   auto ort_type = nncase::NttTest::primitive_type2ort_type<int64_t>();
-   ortki::OrtKITensor* axes_tensor = make_tensor(
-       axis_data,                                       // void* buffer
-       ort_type,
-       axis_shape,                                      // const int64_t* shape
-       axis_rank                                        // rank
-   );
-   if (axes_tensor == nullptr) {
-       return nullptr;
-   }
-   int64_t keepdims = 0;
-   int64_t noop_with_empty_axes = 0;
-   ortki::OrtKITensor* result_tensor = ortki_ReduceSum(
-       product_tensor,
-       axes_tensor,
-       keepdims,
-       noop_with_empty_axes);
-   return result_tensor;
+static ortki::OrtKITensor *
+ortki_inner_product(ortki::OrtKITensor *ort_input_lhs,
+                    ortki::OrtKITensor *ort_input_rhs, bool element_is_vec) {
+    ortki::OrtKITensor *product_tensor =
+        ortki_Mul(ort_input_lhs, ort_input_rhs);
+    if (!element_is_vec)
+        return product_tensor;
+    int64_t axis_data[] = {-1};
+    const int64_t axis_shape[] = {1};
+    size_t axis_rank = 1;
+    auto ort_type = nncase::NttTest::primitive_type2ort_type<int64_t>();
+    ortki::OrtKITensor *axes_tensor =
+        make_tensor(axis_data, // void* buffer
+                    ort_type,
+                    axis_shape, // const int64_t* shape
+                    axis_rank   // rank
+        );
+    if (axes_tensor == nullptr) {
+        return nullptr;
+    }
+    int64_t keepdims = 0;
+    int64_t noop_with_empty_axes = 0;
+    ortki::OrtKITensor *result_tensor = ortki_ReduceSum(
+        product_tensor, axes_tensor, keepdims, noop_with_empty_axes);
+    return result_tensor;
 }
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_view_dim2_add3_no_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim2_add3_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_lhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_lhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_lhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_lhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_rhs_singleton_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1>);
@@ -703,41 +831,48 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixe
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_rhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
@@ -746,568 +881,681 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_fix
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_rhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_rhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_0_add3_rhs_fixed_scalar_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_0_add3_rhs_fixed_scalar_raw_tensor_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_0_add3_rhs_fixed_scalar_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_0_add3_rhs_fixed_scalar_view_dim2_add3_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_0_add3_rhs_fixed_1D_vector_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_0_add3_rhs_fixed_1D_vector_raw_tensor_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_0_add3_rhs_fixed_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_0_add3_rhs_fixed_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<16>);
@@ -1317,91 +1565,107 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixe
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_view_dim0_add3_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
@@ -1410,787 +1674,942 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_fix
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_view_dim0_add3_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_multi_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_multi_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, (1) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, (1) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<1, 3, 1, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<1, 3, 1, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_multi_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, (16) +3, 1>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, (16) + 3, 1>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 1>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 1, 16, 1>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_fixed_scalar_view_dim2_add3_multi_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, (16) +3, 1>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, (16) + 3, 1>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 1>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 1, 16, 1>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, (1) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, (1) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<1, 3, 1, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<1, 3, 1, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, 16, 1>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, 1, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<1, 3, 1, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, 16, 1>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, (1) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<1, 3, (1) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<1, 3, 1, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<1, 3, 1, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, 1, 16>);
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<1, 3, 1, 16>);
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, (16) +3, 1>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 1, (16) + 3, 1>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 1>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 1, 16, 1>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, 1, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<1, 3, 1, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, 16, 1>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 1, 16, 1>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim2_add3_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, (16) +3, 1>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 1, (16) + 3, 1>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 1>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 1, 16, 1>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, (1) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<1, 3, (1) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<1, 3, 1, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<1, 3, 1, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
-    auto ntt_output = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-    
+    auto ntt_output =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, 16, 1>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 1, 16, 1>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, 1, 16>);
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<1, 3, 1, 16>);
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
-    auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_golden =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -2198,98 +2617,112 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dyna
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -2297,125 +2730,143 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dyn
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_view_dim2_add3_no_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -2423,100 +2874,117 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -2524,125 +2992,147 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim2_add3_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_lhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -2650,92 +3140,106 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dyna
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_lhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_lhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -2743,89 +3247,105 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_lhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_rhs_singleton_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1));
@@ -2836,40 +3356,45 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dyna
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_rhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
@@ -2879,49 +3404,58 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dyn
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_rhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -2929,43 +3463,50 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_rhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -2973,48 +3514,57 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -3022,98 +3572,111 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dyna
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_0_add3_rhs_dynamic_scalar_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_0_add3_rhs_dynamic_scalar_raw_tensor_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -3121,113 +3684,129 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_0_add3_rhs_dyn
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_0_add3_rhs_dynamic_scalar_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_0_add3_rhs_dynamic_scalar_view_dim2_add3_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -3235,100 +3814,117 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_0_add3_rhs_dynamic_1D_vector_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_0_add3_rhs_dynamic_1D_vector_raw_tensor_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -3336,110 +3932,130 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_0_add3_rhs_
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_0_add3_rhs_dynamic_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_0_add3_rhs_dynamic_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(16));
@@ -3450,90 +4066,101 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dyna
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_view_dim0_add3_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) +3));
+    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(16),
+        ntt::canonicalize_strides(ntt::make_shape(16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
@@ -3543,119 +4170,135 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dyn
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_view_dim0_add3_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) +3));
+    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(16),
+        ntt::canonicalize_strides(ntt::make_shape(16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -3663,94 +4306,109 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) +3));
+    auto big_tensor_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(16),
+            ntt::canonicalize_strides(ntt::make_shape(16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -3758,119 +4416,140 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) +3));
+    auto big_tensor_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(16),
+            ntt::canonicalize_strides(ntt::make_shape(16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_multi_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -3878,98 +4557,112 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dyna
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_multi_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, (1) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, (1) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(1, 3, 1, 16),
-        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(1, 3, 1, 16),
+        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_multi_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, (16) +3, 1>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, (16) + 3, 1>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 1>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 1, 16, 1>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -3977,125 +4670,143 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dyn
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_scalar_view_2_add3_rhs_dynamic_scalar_view_dim2_add3_multi_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, (16) +3, 1>);
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, (16) + 3, 1>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 1>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>, big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 1, 16, 1>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>,
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, (1) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, (1) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(1, 3, 1, 16),
-        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(1, 3, 1, 16),
+        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 1, 16, 1>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, 16, 1>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, 1, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(1, 3, 1, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -4103,100 +4814,117 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, 16, 1>);
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 1, 16, 1>);
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, (1) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(1, 3, (1) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(1, 3, 1, 16),
-        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(1, 3, 1, 16),
+            ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, 1, 16));
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(1, 3, 1, 16));
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, (16) +3, 1>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 1, (16) + 3, 1>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 1>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 1, 16, 1>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, 1, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(1, 3, 1, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -4204,125 +4932,148 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, 16, 1>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 1, 16, 1>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_fixed_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim2_add3_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, (16) +3, 1>);
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 1, (16) + 3, 1>);
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::fixed_shape_v<2, 1, 16, 1>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>, big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::fixed_shape_v<2, 1, 16, 1>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 1, 16, 1>,
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, (1) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(1, 3, (1) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(1, 3, 1, 16),
-        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(1, 3, 1, 16),
+            ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 1, 16, 1>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 1, 16, 1>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, 1, 16));
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(1, 3, 1, 16));
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -4330,98 +5081,112 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fi
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -4429,125 +5194,143 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_f
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_view_dim2_add3_no_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -4555,100 +5338,117 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -4656,125 +5456,147 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rh
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim2_add3_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_lhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -4782,92 +5604,106 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fi
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_lhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_lhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -4875,89 +5711,105 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_lhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_rhs_singleton_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1>);
@@ -4968,40 +5820,45 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fi
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_rhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
@@ -5011,49 +5868,58 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_f
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_rhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -5061,43 +5927,50 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_rhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -5105,48 +5978,57 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rh
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -5154,98 +6036,110 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fi
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_0_add3_rhs_fixed_scalar_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_0_add3_rhs_fixed_scalar_raw_tensor_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) +3));
+    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(16),
+        ntt::canonicalize_strides(ntt::make_shape(16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -5253,113 +6147,128 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_0_add3_rhs_f
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_0_add3_rhs_fixed_scalar_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_0_add3_rhs_fixed_scalar_view_dim2_add3_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) +3));
+    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(16),
+        ntt::canonicalize_strides(ntt::make_shape(16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -5367,100 +6276,117 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_0_add3_rhs_fixed_1D_vector_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_0_add3_rhs_fixed_1D_vector_raw_tensor_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) +3));
+    auto big_tensor_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(16),
+            ntt::canonicalize_strides(ntt::make_shape(16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, 16, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -5468,110 +6394,128 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_0_add3_rh
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_0_add3_rhs_fixed_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_0_add3_rhs_fixed_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) +3));
+    auto big_tensor_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(16),
+            ntt::canonicalize_strides(ntt::make_shape(16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, (16) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<2, 3, (16) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<2, 3, 16, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<2, 3, 16, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<2, 3, 16, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<2, 3, 16, 16>);
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<2, 3, 16, 16>);
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<16>);
@@ -5582,90 +6526,102 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fi
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_view_dim0_add3_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
@@ -5675,119 +6631,136 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_f
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_view_dim0_add3_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -5795,94 +6768,110 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -5890,119 +6879,141 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rh
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<(16) +3>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<(16) + 3>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<16>);
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<16>);
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_raw_tensor_multi_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -6010,98 +7021,112 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fi
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_fixed_scalar_view_dim2_add3_multi_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, (1) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, (1) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<1, 3, 1, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<1, 3, 1, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_raw_tensor_multi_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, (16) +3, 1));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, (16) + 3, 1));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 1, 16, 1),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 1, 16, 1),
+        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -6109,125 +7134,143 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_f
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_fixed_scalar_view_dim2_add3_multi_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, (16) +3, 1));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, (16) + 3, 1));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 1, 16, 1),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 1, 16, 1),
+        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, (1) +3, 16>);
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, (1) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<1, 3, 1, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>, big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::fixed_shape_v<1, 3, 1, 16>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>,
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::fixed_shape_v<1, 3, 1, 16>);
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_raw_tensor_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, 16, 1));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 1, 16, 1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, 1, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<1, 3, 1, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -6235,100 +7278,117 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_fixed_1D_vector_view_dim2_add3_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, 16, 1));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 1, 16, 1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, (1) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<1, 3, (1) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<1, 3, 1, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<1, 3, 1, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, 1, 16>);
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<1, 3, 1, 16>);
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_raw_tensor_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, (16) +3, 1));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 1, (16) + 3, 1));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 1, 16, 1),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 1, 16, 1),
+            ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, 1, 16>);
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<1, 3, 1, 16>);
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -6336,125 +7396,148 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rh
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, 16, 1));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 1, 16, 1));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_fixed_1D_vector_view_dim2_add3_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, (16) +3, 1));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 1, (16) + 3, 1));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 1, 16, 1),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 1, 16, 1),
+            ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, (1) +3, 16>);
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::fixed_shape_v<1, 3, (1) + 3, 16>);
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::fixed_shape_v<1, 3, 1, 16>,
-        ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>, big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::fixed_shape_v<1, 3, 1, 16>,
+            ntt::canonicalize_strides(ntt::fixed_shape_v<1, 3, 1, 16>,
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, 16, 1));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 1, 16, 1));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::fixed_shape_v<1, 3, 1, 16>);
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::fixed_shape_v<1, 3, 1, 16>);
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -6462,98 +7545,112 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dy
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_no_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_no_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -6561,125 +7658,143 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_view_dim2_add3_no_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -6687,100 +7802,117 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -6788,125 +7920,147 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rh
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim2_add3_no_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim2_add3_no_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_lhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -6914,92 +8068,106 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dy
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_lhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_lhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -7007,89 +8175,105 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_lhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_lhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_rhs_singleton_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1));
@@ -7100,40 +8284,45 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dy
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_rhs_singleton_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
@@ -7143,49 +8332,58 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_rhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -7193,43 +8391,50 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_rhs_singleton_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_rhs_singleton_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -7237,48 +8442,57 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rh
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -7286,98 +8500,110 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dy
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_0_add3_rhs_dynamic_scalar_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_0_add3_rhs_dynamic_scalar_raw_tensor_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) +3));
+    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(16),
+        ntt::canonicalize_strides(ntt::make_shape(16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -7385,113 +8611,128 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_0_add3_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_0_add3_rhs_dynamic_scalar_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_0_add3_rhs_dynamic_scalar_view_dim2_add3_lhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) +3));
+    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(16),
+        ntt::canonicalize_strides(ntt::make_shape(16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -7499,100 +8740,117 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_0_add3_rhs_dynamic_1D_vector_raw_tensor_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_0_add3_rhs_dynamic_1D_vector_raw_tensor_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) +3));
+    auto big_tensor_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(16),
+            ntt::canonicalize_strides(ntt::make_shape(16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -7600,110 +8858,128 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_0_add3_rh
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_0_add3_rhs_dynamic_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_0_add3_rhs_dynamic_1D_vector_view_dim2_add3_lhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) +3));
+    auto big_tensor_lhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(16),
+            ntt::canonicalize_strides(ntt::make_shape(16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
-        }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_lhs_contiguous)(i) = ntt_input_lhs(i);
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(16));
@@ -7714,90 +8990,101 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dy
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_view_dim0_add3_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) +3));
+    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(16),
+        ntt::canonicalize_strides(ntt::make_shape(16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
@@ -7807,119 +9094,135 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_view_dim0_add3_rhs_1d_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) +3));
+    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(16),
+        ntt::canonicalize_strides(ntt::make_shape(16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -7927,94 +9230,109 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, 16, 16));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) +3));
+    auto big_tensor_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(16),
+            ntt::canonicalize_strides(ntt::make_shape(16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -8022,119 +9340,140 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rh
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim0_add3_rhs_1d_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, (16) +3, 16));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 3, (16) + 3, 16));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 3, 16, 16),
-        ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 3, 16, 16),
+            ntt::canonicalize_strides(ntt::make_shape(2, 3, 16, 16),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 0)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) +3));
+    auto big_tensor_rhs =
+        ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape((16) + 3));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(16),
-        ntt::canonicalize_strides(ntt::make_shape(16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(16),
+            ntt::canonicalize_strides(ntt::make_shape(16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 3, 16, 16));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 3, 16, 16));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
-        
-        for (size_t i = 0; i < 16; i++) {
-            (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
-        }
-    
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(16));
+
+    for (size_t i = 0; i < 16; i++) {
+        (*ntt_input_rhs_contiguous)(i) = ntt_input_rhs(i);
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_raw_tensor_multi_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -8142,98 +9481,112 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dy
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_raw_tensor_rhs_dynamic_scalar_view_dim2_add3_multi_broadcast) {
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
+    auto ntt_input_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, (1) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, (1) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(1, 3, 1, 16),
-        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(1, 3, 1, 16),
+        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_raw_tensor_multi_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, (16) +3, 1));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, (16) + 3, 1));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 1, 16, 1),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 1, 16, 1),
+        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
+    auto ntt_input_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -8241,125 +9594,143 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_d
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_scalar_view_2_add3_rhs_dynamic_scalar_view_dim2_add3_multi_broadcast) {
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, (16) +3, 1));
+    auto big_tensor_lhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(2, 1, (16) + 3, 1));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
+
     auto ntt_input_lhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 1, 16, 1),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1), big_tensor_lhs.strides())
-        );
+        big_tensor_lhs.elements().data(), ntt::make_shape(2, 1, 16, 1),
+        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1),
+                                  big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, (1) +3, 16));
+    auto big_tensor_rhs =
+        ntt::make_tensor<uint16_t>(ntt::make_shape(1, 3, (1) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
+
     auto ntt_input_rhs = ntt::make_tensor_view_from_address<uint16_t>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(1, 3, 1, 16),
-        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16), big_tensor_rhs.strides())
-        );
+        big_tensor_rhs.elements().data(), ntt::make_shape(1, 3, 1, 16),
+        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16),
+                                  big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(2, 1, 16, 1));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<uint16_t>(ntt::make_shape(1, 3, 1, 16));
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_raw_tensor_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, 16, 1));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 1, 16, 1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, 1, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(1, 3, 1, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -8367,100 +9738,117 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_raw_tensor_rhs_dynamic_1D_vector_view_dim2_add3_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
-    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, 16, 1));
+    auto ntt_input_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 1, 16, 1));
     NttTest::init_tensor(ntt_input_lhs, 0, 256, true, true);
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, (1) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(1, 3, (1) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(1, 3, 1, 16),
-        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(1, 3, 1, 16),
+            ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, 1, 16));
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(1, 3, 1, 16));
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(ntt_input_lhs,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        ntt_input_lhs, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_raw_tensor_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, (16) +3, 1));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 1, (16) + 3, 1));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 1, 16, 1),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 1, 16, 1),
+            ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
-    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, 1, 16));
+    auto ntt_input_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(1, 3, 1, 16));
     NttTest::init_tensor(ntt_input_rhs, 0, 256, true, true);
     //---generate output tensor---
     // ------------------------------------------------------------------
@@ -8468,119 +9856,138 @@ TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rh
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, 16, 1));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 1, 16, 1));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,ntt_input_rhs, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, ntt_input_rhs, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
-TEST(BinaryTestinner_product_Uint16, Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim2_add3_multi_broadcast) {
+}
+
+TEST(
+    BinaryTestinner_product_Uint16,
+    Uint16_lhs_dynamic_1D_vector_view_2_add3_rhs_dynamic_1D_vector_view_dim2_add3_multi_broadcast) {
     constexpr size_t P = NTT_VLEN / (sizeof(uint16_t) * 8);
     //---init ntt_input_lhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, (16) +3, 1));
+    auto big_tensor_lhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(2, 1, (16) + 3, 1));
     NttTest::init_tensor(big_tensor_lhs, 0, 256, true, true);
-    
-    auto ntt_input_lhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_lhs.elements().data(),
-        ntt::make_shape(2, 1, 16, 1),
-        ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1), big_tensor_lhs.strides())
-        );
+
+    auto ntt_input_lhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_lhs.elements().data(), ntt::make_shape(2, 1, 16, 1),
+            ntt::canonicalize_strides(ntt::make_shape(2, 1, 16, 1),
+                                      big_tensor_lhs.strides()));
     //---init ntt_input_rhs---
     // Create non-contiguous tensor (on dimension 2)
-    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, (1) +3, 16));
+    auto big_tensor_rhs = ntt::make_tensor<ntt::vector<uint16_t, P>>(
+        ntt::make_shape(1, 3, (1) + 3, 16));
     NttTest::init_tensor(big_tensor_rhs, 0, 256, true, true);
-    
-    auto ntt_input_rhs = ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
-        big_tensor_rhs.elements().data(),
-        ntt::make_shape(1, 3, 1, 16),
-        ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16), big_tensor_rhs.strides())
-        );
+
+    auto ntt_input_rhs =
+        ntt::make_tensor_view_from_address<ntt::vector<uint16_t, P>>(
+            big_tensor_rhs.elements().data(), ntt::make_shape(1, 3, 1, 16),
+            ntt::canonicalize_strides(ntt::make_shape(1, 3, 1, 16),
+                                      big_tensor_rhs.strides()));
     //---generate output tensor---
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
     // ------------------------------------------------------------------
     // Create output tensor
     auto ntt_output = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
-    
+
     // Execute binary operation
-    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs, ntt_output);
-    
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_lhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(2, 1, 16, 1));
-        
-        for (size_t i = 0; i < 2; i++) {
-            for (size_t j = 0; j < 1; j++) {
-                for (size_t k = 0; k < 16; k++) {
-                    for (size_t l = 0; l < 1; l++) {
-                        (*ntt_input_lhs_contiguous)(i, j, k, l) = ntt_input_lhs(i, j, k, l);
-                    }
+    ntt::binary<ntt::ops::inner_product>(ntt_input_lhs, ntt_input_rhs,
+                                         ntt_output);
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_lhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(2, 1, 16, 1));
+
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < 16; k++) {
+                for (size_t l = 0; l < 1; l++) {
+                    (*ntt_input_lhs_contiguous)(i, j, k, l) =
+                        ntt_input_lhs(i, j, k, l);
                 }
             }
         }
-    
-        // Copy to contiguous tensor for ORT reference
-        auto ntt_input_rhs_contiguous = ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(ntt::make_shape(1, 3, 1, 16));
-        
-        for (size_t i = 0; i < 1; i++) {
-            for (size_t j = 0; j < 3; j++) {
-                for (size_t k = 0; k < 1; k++) {
-                    for (size_t l = 0; l < 16; l++) {
-                        (*ntt_input_rhs_contiguous)(i, j, k, l) = ntt_input_rhs(i, j, k, l);
-                    }
+    }
+
+    // Copy to contiguous tensor for ORT reference
+    auto ntt_input_rhs_contiguous =
+        ntt::make_unique_tensor<ntt::vector<uint16_t, P>>(
+            ntt::make_shape(1, 3, 1, 16));
+
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 3; j++) {
+            for (size_t k = 0; k < 1; k++) {
+                for (size_t l = 0; l < 16; l++) {
+                    (*ntt_input_rhs_contiguous)(i, j, k, l) =
+                        ntt_input_rhs(i, j, k, l);
                 }
             }
         }
-    
+    }
+
     // ort_input_lhs, ort_input_rhs would be tensor of double in ort format
-    
-    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(*ntt_input_lhs_contiguous,*ntt_input_rhs_contiguous, true, false);
+
+    auto [ort_input_lhs, ort_input_rhs] = NttTest::convert_and_align_to_ort(
+        *ntt_input_lhs_contiguous, *ntt_input_rhs_contiguous, true, false);
     // Execute Ort operation
-    static bool element_is_vec = ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
-   auto ort_output = ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec); 
-    
+    static bool element_is_vec =
+        ntt::Vector<typename decltype(ntt_input_lhs)::element_type>;
+    auto ort_output =
+        ortki_inner_product(ort_input_lhs, ort_input_rhs, element_is_vec);
+
     // Cast outputs from double to original datatype
     auto ort_goldenint = ortki_Cast(ort_output, 1, ortki::DataType_INT64);
     auto ort_golden = ortki_Cast(ort_goldenint, 1, ortki::DataType_UINT16);
     // ------------------------------------------------------------------
-    // 3. convert ORT output back to NTT tensor (golden) 
+    // 3. convert ORT output back to NTT tensor (golden)
     // ------------------------------------------------------------------
     auto ntt_golden = ntt::make_tensor<uint16_t>(ntt::make_shape(2, 3, 16, 16));
     NttTest::ort2ntt(ort_golden, ntt_golden);
     EXPECT_TRUE(NttTest::compare_tensor(ntt_output, ntt_golden, 1));
-    }
-    
+}
+
 int main(int argc, char *argv[]) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

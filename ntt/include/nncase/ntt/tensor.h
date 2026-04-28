@@ -149,8 +149,8 @@ class basic_tensor
     using storage_type::elements;
 
     NTT_ALWAYS_INLINE constexpr basic_tensor() noexcept
-        requires(!IsView && FixedShape<TShape> && FixedStrides<TStrides>) =
-        default;
+        requires(!IsView && FixedShape<TShape> && FixedStrides<TStrides>)
+    = default;
 
     NTT_ALWAYS_INLINE constexpr basic_tensor(TShape shape,
                                              TStrides strides) noexcept

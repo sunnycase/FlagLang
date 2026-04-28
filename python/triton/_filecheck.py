@@ -55,9 +55,8 @@ def _resolve_filecheck_path():
             return candidate
 
     checked = ", ".join(candidates) if candidates else "no LLVM candidate paths"
-    raise FileNotFoundError(
-        "Unable to locate FileCheck. Set FILECHECK_PATH or LLVM_FILECHECK, "
-        f"or install FileCheck on PATH. Checked {checked}.")
+    raise FileNotFoundError("Unable to locate FileCheck. Set FILECHECK_PATH or LLVM_FILECHECK, "
+                            f"or install FileCheck on PATH. Checked {checked}.")
 
 
 class MatchError(ValueError):

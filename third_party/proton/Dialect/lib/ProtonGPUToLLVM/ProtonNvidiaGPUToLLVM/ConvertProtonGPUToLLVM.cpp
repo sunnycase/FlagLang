@@ -27,56 +27,58 @@ namespace triton::proton::gpu {
 namespace {
 
 class ProtonLLVMConversionTarget : public ConversionTarget {
-public:
-  explicit ProtonLLVMConversionTarget(MLIRContext &ctx)
-      : ConversionTarget(ctx) {
-    addLegalDialect<LLVM::LLVMDialect>();
-    addLegalDialect<NVVM::NVVMDialect>();
-    addIllegalDialect<mlir::triton::proton::gpu::ProtonGPUDialect>();
-    addIllegalDialect<mlir::triton::proton::ProtonDialect>();
-    addLegalOp<mlir::UnrealizedConversionCastOp>();
-  }
+  public:
+    explicit ProtonLLVMConversionTarget(MLIRContext &ctx)
+        : ConversionTarget(ctx) {
+        addLegalDialect<LLVM::LLVMDialect>();
+        addLegalDialect<NVVM::NVVMDialect>();
+        addIllegalDialect<mlir::triton::proton::gpu::ProtonGPUDialect>();
+        addIllegalDialect<mlir::triton::proton::ProtonDialect>();
+        addLegalOp<mlir::UnrealizedConversionCastOp>();
+    }
 };
 
 struct ConvertProtonNvidiaGPUToLLVM
     : public mlir::triton::proton::gpu::impl::ConvertProtonNvidiaGPUToLLVMBase<
           ConvertProtonNvidiaGPUToLLVM> {
-  explicit ConvertProtonNvidiaGPUToLLVM(int32_t computeCapability,
-                                        int32_t ptxVersion) {
-    this->computeCapability = computeCapability;
-    this->ptxVersion = ptxVersion;
-  }
+    explicit ConvertProtonNvidiaGPUToLLVM(int32_t computeCapability,
+                                          int32_t ptxVersion) {
+        this->computeCapability = computeCapability;
+        this->ptxVersion = ptxVersion;
+    }
 
-  void runOnOperation() override {
-    MLIRContext *context = &getContext();
-    RewritePatternSet patterns(context);
-    ModuleOp mod = getOperation();
+    void runOnOperation() override {
+        MLIRContext *context = &getContext();
+        RewritePatternSet patterns(context);
+        ModuleOp mod = getOperation();
 
-    auto tritonTargetInfo =
-        mlir::triton::NVIDIA::TargetInfo(computeCapability, ptxVersion);
-    auto protonTargetInfo =
-        mlir::triton::proton::gpu::NVIDIA::TargetInfo(tritonTargetInfo);
-    mlir::LowerToLLVMOptions option(context);
-    TritonGPUToLLVMTypeConverter typeConverter(context, option,
-                                               tritonTargetInfo);
-    populateTypeConversions(typeConverter, protonTargetInfo);
-    mlir::triton::proton::gpu::populateProtonGPUOpPatterns(
-        typeConverter, patterns, protonTargetInfo, 1);
-    mlir::triton::proton::gpu::NVIDIA::populateProtonGPUOpNvidiaPatterns(
-        typeConverter, patterns, protonTargetInfo, 1);
-    mlir::arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
-    mlir::populateGpuToNVVMConversionPatterns(typeConverter, patterns);
-    mlir::cf::populateControlFlowToLLVMConversionPatterns(typeConverter,
-                                                          patterns);
-    auto convTarget = ProtonLLVMConversionTarget(*context);
-    if (failed(applyPartialConversion(mod, convTarget, std::move(patterns))))
-      return signalPassFailure();
+        auto tritonTargetInfo =
+            mlir::triton::NVIDIA::TargetInfo(computeCapability, ptxVersion);
+        auto protonTargetInfo =
+            mlir::triton::proton::gpu::NVIDIA::TargetInfo(tritonTargetInfo);
+        mlir::LowerToLLVMOptions option(context);
+        TritonGPUToLLVMTypeConverter typeConverter(context, option,
+                                                   tritonTargetInfo);
+        populateTypeConversions(typeConverter, protonTargetInfo);
+        mlir::triton::proton::gpu::populateProtonGPUOpPatterns(
+            typeConverter, patterns, protonTargetInfo, 1);
+        mlir::triton::proton::gpu::NVIDIA::populateProtonGPUOpNvidiaPatterns(
+            typeConverter, patterns, protonTargetInfo, 1);
+        mlir::arith::populateArithToLLVMConversionPatterns(typeConverter,
+                                                           patterns);
+        mlir::populateGpuToNVVMConversionPatterns(typeConverter, patterns);
+        mlir::cf::populateControlFlowToLLVMConversionPatterns(typeConverter,
+                                                              patterns);
+        auto convTarget = ProtonLLVMConversionTarget(*context);
+        if (failed(
+                applyPartialConversion(mod, convTarget, std::move(patterns))))
+            return signalPassFailure();
 
-    OpPassManager pm;
-    pm.addPass(createReconcileUnrealizedCastsPass());
-    if (failed(runPipeline(pm, mod)))
-      return signalPassFailure();
-  }
+        OpPassManager pm;
+        pm.addPass(createReconcileUnrealizedCastsPass());
+        if (failed(runPipeline(pm, mod)))
+            return signalPassFailure();
+    }
 };
 
 } // namespace
@@ -90,8 +92,8 @@ namespace gpu {
 std::unique_ptr<OperationPass<ModuleOp>>
 createConvertProtonNvidiaGPUToLLVMPass(int32_t computeCapability,
                                        int32_t ptxVersion) {
-  return std::make_unique<ConvertProtonNvidiaGPUToLLVM>(computeCapability,
-                                                        ptxVersion);
+    return std::make_unique<ConvertProtonNvidiaGPUToLLVM>(computeCapability,
+                                                          ptxVersion);
 }
 
 } // namespace gpu

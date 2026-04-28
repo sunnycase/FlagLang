@@ -13,50 +13,50 @@ using namespace llvm::PatternMatch;
 namespace {
 
 bool isMFMAorWMMA(Instruction &inst) {
-  auto *callInst = llvm::dyn_cast<CallInst>(&inst);
-  if (!callInst)
+    auto *callInst = llvm::dyn_cast<CallInst>(&inst);
+    if (!callInst)
+        return false;
+    // E.g., tail call void asm sideeffect "s_waitcnt lgkmcnt(0) ", ""()
+    if (callInst->isInlineAsm())
+        return false;
+    Function *calledFunc = callInst->getCalledFunction();
+    if (!calledFunc->isIntrinsic())
+        return false;
+    StringRef intrinName = calledFunc->getName();
+    if (intrinName.contains("mfma") || intrinName.contains("wmma"))
+        return true;
     return false;
-  // E.g., tail call void asm sideeffect "s_waitcnt lgkmcnt(0) ", ""()
-  if (callInst->isInlineAsm())
-    return false;
-  Function *calledFunc = callInst->getCalledFunction();
-  if (!calledFunc->isIntrinsic())
-    return false;
-  StringRef intrinName = calledFunc->getName();
-  if (intrinName.contains("mfma") || intrinName.contains("wmma"))
-    return true;
-  return false;
 }
 
 bool maybeReplaceVectorFOpWithScalarFOps(Instruction *inst,
                                          IRBuilder<> &builder) {
-  Value *lhs, *rhs;
-  if (!match(inst, m_BinOp(m_Value(lhs), m_Value(rhs))))
-    return false;
-  auto *VecLhs = dyn_cast<VectorType>(lhs->getType());
-  if (!VecLhs)
-    return false;
-  assert(!VecLhs->isScalableTy() && "expected fixed-len vector");
-  builder.SetInsertPoint(inst);
-  Value *newVec = llvm::UndefValue::get(VecLhs);
-  for (int i = 0; i < VecLhs->getElementCount().getFixedValue(); ++i) {
-    Value *newLhs = builder.CreateExtractElement(lhs, i);
-    Value *newRhs = builder.CreateExtractElement(rhs, i);
-    Value *res;
-    if (inst->getOpcode() == Instruction::FMul)
-      res = builder.CreateFMul(newLhs, newRhs);
-    else if (inst->getOpcode() == Instruction::FAdd)
-      res = builder.CreateFAdd(newLhs, newRhs);
-    else if (inst->getOpcode() == Instruction::FSub)
-      res = builder.CreateFSub(newLhs, newRhs);
-    else
-      llvm::report_fatal_error("only fadd, fmul, fsub supported");
-    newVec = builder.CreateInsertElement(newVec, res, i);
-  }
-  LLVM_DEBUG(dbgs() << "ScalarizePackedFOps: Replacing: " << inst << '\n');
-  LLVM_DEBUG(dbgs() << "                     With: " << newVec << '\n');
-  inst->replaceAllUsesWith(newVec);
-  return true;
+    Value *lhs, *rhs;
+    if (!match(inst, m_BinOp(m_Value(lhs), m_Value(rhs))))
+        return false;
+    auto *VecLhs = dyn_cast<VectorType>(lhs->getType());
+    if (!VecLhs)
+        return false;
+    assert(!VecLhs->isScalableTy() && "expected fixed-len vector");
+    builder.SetInsertPoint(inst);
+    Value *newVec = llvm::UndefValue::get(VecLhs);
+    for (int i = 0; i < VecLhs->getElementCount().getFixedValue(); ++i) {
+        Value *newLhs = builder.CreateExtractElement(lhs, i);
+        Value *newRhs = builder.CreateExtractElement(rhs, i);
+        Value *res;
+        if (inst->getOpcode() == Instruction::FMul)
+            res = builder.CreateFMul(newLhs, newRhs);
+        else if (inst->getOpcode() == Instruction::FAdd)
+            res = builder.CreateFAdd(newLhs, newRhs);
+        else if (inst->getOpcode() == Instruction::FSub)
+            res = builder.CreateFSub(newLhs, newRhs);
+        else
+            llvm::report_fatal_error("only fadd, fmul, fsub supported");
+        newVec = builder.CreateInsertElement(newVec, res, i);
+    }
+    LLVM_DEBUG(dbgs() << "ScalarizePackedFOps: Replacing: " << inst << '\n');
+    LLVM_DEBUG(dbgs() << "                     With: " << newVec << '\n');
+    inst->replaceAllUsesWith(newVec);
+    return true;
 }
 
 //  This Pass scalarizes vector `fmul`s and `fadd`s in basic blocks that contain
@@ -77,40 +77,40 @@ bool maybeReplaceVectorFOpWithScalarFOps(Instruction *inst,
 //  pattern during the `optimize_module` pipeline (hence why this LLVM pass
 //  needs to follow that pipeline).
 struct ScalarizePackedFOps : FunctionPass {
-  ScalarizePackedFOps() : FunctionPass(ID) {}
+    ScalarizePackedFOps() : FunctionPass(ID) {}
 
-  bool runOnFunction(Function &F) override {
-    IRBuilder<> builder(F.getContext());
-    bool changed = false;
-    SmallVector<Instruction *> instsToErase;
-    for (BasicBlock &BB : F) {
-      if (!llvm::any_of(BB, isMFMAorWMMA))
-        continue;
-      for (Instruction &inst : BB) {
-        if (inst.getOpcode() != Instruction::FMul &&
-            inst.getOpcode() != Instruction::FAdd &&
-            inst.getOpcode() != Instruction::FSub)
-          continue;
-        if (maybeReplaceVectorFOpWithScalarFOps(&inst, builder)) {
-          instsToErase.push_back(&inst);
-          changed = true;
+    bool runOnFunction(Function &F) override {
+        IRBuilder<> builder(F.getContext());
+        bool changed = false;
+        SmallVector<Instruction *> instsToErase;
+        for (BasicBlock &BB : F) {
+            if (!llvm::any_of(BB, isMFMAorWMMA))
+                continue;
+            for (Instruction &inst : BB) {
+                if (inst.getOpcode() != Instruction::FMul &&
+                    inst.getOpcode() != Instruction::FAdd &&
+                    inst.getOpcode() != Instruction::FSub)
+                    continue;
+                if (maybeReplaceVectorFOpWithScalarFOps(&inst, builder)) {
+                    instsToErase.push_back(&inst);
+                    changed = true;
+                }
+            }
         }
-      }
+
+        if (changed) {
+            for (Instruction *inst : instsToErase) {
+                if (inst)
+                    inst->eraseFromParent();
+            }
+        }
+
+        // We don't do anything with this but this is a virtual function
+        // override and the signature requires it.
+        return changed;
     }
 
-    if (changed) {
-      for (Instruction *inst : instsToErase) {
-        if (inst)
-          inst->eraseFromParent();
-      }
-    }
-
-    // We don't do anything with this but this is a virtual function override
-    // and the signature requires it.
-    return changed;
-  }
-
-  static char ID;
+    static char ID;
 };
 
 } // end anonymous namespace
@@ -119,10 +119,10 @@ char ScalarizePackedFOps::ID = 0;
 
 namespace mlir::triton::AMD {
 void runScalarizePackedFOpsPass(Function &F) {
-  ScalarizePackedFOps pass;
-  pass.runOnFunction(F);
-  // If there are no errors, the function returns false.
-  assert(!llvm::verifyFunction(F) &&
-         "expected function to verify successfully");
+    ScalarizePackedFOps pass;
+    pass.runOnFunction(F);
+    // If there are no errors, the function returns false.
+    assert(!llvm::verifyFunction(F) &&
+           "expected function to verify successfully");
 }
 } // namespace mlir::triton::AMD

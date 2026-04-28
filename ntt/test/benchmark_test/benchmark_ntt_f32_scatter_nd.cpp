@@ -26,8 +26,8 @@ using namespace nncase;
 
 template <typename T, size_t N>
 void benchmark_ntt_scatterND_devectorize(T init_low, T init_high, int64_t idx0,
-                                    int64_t idx1, int64_t idx2, int64_t idx3,
-                                    int64_t idx4) {
+                                         int64_t idx1, int64_t idx2,
+                                         int64_t idx3, int64_t idx4) {
     // #if __riscv
     //     constexpr size_t size1 = 300;
     //     constexpr size_t size2 = 600;

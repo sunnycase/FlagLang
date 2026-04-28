@@ -9,28 +9,28 @@
 namespace mlir::triton::proton::gpu {
 
 class TargetInfoBase {
-public:
-  explicit TargetInfoBase(const mlir::triton::TargetInfoBase &helper)
-      : helper(helper) {}
+  public:
+    explicit TargetInfoBase(const mlir::triton::TargetInfoBase &helper)
+        : helper(helper) {}
 
-  virtual const mlir::triton::TargetInfoBase &getTritonTargetInfo() const {
-    return helper;
-  }
+    virtual const mlir::triton::TargetInfoBase &getTritonTargetInfo() const {
+        return helper;
+    }
 
-  virtual Value clock(ConversionPatternRewriter &rewriter, Location loc,
-                      bool isClock64) const = 0;
+    virtual Value clock(ConversionPatternRewriter &rewriter, Location loc,
+                        bool isClock64) const = 0;
 
-  virtual Value processorId(ConversionPatternRewriter &rewriter,
-                            Location loc) const = 0;
+    virtual Value processorId(ConversionPatternRewriter &rewriter,
+                              Location loc) const = 0;
 
-  virtual int getAddressSpace(Attribute addressSpace) const = 0;
+    virtual int getAddressSpace(Attribute addressSpace) const = 0;
 
-  virtual int getIndexPtrAddrSpace() const = 0;
+    virtual int getIndexPtrAddrSpace() const = 0;
 
-  virtual ~TargetInfoBase() = default;
+    virtual ~TargetInfoBase() = default;
 
-protected:
-  const mlir::triton::TargetInfoBase &helper;
+  protected:
+    const mlir::triton::TargetInfoBase &helper;
 };
 } // namespace mlir::triton::proton::gpu
 

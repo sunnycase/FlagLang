@@ -12,19 +12,20 @@
 namespace mlir::triton {
 
 class PtrToUnrankedMemrefConverter : public TypeConverter {
-public:
-  PtrToUnrankedMemrefConverter() {
-    addConversion([](Type type) { return type; });
-    addConversion([](triton::PointerType ptrType) {
-      return UnrankedMemRefType::get(ptrType.getPointeeType(), 0);
-    });
-    addTargetMaterialization([&](OpBuilder &builder,
-                                 UnrankedMemRefType resultType,
-                                 ValueRange inputs, Location loc) -> Value {
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
-          .getResult(0);
-    });
-  }
+  public:
+    PtrToUnrankedMemrefConverter() {
+        addConversion([](Type type) { return type; });
+        addConversion([](triton::PointerType ptrType) {
+            return UnrankedMemRefType::get(ptrType.getPointeeType(), 0);
+        });
+        addTargetMaterialization([&](OpBuilder &builder,
+                                     UnrankedMemRefType resultType,
+                                     ValueRange inputs, Location loc) -> Value {
+            return builder
+                .create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+                .getResult(0);
+        });
+    }
 };
 
 } // namespace mlir::triton

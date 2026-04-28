@@ -13,10 +13,10 @@
 //===----------------------------------------------------------------------===//
 
 void ::mlir::LLVM::XPU::LLVMXPUDialect::initialize() {
-  addOperations<
+    addOperations<
 #define GET_OP_LIST // declare
 #include "triton/Dialect/LLVMXPU/IR/Ops.cpp.inc"
-      >();
+        >();
 }
 
 #define GET_OP_CLASSES // define
@@ -25,12 +25,13 @@ void ::mlir::LLVM::XPU::LLVMXPUDialect::initialize() {
 mlir::LogicalResult
 mlir::LLVM::XPU::LLVMXPUDialect::verifyOperationAttribute(Operation *op,
                                                           NamedAttribute attr) {
-  // Kernel function attribute should be attached to functions.
-  if (attr.getName() == LLVMXPUDialect::getKernelFuncAttrName()) {
-    if (!isa<LLVM::LLVMFuncOp>(op)) {
-      return op->emitError() << "'" << LLVMXPUDialect::getKernelFuncAttrName()
-                             << "' attribute attached to unexpected op";
+    // Kernel function attribute should be attached to functions.
+    if (attr.getName() == LLVMXPUDialect::getKernelFuncAttrName()) {
+        if (!isa<LLVM::LLVMFuncOp>(op)) {
+            return op->emitError()
+                   << "'" << LLVMXPUDialect::getKernelFuncAttrName()
+                   << "' attribute attached to unexpected op";
+        }
     }
-  }
-  return success();
+    return success();
 }

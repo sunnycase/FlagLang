@@ -20,43 +20,43 @@ namespace gpu {
 
 // -- CircularRecordOp --
 LogicalResult CircularStoreOp::verify() {
-  auto scopeId = getScopeId();
-  auto segmentType = getSegment().getType();
-  auto granularity = segmentType.getGranularity();
-  auto selectedIds = segmentType.getSelectIds();
-  auto bufferSizeInBytes = segmentType.getNBytes();
-  auto mod = getOperation()->getParentOfType<ModuleOp>();
+    auto scopeId = getScopeId();
+    auto segmentType = getSegment().getType();
+    auto granularity = segmentType.getGranularity();
+    auto selectedIds = segmentType.getSelectIds();
+    auto bufferSizeInBytes = segmentType.getNBytes();
+    auto mod = getOperation()->getParentOfType<ModuleOp>();
 
-  int numWarps = getTotalNumWarps(mod);
+    int numWarps = getTotalNumWarps(mod);
 
-  int segmentNum = selectedIds.empty() ? numWarps : selectedIds.size();
-  if (!llvm::isPowerOf2_32(bufferSizeInBytes / segmentNum))
-    return emitOpError("profiling buffer segment size must be power of 2");
+    int segmentNum = selectedIds.empty() ? numWarps : selectedIds.size();
+    if (!llvm::isPowerOf2_32(bufferSizeInBytes / segmentNum))
+        return emitOpError("profiling buffer segment size must be power of 2");
 
-  if (scopeId < 0 || scopeId > 255)
-    return emitOpError("scope id must be in [0, 255]");
+    if (scopeId < 0 || scopeId > 255)
+        return emitOpError("scope id must be in [0, 255]");
 
-  return success();
+    return success();
 }
 
 // -- SegmentAllocOp --
 LogicalResult SegmentAllocOp::verify() {
-  auto segmentType = getSegment().getType();
-  auto granularity = segmentType.getGranularity();
-  auto selectIds = segmentType.getSelectIds();
-  if (granularity != Granularity::WARP && selectIds.size()) {
-    return emitOpError(
-        "only warp granularity supports non-empty selectIds for now");
-  }
-  return success();
+    auto segmentType = getSegment().getType();
+    auto granularity = segmentType.getGranularity();
+    auto selectIds = segmentType.getSelectIds();
+    if (granularity != Granularity::WARP && selectIds.size()) {
+        return emitOpError(
+            "only warp granularity supports non-empty selectIds for now");
+    }
+    return success();
 }
 
 // -- InitCtxOp --
 LogicalResult InitCtxOp::verify() {
-  if (getOperation()->getParentOfType<triton::gpu::WarpSpecializeOp>())
-    return emitOpError(
-        "can't initialize proton context in a warp specialized op");
-  return success();
+    if (getOperation()->getParentOfType<triton::gpu::WarpSpecializeOp>())
+        return emitOpError(
+            "can't initialize proton context in a warp specialized op");
+    return success();
 }
 
 } // namespace gpu

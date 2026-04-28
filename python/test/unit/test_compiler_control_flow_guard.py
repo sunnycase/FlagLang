@@ -23,7 +23,9 @@ def _dynamic_if_kernel(x, n):
 
 
 def test_missing_builder_methods_reports_incomplete_native_surface():
+
     class Builder:
+
         def get_insertion_point(self):
             return object()
 

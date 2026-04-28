@@ -30,32 +30,32 @@ namespace {
 
 class CoreDialectsToMKPass : public CoreDialectsToMKBase<CoreDialectsToMKPass> {
 
-public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<func::FuncDialect, arith::ArithDialect, math::MathDialect,
-                linalg::LinalgDialect, affine::AffineDialect, scf::SCFDialect,
-                tensor::TensorDialect, bufferization::BufferizationDialect,
-                memref::MemRefDialect, mk::MagicKernelDialect>();
-  }
-
-  void runOnOperation() override {
-    auto moduleOp = getOperation();
-    PassManager pm(&getContext(), moduleOp.getOperationName());
-
-    pm.addPass(createLinalgToMKPass());
-
-    // Erase dead code and fold constants created during lowering
-    pm.addPass(createCSEPass());
-    pm.addPass(createCanonicalizerPass());
-
-    if (failed(runPipeline(pm, getOperation()))) {
-      signalPassFailure();
+  public:
+    void getDependentDialects(DialectRegistry &registry) const override {
+        registry.insert<
+            func::FuncDialect, arith::ArithDialect, math::MathDialect,
+            linalg::LinalgDialect, affine::AffineDialect, scf::SCFDialect,
+            tensor::TensorDialect, bufferization::BufferizationDialect,
+            memref::MemRefDialect, mk::MagicKernelDialect>();
     }
-  }
+
+    void runOnOperation() override {
+        auto moduleOp = getOperation();
+        PassManager pm(&getContext(), moduleOp.getOperationName());
+
+        pm.addPass(createLinalgToMKPass());
+
+        // Erase dead code and fold constants created during lowering
+        pm.addPass(createCSEPass());
+        pm.addPass(createCanonicalizerPass());
+
+        if (failed(runPipeline(pm, getOperation()))) {
+            signalPassFailure();
+        }
+    }
 };
 } // namespace
 
 std::unique_ptr<OperationPass<ModuleOp>> triton::createCoreDialectsToMKPass() {
-  return std::make_unique<CoreDialectsToMKPass>();
+    return std::make_unique<CoreDialectsToMKPass>();
 }

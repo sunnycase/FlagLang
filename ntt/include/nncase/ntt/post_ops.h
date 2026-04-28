@@ -20,7 +20,9 @@
 
 namespace nncase::ntt {
 namespace post_ops_detail {
-template <typename T> struct extract_op_type { using type = void; };
+template <typename T> struct extract_op_type {
+    using type = void;
+};
 
 template <template <typename> class Template, typename Param>
 struct extract_op_type<Template<Param>> {

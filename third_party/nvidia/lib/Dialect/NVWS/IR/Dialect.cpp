@@ -34,20 +34,20 @@ using namespace mlir;
 using namespace mlir::triton::nvws;
 
 void mlir::triton::nvws::NVWSDialect::initialize() {
-  addAttributes<
+    addAttributes<
 #define GET_ATTRDEF_LIST
 #include "Dialect/NVWS/IR/NVWSAttrDefs.cpp.inc"
-      >();
+        >();
 
-  addTypes<
+    addTypes<
 #define GET_TYPEDEF_LIST
 #include "Dialect/NVWS/IR/Types.cpp.inc"
-      >();
+        >();
 
-  addOperations<
+    addOperations<
 #define GET_OP_LIST
 #include "Dialect/NVWS/IR/Ops.cpp.inc"
-      >();
+        >();
 }
 
 #define GET_ATTRDEF_CLASSES

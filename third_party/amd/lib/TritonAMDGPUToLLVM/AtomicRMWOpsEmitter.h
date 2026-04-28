@@ -9,34 +9,36 @@
 namespace mlir::LLVM::AMD {
 
 class AtomicRMWEmitter {
-public:
-  AtomicRMWEmitter(const mlir::triton::AMD::TargetInfo &targetInfo,
-                   LLVM::AtomicBinOp binOp, LLVM::AtomicOrdering memOrder,
-                   StringRef scopeStr)
-      : targetInfo(targetInfo), binOp(binOp), memOrder(memOrder),
-        scopeStr(scopeStr) {}
+  public:
+    AtomicRMWEmitter(const mlir::triton::AMD::TargetInfo &targetInfo,
+                     LLVM::AtomicBinOp binOp, LLVM::AtomicOrdering memOrder,
+                     StringRef scopeStr)
+        : targetInfo(targetInfo),
+          binOp(binOp),
+          memOrder(memOrder),
+          scopeStr(scopeStr) {}
 
-  Value emitAtomicRMW(RewriterBase &rewriter, Value rmwPtr, Value valElem,
-                      Value rmwMask, std::optional<Value> sharedMemBase,
-                      bool enableIntraWaveReduce) const;
+    Value emitAtomicRMW(RewriterBase &rewriter, Value rmwPtr, Value valElem,
+                        Value rmwMask, std::optional<Value> sharedMemBase,
+                        bool enableIntraWaveReduce) const;
 
-  Value emitPairedAtomicForEvenTID(RewriterBase &rewriter, Value rmwPtr,
-                                   Value valElem, Value rmwMask) const;
-  void setAtomicOrdering(LLVM::AtomicOrdering memOrder) {
-    this->memOrder = memOrder;
-  }
+    Value emitPairedAtomicForEvenTID(RewriterBase &rewriter, Value rmwPtr,
+                                     Value valElem, Value rmwMask) const;
+    void setAtomicOrdering(LLVM::AtomicOrdering memOrder) {
+        this->memOrder = memOrder;
+    }
 
-private:
-  const mlir::triton::AMD::TargetInfo &targetInfo;
+  private:
+    const mlir::triton::AMD::TargetInfo &targetInfo;
 
-  mlir::LLVM::AtomicBinOp binOp;
-  mlir::LLVM::AtomicOrdering memOrder;
-  std::string scopeStr;
+    mlir::LLVM::AtomicBinOp binOp;
+    mlir::LLVM::AtomicOrdering memOrder;
+    std::string scopeStr;
 
-  Value atomicIntraWaveReduce(RewriterBase &rewriter, Value rmwPtr,
-                              Value operand, LLVM::AtomicBinOp opKind,
-                              LLVM::AtomicOrdering memOrdering,
-                              StringRef scope) const;
+    Value atomicIntraWaveReduce(RewriterBase &rewriter, Value rmwPtr,
+                                Value operand, LLVM::AtomicBinOp opKind,
+                                LLVM::AtomicOrdering memOrdering,
+                                StringRef scope) const;
 };
 
 } // namespace mlir::LLVM::AMD

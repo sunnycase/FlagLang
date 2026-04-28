@@ -16,7 +16,5 @@
 #include "compiler.h"
 
 namespace nncase::clr {
-struct nncase_ir_builder_mt {
-    
-};
+struct nncase_ir_builder_mt {};
 } // namespace nncase::clr

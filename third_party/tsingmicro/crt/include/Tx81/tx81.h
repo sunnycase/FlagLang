@@ -17,16 +17,16 @@
 #include "profiler.h"
 
 typedef enum {
-  UNKNOWN = 0,
-  SPM = 1,
-  DDR = 2,
+    UNKNOWN = 0,
+    SPM = 1,
+    DDR = 2,
 } MemorySpace;
 
 // Neural engine activate mode
 typedef enum {
-  None = 0,
-  ENRelu = 1,
-  ENLeakRelu = 2,
+    None = 0,
+    ENRelu = 1,
+    ENLeakRelu = 2,
 } ActFuncMode;
 
 #ifdef __cplusplus

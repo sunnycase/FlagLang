@@ -51,14 +51,14 @@ LogicalResult verifyMMAv5Op(Operation *op);
 namespace mlir::triton::nvidia_gpu {
 
 struct TensorMemory : public SideEffects::Resource::Base<TensorMemory> {
-  StringRef getName() final { return "<TensorMemory>"; }
+    StringRef getName() final { return "<TensorMemory>"; }
 };
 
 struct TMemAllocation {
-  TMemAllocation(int numCols, int numRows)
-      : numCols(numCols), numRows(numRows) {}
-  int numCols;
-  int numRows;
+    TMemAllocation(int numCols, int numRows)
+        : numCols(numCols), numRows(numRows) {}
+    int numCols;
+    int numRows;
 };
 
 TMemAllocation getTmemAllocSizes(gpu::MemDescType memDescType);

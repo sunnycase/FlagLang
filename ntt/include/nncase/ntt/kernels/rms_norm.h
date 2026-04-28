@@ -27,9 +27,9 @@ template <Tensor TIn, Tensor TScale, Tensor TBias, typename TOut, Scalar TEp,
           FixedDimensions VectorizedAxes, FixedDimensions PadedNums,
           FixedDimension TAxis>
 void within_axis_vectorize_impl(const TIn &input, const TScale &scale,
-                           const TBias &bias, TOut &&output, const TEp &epsilon,
-                           const VectorizedAxes &, const PadedNums &,
-                           const TAxis &) {
+                                const TBias &bias, TOut &&output,
+                                const TEp &epsilon, const VectorizedAxes &,
+                                const PadedNums &, const TAxis &) {
 
     using TElem = typename TIn::element_type;
     auto input_shape = input.shape();
@@ -45,8 +45,8 @@ void within_axis_vectorize_impl(const TIn &input, const TScale &scale,
         input_shape.template slice<(size_t)axis_value>().length();
 
     constexpr VectorizedAxes vectorized_axes_temp;
-    constexpr bool UseVectorReduce =
-        vectorized_axes_temp.rank() == 1 && vectorized_axes_temp[0] >= axis_value;
+    constexpr bool UseVectorReduce = vectorized_axes_temp.rank() == 1 &&
+                                     vectorized_axes_temp[0] >= axis_value;
 
     using TElemScalar = element_or_scalar_t<TElem>;
     auto temp_size = (TElemScalar)(float)inner_size;
@@ -103,18 +103,19 @@ void within_axis_vectorize_impl(const TIn &input, const TScale &scale,
 template <Tensor TIn, Tensor TScale, Tensor TBias, typename TOut, Scalar TEp,
           FixedDimension TAxis, FixedDimensions VectorizedAxes = shape_t<>,
           FixedDimensions PadedNums = shape_t<>>
-void vectorized_rms_norm(const TIn &input, const TScale &scale, const TBias &bias,
-                     TOut &&output, const TEp &epsilon,
-                     const TAxis &axis = -1_dim,
-                     const VectorizedAxes &vectorizedAxes = {},
-                     const PadedNums &padedNums = {}) {
-    static_assert(VectorizedAxes::rank() < 2, "currently not support 2d vectorize.");
+void vectorized_rms_norm(const TIn &input, const TScale &scale,
+                         const TBias &bias, TOut &&output, const TEp &epsilon,
+                         const TAxis &axis = -1_dim,
+                         const VectorizedAxes &vectorizedAxes = {},
+                         const PadedNums &padedNums = {}) {
+    static_assert(VectorizedAxes::rank() < 2,
+                  "currently not support 2d vectorize.");
     if constexpr (VectorizedAxes::rank() <= 1) {
         static_assert(PadedNums::rank() == 0, "not support padding");
     }
 
-    vectorized_rms_norm_detail::within_axis_vectorize_impl<TIn, TScale, TBias, TOut, TEp,
-                                                  VectorizedAxes, PadedNums, TAxis>(
+    vectorized_rms_norm_detail::within_axis_vectorize_impl<
+        TIn, TScale, TBias, TOut, TEp, VectorizedAxes, PadedNums, TAxis>(
         input, scale, bias, output, epsilon, vectorizedAxes, padedNums, axis);
 }
 } // namespace nncase::ntt

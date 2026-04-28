@@ -4,25 +4,25 @@ __all__: list[str] = ['ACQUIRE', 'ACQUIRE_RELEASE', 'ATOMIC_OP', 'CA', 'CACHE_MO
 class ATOMIC_OP:
     """
     Members:
-    
+
       ADD
-    
+
       FADD
-    
+
       AND
-    
+
       OR
-    
+
       XOR
-    
+
       XCHG
-    
+
       MAX
-    
+
       MIN
-    
+
       UMIN
-    
+
       UMAX
     """
     ADD: typing.ClassVar[ATOMIC_OP]  # value = <ATOMIC_OP.ADD: 4>
@@ -65,17 +65,17 @@ class ATOMIC_OP:
 class CACHE_MODIFIER:
     """
     Members:
-    
+
       NONE
-    
+
       CA
-    
+
       CG
-    
+
       WB
-    
+
       CS
-    
+
       WT
     """
     CA: typing.ClassVar[CACHE_MODIFIER]  # value = <CACHE_MODIFIER.CA: 2>
@@ -114,11 +114,11 @@ class CACHE_MODIFIER:
 class EVICTION_POLICY:
     """
     Members:
-    
+
       NORMAL
-    
+
       EVICT_FIRST
-    
+
       EVICT_LAST
     """
     EVICT_FIRST: typing.ClassVar[EVICTION_POLICY]  # value = <EVICTION_POLICY.EVICT_FIRST: 2>
@@ -154,11 +154,11 @@ class EVICTION_POLICY:
 class INPUT_PRECISION:
     """
     Members:
-    
+
       TF32
-    
+
       TF32x3
-    
+
       IEEE
     """
     IEEE: typing.ClassVar[INPUT_PRECISION]  # value = <INPUT_PRECISION.IEEE: 2>
@@ -194,13 +194,13 @@ class INPUT_PRECISION:
 class MEM_SEMANTIC:
     """
     Members:
-    
+
       ACQUIRE_RELEASE
-    
+
       ACQUIRE
-    
+
       RELEASE
-    
+
       RELAXED
     """
     ACQUIRE: typing.ClassVar[MEM_SEMANTIC]  # value = <MEM_SEMANTIC.ACQUIRE: 2>
@@ -237,11 +237,11 @@ class MEM_SEMANTIC:
 class MEM_SYNC_SCOPE:
     """
     Members:
-    
+
       GPU
-    
+
       CTA
-    
+
       SYSTEM
     """
     CTA: typing.ClassVar[MEM_SYNC_SCOPE]  # value = <MEM_SYNC_SCOPE.CTA: 2>
@@ -277,9 +277,9 @@ class MEM_SYNC_SCOPE:
 class PADDING_OPTION:
     """
     Members:
-    
+
       PAD_ZERO
-    
+
       PAD_NAN
     """
     PAD_NAN: typing.ClassVar[PADDING_OPTION]  # value = <PADDING_OPTION.PAD_NAN: 2>
@@ -314,9 +314,9 @@ class PADDING_OPTION:
 class PROPAGATE_NAN:
     """
     Members:
-    
+
       NONE
-    
+
       ALL
     """
     ALL: typing.ClassVar[PROPAGATE_NAN]  # value = <PROPAGATE_NAN.ALL: 65535>
@@ -351,9 +351,9 @@ class PROPAGATE_NAN:
 class ROUNDING_MODE:
     """
     Members:
-    
+
       RTZ
-    
+
       RTNE
     """
     RTNE: typing.ClassVar[ROUNDING_MODE]  # value = <ROUNDING_MODE.RTNE: 1>

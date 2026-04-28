@@ -215,7 +215,7 @@ DEFINE_BF16_BINARY_BOOLRET(>=)
 DEFINE_BF16_BINARY_BOOLRET(>)
 
 #define DEFINE_BF16_BINARY_SELF_MOD(x, op)                                     \
-    NTT_ALWAYS_INLINE constexpr bfloat16 &operator x(bfloat16 &a,              \
+    NTT_ALWAYS_INLINE constexpr bfloat16 &operator x(bfloat16 & a,             \
                                                      bfloat16 b) noexcept {    \
         a = a op b;                                                            \
         return a;                                                              \

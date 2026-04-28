@@ -82,13 +82,13 @@ TEST(ReduceMeanTestFloat, ReduceM_NoVectorize) {
     auto ntt_input = ntt::make_tensor<float>(ntt::fixed_shape_v<M, N>);        \
     std::iota(ntt_input.elements().begin(), ntt_input.elements().end(), 0.f);  \
                                                                                \
-    auto ntt_input_vectorize =                                                      \
+    auto ntt_input_vectorize =                                                 \
         ntt::make_tensor<ntt::vector<float, P>>(ntt::fixed_shape_v<M / P, N>); \
-    ntt::pack(ntt_input, ntt_input_vectorize, ntt::fixed_shape_v<0>);               \
+    ntt::pack(ntt_input, ntt_input_vectorize, ntt::fixed_shape_v<0>);          \
                                                                                \
     /* ntt */                                                                  \
     auto ntt_output1 = ntt::make_tensor<float>(ntt::fixed_shape_v<1, N>);      \
-    ntt::reduce_##ntt_reduce_mode(ntt_input_vectorize, ntt_output1,                 \
+    ntt::reduce_##ntt_reduce_mode(ntt_input_vectorize, ntt_output1,            \
                                   ntt::fixed_shape_v<0>,                       \
                                   ntt::fixed_shape_v<0>);                      \
                                                                                \
@@ -203,13 +203,13 @@ TEST(ReduceMeanTestFloat, ReduceN_NoVectorize) {
     auto ntt_input = ntt::make_tensor<float>(ntt::fixed_shape_v<M, N>);        \
     std::iota(ntt_input.elements().begin(), ntt_input.elements().end(), 0.f);  \
                                                                                \
-    auto ntt_input_vectorize =                                                      \
+    auto ntt_input_vectorize =                                                 \
         ntt::make_tensor<ntt::vector<float, P>>(ntt::fixed_shape_v<M, N / P>); \
-    ntt::pack(ntt_input, ntt_input_vectorize, ntt::fixed_shape_v<1>);               \
+    ntt::pack(ntt_input, ntt_input_vectorize, ntt::fixed_shape_v<1>);          \
                                                                                \
     /* ntt */                                                                  \
     auto ntt_output1 = ntt::make_tensor<float>(ntt::fixed_shape_v<M, 1>);      \
-    ntt::reduce_##ntt_reduce_mode(ntt_input_vectorize, ntt_output1,                 \
+    ntt::reduce_##ntt_reduce_mode(ntt_input_vectorize, ntt_output1,            \
                                   ntt::fixed_shape_v<1>,                       \
                                   ntt::fixed_shape_v<1>);                      \
                                                                                \
@@ -320,13 +320,13 @@ TEST(ReduceMeanTestFloat, ReduceMN_NoVectorize) {
     auto ntt_input = ntt::make_tensor<float>(ntt::fixed_shape_v<M, N>);        \
     std::iota(ntt_input.elements().begin(), ntt_input.elements().end(), 0.f);  \
                                                                                \
-    auto ntt_input_vectorize =                                                      \
+    auto ntt_input_vectorize =                                                 \
         ntt::make_tensor<ntt::vector<float, P>>(ntt::fixed_shape_v<M / P, N>); \
-    ntt::pack(ntt_input, ntt_input_vectorize, ntt::fixed_shape_v<0>);               \
+    ntt::pack(ntt_input, ntt_input_vectorize, ntt::fixed_shape_v<0>);          \
                                                                                \
     /* ntt */                                                                  \
     auto ntt_output1 = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 1>);      \
-    ntt::reduce_##ntt_reduce_mode(ntt_input_vectorize, ntt_output1,                 \
+    ntt::reduce_##ntt_reduce_mode(ntt_input_vectorize, ntt_output1,            \
                                   ntt::fixed_shape_v<0, 1>,                    \
                                   ntt::fixed_shape_v<0>);                      \
                                                                                \
@@ -383,13 +383,13 @@ TEST(ReduceMeanTestFloat, ReduceMN_VectorizeM) {
     auto ntt_input = ntt::make_tensor<float>(ntt::fixed_shape_v<M, N>);        \
     std::iota(ntt_input.elements().begin(), ntt_input.elements().end(), 0.f);  \
                                                                                \
-    auto ntt_input_vectorize =                                                      \
+    auto ntt_input_vectorize =                                                 \
         ntt::make_tensor<ntt::vector<float, P>>(ntt::fixed_shape_v<M, N / P>); \
-    ntt::pack(ntt_input, ntt_input_vectorize, ntt::fixed_shape_v<1>);               \
+    ntt::pack(ntt_input, ntt_input_vectorize, ntt::fixed_shape_v<1>);          \
                                                                                \
     /* ntt */                                                                  \
     auto ntt_output1 = ntt::make_tensor<float>(ntt::fixed_shape_v<1, 1>);      \
-    ntt::reduce_##ntt_reduce_mode(ntt_input_vectorize, ntt_output1,                 \
+    ntt::reduce_##ntt_reduce_mode(ntt_input_vectorize, ntt_output1,            \
                                   ntt::fixed_shape_v<0, 1>,                    \
                                   ntt::fixed_shape_v<1>);                      \
                                                                                \

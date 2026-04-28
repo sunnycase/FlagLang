@@ -308,13 +308,12 @@ class OfflineBuildManager:
             NVIDIA_TOOLCHAIN_VERSION = json.load(nvidia_version_file)
 
         def nvcc_cache_path(tool_name):
-            return os.path.join(
-                "nvidia/nvcc",
-                f"cuda_nvcc-{system}-{arch}-{NVIDIA_TOOLCHAIN_VERSION[tool_name]}-archive")
+            return os.path.join("nvidia/nvcc",
+                                f"cuda_nvcc-{system}-{arch}-{NVIDIA_TOOLCHAIN_VERSION[tool_name]}-archive")
 
         triton_origin_toolkits = [
-            nvcc_cache_path("ptxas"), nvcc_cache_path("cudacrt"), "nvidia/nvdisasm", "nvidia/cuobjdump",
-            "nvidia/cudart", "nvidia/cupti", "json"
+            nvcc_cache_path("ptxas"),
+            nvcc_cache_path("cudacrt"), "nvidia/nvdisasm", "nvidia/cuobjdump", "nvidia/cudart", "nvidia/cupti", "json"
         ]
         if "ptxas-blackwell" in NVIDIA_TOOLCHAIN_VERSION:
             triton_origin_toolkits.insert(1, nvcc_cache_path("ptxas-blackwell"))

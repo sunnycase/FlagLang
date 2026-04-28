@@ -15,17 +15,17 @@ ArefCreateOp createArefCreateOp(OpBuilder &builder, ArrayRef<Type> arefTypes,
 template <typename Range>
 inline std::optional<int> findValuePosInRange(const Range &range,
                                               mlir::Value v) {
-  for (auto [pos, arg] : llvm::enumerate(range)) {
-    if (arg == v)
-      return pos;
-  }
-  return {};
+    for (auto [pos, arg] : llvm::enumerate(range)) {
+        if (arg == v)
+            return pos;
+    }
+    return {};
 }
 
 struct PartitionId : std::pair<int, int> {
-  PartitionId(int index, int tag) : std::pair<int, int>(index, tag) {}
-  int &index() { return first; }
-  int &tag() { return second; }
+    PartitionId(int index, int tag) : std::pair<int, int>(index, tag) {}
+    int &index() { return first; }
+    int &tag() { return second; }
 };
 
 std::optional<PartitionId> getPartitionId(Operation *op);

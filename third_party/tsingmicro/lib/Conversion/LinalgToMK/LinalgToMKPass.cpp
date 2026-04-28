@@ -33,22 +33,22 @@ namespace triton {
 namespace {
 
 class LinalgToMKPass : public triton::impl::LinalgToMKBase<LinalgToMKPass> {
-  using LinalgToMKBase<LinalgToMKPass>::LinalgToMKBase;
+    using LinalgToMKBase<LinalgToMKPass>::LinalgToMKBase;
 
-public:
-  void runOnOperation() override {
-    auto moduleOp = getOperation();
-    RewritePatternSet patterns(&getContext());
+  public:
+    void runOnOperation() override {
+        auto moduleOp = getOperation();
+        RewritePatternSet patterns(&getContext());
 
-    triton::populateLinalgToMKConversionPatterns(patterns);
-    if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
-      signalPassFailure();
+        triton::populateLinalgToMKConversionPatterns(patterns);
+        if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
+            signalPassFailure();
+        }
     }
-  }
 };
 
 } // namespace
 
 std::unique_ptr<OperationPass<ModuleOp>> triton::createLinalgToMKPass() {
-  return std::make_unique<LinalgToMKPass>();
+    return std::make_unique<LinalgToMKPass>();
 }

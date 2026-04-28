@@ -8,36 +8,42 @@
 namespace mlir {
 
 struct WmmaIntrinsic {
-  // Chooses a suitable wmma instrinsic for the given input case.
-  static FailureOr<WmmaIntrinsic> selectFor(int version, unsigned mDim,
-                                            unsigned nDim, unsigned inputKDim,
-                                            Type aElemType, Type bElemType,
-                                            Type dElemType);
+    // Chooses a suitable wmma instrinsic for the given input case.
+    static FailureOr<WmmaIntrinsic> selectFor(int version, unsigned mDim,
+                                              unsigned nDim, unsigned inputKDim,
+                                              Type aElemType, Type bElemType,
+                                              Type dElemType);
 
-  WmmaIntrinsic(StringRef symbol, unsigned m, unsigned n, unsigned k,
-                unsigned kB, Type aET, Type bET, Type dET)
-      : name(symbol), mDim(m), nDim(n), kDim(k), kBase(kB), aElementType(aET),
-        bElementType(bET), dElementType(dET) {}
-  WmmaIntrinsic(const WmmaIntrinsic &other) = default;
-  WmmaIntrinsic(WmmaIntrinsic &&other) = default;
-  WmmaIntrinsic() = default;
-  WmmaIntrinsic &operator=(WmmaIntrinsic &&other) = default;
+    WmmaIntrinsic(StringRef symbol, unsigned m, unsigned n, unsigned k,
+                  unsigned kB, Type aET, Type bET, Type dET)
+        : name(symbol),
+          mDim(m),
+          nDim(n),
+          kDim(k),
+          kBase(kB),
+          aElementType(aET),
+          bElementType(bET),
+          dElementType(dET) {}
+    WmmaIntrinsic(const WmmaIntrinsic &other) = default;
+    WmmaIntrinsic(WmmaIntrinsic &&other) = default;
+    WmmaIntrinsic() = default;
+    WmmaIntrinsic &operator=(WmmaIntrinsic &&other) = default;
 
-  llvm::StringRef name;
+    llvm::StringRef name;
 
-  // m, n, and k refer to the shapes of the two operands of an wmma intrinsic:
-  // Operand A has shape [m]x[k]; operand B has shape [k]x[n].
+    // m, n, and k refer to the shapes of the two operands of an wmma intrinsic:
+    // Operand A has shape [m]x[k]; operand B has shape [k]x[n].
 
-  unsigned mDim;
-  unsigned nDim;
-  unsigned kDim;
+    unsigned mDim;
+    unsigned nDim;
+    unsigned kDim;
 
-  // kBase is the number of elements each thread holds.
-  unsigned kBase;
+    // kBase is the number of elements each thread holds.
+    unsigned kBase;
 
-  Type aElementType;
-  Type bElementType;
-  Type dElementType;
+    Type aElementType;
+    Type bElementType;
+    Type dElementType;
 };
 } // namespace mlir
 

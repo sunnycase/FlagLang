@@ -19,22 +19,22 @@ using CacheKey = std::tuple<std::vector<int64_t>, mlir::Attribute>;
 
 namespace llvm {
 template <typename T> size_t hash_value(const std::vector<T> &vec) {
-  return hash_combine_range(vec.begin(), vec.end());
+    return hash_combine_range(vec.begin(), vec.end());
 }
 } // namespace llvm
 
 namespace std {
 template <> struct hash<CacheKey> {
-  size_t operator()(const CacheKey &key) const noexcept {
-    using llvm::hash_value;
-    size_t seed = 0;
-    std::apply(
-        [&seed](const auto &...elems) {
-          ((seed = llvm::hash_combine(seed, hash_value(elems))), ...);
-        },
-        key);
-    return seed;
-  }
+    size_t operator()(const CacheKey &key) const noexcept {
+        using llvm::hash_value;
+        size_t seed = 0;
+        std::apply(
+            [&seed](const auto &...elems) {
+                ((seed = llvm::hash_combine(seed, hash_value(elems))), ...);
+            },
+            key);
+        return seed;
+    }
 };
 } // namespace std
 
@@ -59,24 +59,24 @@ int lookupThreadsPerWarp(OpBuilder &rewriter);
 int lookupNumCTAs(OpBuilder &rewriter);
 
 template <typename Key, typename Value> class Cache {
-public:
-  std::optional<Value> get(const Key &key) {
-    std::shared_lock lock(mutex);
-    auto it = cache.find(key);
-    if (it != cache.end()) {
-      return it->second;
+  public:
+    std::optional<Value> get(const Key &key) {
+        std::shared_lock lock(mutex);
+        auto it = cache.find(key);
+        if (it != cache.end()) {
+            return it->second;
+        }
+        return std::nullopt;
     }
-    return std::nullopt;
-  }
 
-  void set(Key key, Value result) {
-    std::scoped_lock lock(mutex);
-    cache.emplace(std::move(key), std::move(result));
-  }
+    void set(Key key, Value result) {
+        std::scoped_lock lock(mutex);
+        cache.emplace(std::move(key), std::move(result));
+    }
 
-private:
-  std::unordered_map<Key, Value> cache;
-  llvm::sys::SmartRWMutex<true> mutex;
+  private:
+    std::unordered_map<Key, Value> cache;
+    llvm::sys::SmartRWMutex<true> mutex;
 };
 
 using LinearLayoutCache = Cache<CacheKey, LinearLayout>;
@@ -89,7 +89,7 @@ using LinearEncodingCache = Cache<CacheKey, LinearEncodingAttr>;
 
 namespace mlir::triton::gpu {
 struct SharedMemory : public SideEffects::Resource::Base<SharedMemory> {
-  StringRef getName() final { return "<SharedMemory>"; }
+    StringRef getName() final { return "<SharedMemory>"; }
 };
 
 // Convert a distributed layout to a linear encoding
@@ -111,7 +111,7 @@ SmallVector<unsigned> getElemsPerThread(Type type);
 SmallVector<unsigned> getWarpsPerCTA(Attribute layout,
                                      ArrayRef<int64_t> tensorShape);
 inline SmallVector<unsigned> getWarpsPerCTA(RankedTensorType type) {
-  return getWarpsPerCTA(type.getEncoding(), type.getShape());
+    return getWarpsPerCTA(type.getEncoding(), type.getShape());
 }
 
 // Returns the number of contiguous elements of the logical tensor that each
@@ -130,7 +130,7 @@ SmallVector<unsigned> getContigPerThread(RankedTensorType tensorType);
 SmallVector<unsigned> getThreadsPerWarp(Attribute layout,
                                         ArrayRef<int64_t> shape);
 inline SmallVector<unsigned> getThreadsPerWarp(RankedTensorType type) {
-  return getThreadsPerWarp(type.getEncoding(), type.getShape());
+    return getThreadsPerWarp(type.getEncoding(), type.getShape());
 }
 
 // Returns the dimensions of the tensor from minor (fast-varying) to
@@ -141,23 +141,23 @@ inline SmallVector<unsigned> getThreadsPerWarp(RankedTensorType type) {
 SmallVector<unsigned> getOrder(DistributedEncodingTrait layout,
                                ArrayRef<int64_t> shape);
 inline SmallVector<unsigned> getOrder(RankedTensorType type) {
-  return getOrder(cast<DistributedEncodingTrait>(type.getEncoding()),
-                  type.getShape());
+    return getOrder(cast<DistributedEncodingTrait>(type.getEncoding()),
+                    type.getShape());
 }
 
 SmallVector<unsigned> getOrder(SharedEncodingTrait layout,
                                ArrayRef<int64_t> shape);
 inline SmallVector<unsigned> getOrder(MemDescType type) {
-  return getOrder(cast<SharedEncodingTrait>(type.getEncoding()),
-                  type.getShape());
+    return getOrder(cast<SharedEncodingTrait>(type.getEncoding()),
+                    type.getShape());
 }
 inline SmallVector<unsigned> getOrder(TensorOrMemDesc type) {
-  if (auto memDesc = dyn_cast<MemDescType>(type)) {
-    return getOrder(memDesc);
-  } else {
-    auto tensorTy = cast<RankedTensorType>(type);
-    return getOrder(tensorTy);
-  }
+    if (auto memDesc = dyn_cast<MemDescType>(type)) {
+        return getOrder(memDesc);
+    } else {
+        auto tensorTy = cast<RankedTensorType>(type);
+        return getOrder(tensorTy);
+    }
 }
 
 // To be removed once we implement arbitrary swizzled layouts
@@ -167,16 +167,16 @@ inline SmallVector<unsigned> getOrder(TensorOrMemDesc type) {
 SmallVector<unsigned> getOrderForMemory(DistributedEncodingTrait layout,
                                         ArrayRef<int64_t> shape);
 inline SmallVector<unsigned> getOrderForMemory(RankedTensorType type) {
-  return getOrderForMemory(cast<DistributedEncodingTrait>(type.getEncoding()),
-                           type.getShape());
+    return getOrderForMemory(cast<DistributedEncodingTrait>(type.getEncoding()),
+                             type.getShape());
 }
 inline SmallVector<unsigned> getOrderForMemory(TensorOrMemDesc type) {
-  if (auto memDesc = dyn_cast<MemDescType>(type)) {
-    return getOrder(memDesc);
-  } else {
-    auto tensorTy = cast<RankedTensorType>(type);
-    return getOrderForMemory(tensorTy);
-  }
+    if (auto memDesc = dyn_cast<MemDescType>(type)) {
+        return getOrder(memDesc);
+    } else {
+        auto tensorTy = cast<RankedTensorType>(type);
+        return getOrderForMemory(tensorTy);
+    }
 }
 
 // Returns the dimensions along which warpId's are distributed.
@@ -189,8 +189,8 @@ inline SmallVector<unsigned> getOrderForMemory(TensorOrMemDesc type) {
 SmallVector<unsigned> getWarpOrder(DistributedEncodingTrait layout,
                                    ArrayRef<int64_t> shape);
 inline SmallVector<unsigned> getWarpOrder(RankedTensorType type) {
-  return getWarpOrder(cast<DistributedEncodingTrait>(type.getEncoding()),
-                      type.getShape());
+    return getWarpOrder(cast<DistributedEncodingTrait>(type.getEncoding()),
+                        type.getShape());
 }
 
 // Returns the dimensions along which threadId's are distributed.
@@ -199,8 +199,8 @@ inline SmallVector<unsigned> getWarpOrder(RankedTensorType type) {
 SmallVector<unsigned> getThreadOrder(DistributedEncodingTrait layout,
                                      ArrayRef<int64_t> shape);
 inline SmallVector<unsigned> getThreadOrder(RankedTensorType type) {
-  return getThreadOrder(cast<DistributedEncodingTrait>(type.getEncoding()),
-                        type.getShape());
+    return getThreadOrder(cast<DistributedEncodingTrait>(type.getEncoding()),
+                          type.getShape());
 }
 
 CTALayoutAttr getCTALayout(Attribute layout);

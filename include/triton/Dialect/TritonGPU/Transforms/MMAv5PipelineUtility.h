@@ -31,26 +31,26 @@ bool hasLoadsAfterMMA(MMAv5OpInterface mma, scf::ForOp forOp);
 // Helper class to determine if the operands of an MMA operation are
 // pipelineable.
 class MMAv5PipelineableOperandsHelper {
-public:
-  MMAv5PipelineableOperandsHelper(
-      MMAv5OpInterface mmaOp, scf::ForOp forOp,
-      std::function<bool(Operation *)> isLoadToBePipelined)
-      : mmaOp(mmaOp), forOp(forOp), isLoadToBePipelined(isLoadToBePipelined) {
-    run();
-  }
+  public:
+    MMAv5PipelineableOperandsHelper(
+        MMAv5OpInterface mmaOp, scf::ForOp forOp,
+        std::function<bool(Operation *)> isLoadToBePipelined)
+        : mmaOp(mmaOp), forOp(forOp), isLoadToBePipelined(isLoadToBePipelined) {
+        run();
+    }
 
-  bool isPipelineable = false;
-  // If true, the existing operand loads are all been found and their
-  // pipelineability has been determined.
-  bool isOperandsStateDetermined = false;
-  SmallVector<Operation *> unpipelineableOperandDefs;
+    bool isPipelineable = false;
+    // If true, the existing operand loads are all been found and their
+    // pipelineability has been determined.
+    bool isOperandsStateDetermined = false;
+    SmallVector<Operation *> unpipelineableOperandDefs;
 
-private:
-  MMAv5OpInterface mmaOp;
-  scf::ForOp forOp;
-  std::function<bool(Operation *)> isLoadToBePipelined;
-  void run();
-  bool isOperandPipelineable(Value v, Operation *&foundDef);
+  private:
+    MMAv5OpInterface mmaOp;
+    scf::ForOp forOp;
+    std::function<bool(Operation *)> isLoadToBePipelined;
+    void run();
+    bool isOperandPipelineable(Value v, Operation *&foundDef);
 };
 
 //===----------------------------------------------------------------------===//

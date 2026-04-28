@@ -33,42 +33,44 @@ using namespace mlir::triton;
 namespace {
 struct ClusterArriveOpConversion
     : public ConvertOpToLLVMPattern<triton::nvidia_gpu::ClusterArriveOp> {
-  using ConvertOpToLLVMPattern<
-      triton::nvidia_gpu::ClusterArriveOp>::ConvertOpToLLVMPattern;
+    using ConvertOpToLLVMPattern<
+        triton::nvidia_gpu::ClusterArriveOp>::ConvertOpToLLVMPattern;
 
-  LogicalResult
-  matchAndRewrite(triton::nvidia_gpu::ClusterArriveOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto ctx = rewriter.getContext();
-    auto unitAttr = UnitAttr::get(ctx);
-    if (op.getRelaxed()) {
-      rewriter.replaceOpWithNewOp<NVVM::ClusterArriveRelaxedOp>(op, unitAttr);
-    } else {
-      rewriter.replaceOpWithNewOp<NVVM::ClusterArriveOp>(op, unitAttr);
+    LogicalResult
+    matchAndRewrite(triton::nvidia_gpu::ClusterArriveOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+        auto ctx = rewriter.getContext();
+        auto unitAttr = UnitAttr::get(ctx);
+        if (op.getRelaxed()) {
+            rewriter.replaceOpWithNewOp<NVVM::ClusterArriveRelaxedOp>(op,
+                                                                      unitAttr);
+        } else {
+            rewriter.replaceOpWithNewOp<NVVM::ClusterArriveOp>(op, unitAttr);
+        }
+        return success();
     }
-    return success();
-  }
 };
 
 struct ClusterWaitOpConversion
     : public ConvertOpToLLVMPattern<triton::nvidia_gpu::ClusterWaitOp> {
-  using ConvertOpToLLVMPattern<
-      triton::nvidia_gpu::ClusterWaitOp>::ConvertOpToLLVMPattern;
+    using ConvertOpToLLVMPattern<
+        triton::nvidia_gpu::ClusterWaitOp>::ConvertOpToLLVMPattern;
 
-  LogicalResult
-  matchAndRewrite(triton::nvidia_gpu::ClusterWaitOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto ctx = rewriter.getContext();
-    rewriter.replaceOpWithNewOp<NVVM::ClusterWaitOp>(op, UnitAttr::get(ctx));
-    return success();
-  }
+    LogicalResult
+    matchAndRewrite(triton::nvidia_gpu::ClusterWaitOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+        auto ctx = rewriter.getContext();
+        rewriter.replaceOpWithNewOp<NVVM::ClusterWaitOp>(op,
+                                                         UnitAttr::get(ctx));
+        return success();
+    }
 };
 } // namespace
 
 void mlir::triton::NVIDIA::populateClusterOpsToLLVMPatterns(
     LLVMTypeConverter &typeConverter, RewritePatternSet &patterns,
     PatternBenefit benefit) {
-  patterns.add<ClusterArriveOpConversion>(typeConverter, benefit);
-  patterns.add<ClusterWaitOpConversion>(typeConverter, benefit);
-  return;
+    patterns.add<ClusterArriveOpConversion>(typeConverter, benefit);
+    patterns.add<ClusterWaitOpConversion>(typeConverter, benefit);
+    return;
 }

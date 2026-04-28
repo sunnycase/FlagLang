@@ -24,7 +24,7 @@ namespace Nncase;
 // NOTE fixed array not suppot generic
 
 <#
-var lanesValues = new[] { 
+var lanesValues = new[] {
   (0, 4), (0, 8), (0, 16), (0, 32), (0, 64), (0, 128),
   (2, 4), (2, 8), (2, 16), (2, 32),
   (4, 4), (4, 8), (4, 16), (4, 32),
@@ -61,7 +61,7 @@ foreach (var (lanesA, lanesB) in lanesValues)
     };
 }
 
-<# 
+<#
 foreach (var (lanesA, lanesB) in lanesValues)
 {
 var typePrefix = lanesA == 0 ? $"Vector{lanesB.ToString()}" : $"Vector{lanesA.ToString()}x{lanesB.ToString()}";
@@ -76,7 +76,7 @@ public unsafe struct <#=typeName#> : IVector<T>, IEquatable<<#=typeName#>>
     private T _item_0_<#=i#>;
 <#}#>
 <#} else {#>
-<# foreach (var i in Enumerable.Range(0, lanesA)) { 
+<# foreach (var i in Enumerable.Range(0, lanesA)) {
    foreach (var j in Enumerable.Range(0, lanesB)) {#>
     private T _item_<#=i#>_<#=j#>;
 <#}}#>
@@ -90,7 +90,7 @@ public unsafe struct <#=typeName#> : IVector<T>, IEquatable<<#=typeName#>>
         }
     }
 
-    public static <#=typeName#> Create(T[] array) 
+    public static <#=typeName#> Create(T[] array)
     {
         <#=typeName#> vec = default;
         var src = array.AsSpan();
@@ -100,7 +100,7 @@ public unsafe struct <#=typeName#> : IVector<T>, IEquatable<<#=typeName#>>
     }
 <# if (lanesA != 0) {#>
 
-    public static <#=typeName#> Create(T[,] array) 
+    public static <#=typeName#> Create(T[,] array)
     {
         <#=typeName#> vec = default;
         var src = array.AsSpan2D();
@@ -146,7 +146,7 @@ public unsafe struct <#=typeName#> : IVector<T>, IEquatable<<#=typeName#>>
 <#}#>
 
 <#foreach (var op in new string[] { }) {#>
-    public static <#=typeName#> operator <#=op#>(<#=typeName#> left, <#=typeName#> right) 
+    public static <#=typeName#> operator <#=op#>(<#=typeName#> left, <#=typeName#> right)
     {
         <#=typeName#> res = default;
         var lhs = left.AsSpan();

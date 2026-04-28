@@ -18,12 +18,12 @@ namespace {
 struct AllocateAMDGPUSharedMemory
     : public mlir::triton::impl::AllocateAMDGPUSharedMemoryBase<
           AllocateAMDGPUSharedMemory> {
-  void runOnOperation() override {
-    ModuleOp mod = getOperation();
-    ModuleAllocation allocation(mod, AMDAllocationAnalysisScratchSizeFn);
+    void runOnOperation() override {
+        ModuleOp mod = getOperation();
+        ModuleAllocation allocation(mod, AMDAllocationAnalysisScratchSizeFn);
 
-    mlir::triton::gpu::attachAllocationSizeAndOffsetAttr(mod, allocation);
-  }
+        mlir::triton::gpu::attachAllocationSizeAndOffsetAttr(mod, allocation);
+    }
 };
 
 } // namespace

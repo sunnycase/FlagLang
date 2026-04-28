@@ -26,11 +26,9 @@ def _require_native_amd_backend():
         from triton._C.libtriton import llvm as llvm_module
         from triton._C.libtriton import amd as amd_module
     except ImportError as exc:
-        raise ImportError(
-            "The AMD backend is installed, but this libtriton build does not expose "
-            "the legacy Triton AMD MLIR/LLVM bindings. Use a libtriton build with "
-            "ir, passes, llvm, and amd modules before compiling HIP targets."
-        ) from exc
+        raise ImportError("The AMD backend is installed, but this libtriton build does not expose "
+                          "the legacy Triton AMD MLIR/LLVM bindings. Use a libtriton build with "
+                          "ir, passes, llvm, and amd modules before compiling HIP targets.") from exc
     ir = ir_module
     passes = passes_module
     llvm = llvm_module

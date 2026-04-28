@@ -230,7 +230,7 @@ DEFINE_FP16_BINARY_BOOLRET(>=)
 DEFINE_FP16_BINARY_BOOLRET(>)
 
 #define DEFINE_FP16_BINARY_SELF_MOD(x, op)                                     \
-    NTT_ALWAYS_INLINE half &operator x(half &a, half b) noexcept {             \
+    NTT_ALWAYS_INLINE half &operator x(half & a, half b) noexcept {            \
         a = a op b;                                                            \
         return a;                                                              \
     }

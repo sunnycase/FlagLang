@@ -32,6 +32,7 @@ _MISSING = object()
 
 
 class _ClosureVarsLookup:
+
     def __init__(self, fn):
         closure = fn.__closure__ or ()
         self._cells = dict(zip(fn.__code__.co_freevars, closure))
@@ -819,7 +820,8 @@ class JITFunction(JITCallable, KernelInterface[T]):
             if hasattr(kernel, "result"):
                 kernel = kernel.result()
             # launch kernel
-            runtime_args = tuple(arg for arg, spec in zip(bound_args.values(), specialization) if spec[0] != "constexpr")
+            runtime_args = tuple(arg for arg, spec in zip(bound_args.values(), specialization)
+                                 if spec[0] != "constexpr")
             launch_metadata = kernel.launch_metadata(grid, stream, *runtime_args)
             kernel.run(grid_0, grid_1, grid_2, stream, kernel.function, kernel.packed_metadata, launch_metadata,
                        knobs.runtime.launch_enter_hook, knobs.runtime.launch_exit_hook, *runtime_args)

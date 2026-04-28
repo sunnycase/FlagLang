@@ -12,8 +12,8 @@ constexpr inline int TMA_SIZE_BYTES = 128;
 constexpr inline int TMA_ALIGN = 128;
 
 inline bool isFp4Padded(Attribute encoding) {
-  auto mmaEnc = dyn_cast<gpu::NVMMASharedEncodingAttr>(encoding);
-  return mmaEnc && mmaEnc.getFp4Padded();
+    auto mmaEnc = dyn_cast<gpu::NVMMASharedEncodingAttr>(encoding);
+    return mmaEnc && mmaEnc.getFp4Padded();
 }
 
 SmallVector<Value> translateTMAIndices(OpBuilder &builder, Location loc,
@@ -39,22 +39,23 @@ SmallVector<int64_t> getTMABlockShape(ArrayRef<int64_t> shapePerCTA,
 inline SmallVector<int64_t> getTMABlockShape(Attribute encoding,
                                              ArrayRef<int64_t> shapePerCTA,
                                              bool packedSize) {
-  auto mmaEnc = cast<gpu::NVMMASharedEncodingAttr>(encoding);
-  return getTMABlockShape(shapePerCTA, mmaEnc.getElementBitWidth(),
-                          mmaEnc.getSwizzlingByteWidth(), mmaEnc.getFp4Padded(),
-                          mmaEnc.getTransposed(), packedSize);
+    auto mmaEnc = cast<gpu::NVMMASharedEncodingAttr>(encoding);
+    return getTMABlockShape(shapePerCTA, mmaEnc.getElementBitWidth(),
+                            mmaEnc.getSwizzlingByteWidth(),
+                            mmaEnc.getFp4Padded(), mmaEnc.getTransposed(),
+                            packedSize);
 }
 
 inline SmallVector<int64_t> getTMABlockShape(RankedTensorType ty,
                                              bool packedSize) {
-  auto shapePerCTA = gpu::getShapePerCTA(ty);
-  return getTMABlockShape(ty.getEncoding(), shapePerCTA, packedSize);
+    auto shapePerCTA = gpu::getShapePerCTA(ty);
+    return getTMABlockShape(ty.getEncoding(), shapePerCTA, packedSize);
 }
 
 inline SmallVector<int64_t> getTMABlockShape(triton::gpu::MemDescType ty,
                                              bool packedSize) {
-  auto shapePerCTA = gpu::getShapePerCTA(ty);
-  return getTMABlockShape(ty.getEncoding(), shapePerCTA, packedSize);
+    auto shapePerCTA = gpu::getShapePerCTA(ty);
+    return getTMABlockShape(ty.getEncoding(), shapePerCTA, packedSize);
 }
 
 std::optional<int> getTMASwizzleMode(Operation *op, TensorDescType ty);
