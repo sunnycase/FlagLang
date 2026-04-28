@@ -22,8 +22,6 @@ public interface IExprUserAnalysisResult : IAnalysisResult
 
 internal sealed class ExprUserAnalysisResult : IExprUserAnalysisResult
 {
-    private static bool IsExternalUser(BaseExpr user) => user is not (BaseFunction or IRBlock);
-
     public IEnumerable<BaseExpr> this[BaseExpr expr]
     {
         get
@@ -31,6 +29,8 @@ internal sealed class ExprUserAnalysisResult : IExprUserAnalysisResult
             return expr.Users.Where(IsExternalUser);
         }
     }
+
+    private static bool IsExternalUser(BaseExpr user) => user is not (BaseFunction or IRBlock);
 }
 
 internal sealed class ExprUserAnalyzer : IAnalyzer<ExprUserAnalysisResult>

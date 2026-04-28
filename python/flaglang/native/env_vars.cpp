@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <map>
 #include <pybind11/stl.h>
+#include <stdexcept>
 
 using namespace nncase;
 
@@ -108,9 +109,11 @@ void assertIsRecognized(const std::string &env) {
                            CACHE_INVALIDATING_ENV_VARS.end();
     bool is_neutral = CACHE_NEUTRAL_ENV_VARS.find(env.c_str()) !=
                       CACHE_NEUTRAL_ENV_VARS.end();
-    std::string errmsg = env + "is not recognized. "
-                               "Please add it to triton/tools/sys/getenv.hpp";
-    assert((is_invalidating || is_neutral) && errmsg.c_str());
+    if (!is_invalidating && !is_neutral) {
+        throw std::invalid_argument(
+            env + " is not recognized. Please add it to "
+                  "triton/tools/sys/getenv.hpp");
+    }
 }
 
 std::mutex getenv_mutex;

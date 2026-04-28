@@ -100,6 +100,7 @@ if(BUILD_PYTHON_BINDING)
             -o ${FLAGLANG_MANAGED_COMPILER_DIR}
             --no-self-contained
             -nr:false
+            -m:1
         WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
         COMMENT "Publishing Nncase.Compiler for the Python package"
         VERBATIM)

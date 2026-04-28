@@ -155,6 +155,12 @@ def get_build_type():
         return "TritonRelBuildWithAsserts"
 
 
+def get_conan_build_type(build_type):
+    if build_type in ("Debug", "Release", "RelWithDebInfo", "MinSizeRel"):
+        return build_type
+    return "Release"
+
+
 def get_env_with_keys(key: list):
     for k in key:
         if k in os.environ:
@@ -503,7 +509,7 @@ class CMakeBuild(build_ext):
         cfg = get_build_type()
 
         python_root = os.path.dirname(sys.executable).replace("\\", "/")
-        conan_build_type = 'Debug' # if self.debug else 'Release'
+        conan_build_type = get_conan_build_type(cfg)
 
         cmake_dir = get_cmake_dir()
         build_dir = cmake_dir / conan_build_type
