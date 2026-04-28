@@ -1,7 +1,9 @@
 import os
 import shutil
+import subprocess
 from pathlib import Path
 import tarfile
+from urllib.parse import urlparse
 import zipfile
 from io import BytesIO
 import urllib.request
@@ -83,18 +85,27 @@ class DownloadManager:
         NetConfig.headers = {'User-Agent': NetConfig.user_agent}
 
     def download(self, url=None, path=None, file_name=None, mode=None, module=None, required=False):
-        if self.module_offline_handler.is_offline_build():
-            self.offline_copy(module, required)
-            return
-
         if url:
             self.init_single_src_settings(url, path, file_name, mode)
+
+        if self.module_offline_handler.is_offline_build():
+            return self.offline_copy(module, required)
+
         if mode == "git" or module:
             return self.git_clone(module, required)
         else:
             return self.general_download(is_decompress=True)
 
     def offline_copy(self, module, required):
+        if module is None:
+            return self.offline_copy_current_download(required)
+
+        if not self.module_offline_handler.offline_build_dir:
+            if required:
+                raise RuntimeError("[ERROR] FLAGTREE_OFFLINE_BUILD_DIR is required for offline module downloads.")
+            print("[WARNING] FLAGTREE_OFFLINE_BUILD_DIR is not set; cannot copy offline module dependency.")
+            return False
+
         src_path = os.path.join(self.module_offline_handler.offline_build_dir, module.name)
         succ = os.path.exists(src_path)
         try:
@@ -105,11 +116,59 @@ class DownloadManager:
                 self.module_offline_handler.copy_to_flagtree_project({"dst_path": module.dst_path})
             else:
                 print(f"[INFO] Offline Build: {module.name} is not found in offline build directory.")
+                if required:
+                    raise RuntimeError(f"[ERROR] Offline Build: {module.name} is not found in offline build directory.")
         except Exception:
             if (required):
                 raise RuntimeError(f"[ERROR] Failed to copy {module.name} from offline build directory.")
             print(f"[WARNING] Failed to copy {module.name} from offline build directory.")
             pass
+        return succ
+
+    def offline_copy_current_download(self, required):
+        if not self.current_url or not self.current_dst_path or not self.current_file_name:
+            if required:
+                raise RuntimeError("[ERROR] Offline URL download requires url, path, and file_name.")
+            print("[WARNING] Offline URL download skipped because url, path, or file_name is missing.")
+            return False
+        if not self.module_offline_handler.offline_build_dir:
+            if required:
+                raise RuntimeError("[ERROR] FLAGTREE_OFFLINE_BUILD_DIR is required for offline URL downloads.")
+            print("[WARNING] FLAGTREE_OFFLINE_BUILD_DIR is not set; cannot copy offline URL dependency.")
+            return False
+
+        offline_dir = Path(self.module_offline_handler.offline_build_dir)
+        url_file_name = Path(urlparse(self.current_url).path).name
+        candidates = [offline_dir / self.current_file_name]
+        if url_file_name:
+            candidates.append(offline_dir / url_file_name)
+
+        for src_path in candidates:
+            if not src_path.exists():
+                continue
+            dst_dir = Path(self.current_dst_path)
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            if src_path.is_file() and url_file_name and src_path.name == url_file_name:
+                decompress(
+                    self.current_url,
+                    content=src_path.read_bytes(),
+                    dst_path=dst_dir,
+                    file_name=self.current_file_name,
+                )
+            else:
+                dst_path = dst_dir / self.current_file_name
+                print(f"[INFO] Offline Build: Copying {src_path} to {dst_path}")
+                if src_path.is_dir():
+                    shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
+                else:
+                    shutil.copy(src_path, dst_path)
+            return True
+
+        if required:
+            expected = " or ".join(str(candidate) for candidate in candidates)
+            raise RuntimeError(f"[ERROR] Offline URL dependency not found. Expected {expected}.")
+        print(f"[WARNING] Offline URL dependency for {self.current_file_name} is not found in offline build directory.")
+        return False
 
     def init_single_src_settings(self, url, path, file_name, mode):
         self.current_url = url
@@ -132,7 +191,10 @@ class DownloadManager:
         if not succ and required:
             raise RuntimeError(
                 f"[ERROR]: Failed to download {module.name} from {module.url}, It's most likely the network!")
+        if not succ:
+            return False
         remove_triton_in_modules(module)
+        return True
 
     def py_clone(self, module):
         try:
@@ -157,14 +219,14 @@ class DownloadManager:
         has_specialization_commit = module.commit_id is not None
         while (retry_count):
             try:
-                os.system(f"git clone {module.url} {module.dst_path}")
+                subprocess.run(["git", "clone", module.url, module.dst_path], check=True)
                 if has_specialization_commit:
-                    os.system(f"cd {module.dst_path}")
-                    os.system(f"git checkout {module.commit_id}")
-                    os.system("cd -")
+                    subprocess.run(["git", "checkout", module.commit_id], cwd=module.dst_path, check=True)
                 return True
-            except Exception:
+            except subprocess.CalledProcessError:
                 retry_count -= 1
+                if os.path.exists(module.dst_path):
+                    shutil.rmtree(module.dst_path)
                 print(f"\n[{NetConfig.max_retry - retry_count}] retry to clone {module.name} to  {module.dst_path}")
         return False
 
