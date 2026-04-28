@@ -57,6 +57,9 @@ public unsafe struct CApiMT
 
     public delegate* unmanaged<IntPtr, int, void> PassManagerAddOptimizeTTIRPtr;
     public delegate* unmanaged<IntPtr, IntPtr, IntPtr> PassManagerRunPtr;
+    public delegate* unmanaged<IntPtr, byte*, nuint, IntPtr> IRModuleCompileToCubinPtr;
+    public delegate* unmanaged<IntPtr, byte*, nuint, nuint> NativeCudaCompileResultGetJsonPtr;
+    public delegate* unmanaged<IntPtr, byte*, nuint, nuint> NativeCudaCompileResultGetCubinPtr;
 
     // IR functions.
     public delegate* unmanaged<byte*, nuint, int, int, int, int, IntPtr> FileLocationCreatePtr;
@@ -159,6 +162,9 @@ public static unsafe partial class CApi
 
         mt->PassManagerAddOptimizeTTIRPtr = &PassManagerAddOptimizeTTIR;
         mt->PassManagerRunPtr = &PassManagerRun;
+        mt->IRModuleCompileToCubinPtr = &IRModuleCompileToCubin;
+        mt->NativeCudaCompileResultGetJsonPtr = &NativeCudaCompileResultGetJson;
+        mt->NativeCudaCompileResultGetCubinPtr = &NativeCudaCompileResultGetCubin;
 
         // IR functions.
         mt->FileLocationCreatePtr = &FileLocationCreate;

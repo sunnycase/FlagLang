@@ -17,7 +17,7 @@ public class LoadEvaluator : ITypeInferencer<Load>, IOpPrinter<Load>
     public IRType Visit(ITypeInferenceContext context, Load target)
     {
         var handle = context.CheckArgumentType<TensorType>(target, Load.Handle);
-        var index = context.CheckArgumentType<TensorType>(target, Load.Index);
+        var index = context.GetArgumentType(target, Load.Index);
         return Visit(target, handle, index);
     }
 
@@ -29,11 +29,18 @@ public class LoadEvaluator : ITypeInferencer<Load>, IOpPrinter<Load>
         return $"{lhs}[{rhs}]";
     }
 
-    private IRType Visit(Load target, TensorType handle, TensorType index)
+    private IRType Visit(Load target, TensorType handle, IRType index)
     {
         if (handle is not TensorType { DType: PointerType { } p })
         {
             return new InvalidType("handle must be pointer type!");
+        }
+
+        var validIndex = index is DimensionType
+            || (index is TensorType { Shape.IsScalar: true, DType: var indexDtype } && indexDtype.IsIntegral());
+        if (!validIndex)
+        {
+            return new InvalidType("load index must be a dimension or scalar integral tensor.");
         }
 
         return TensorType.Scalar(p.ElemType);

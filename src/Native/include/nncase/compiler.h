@@ -261,6 +261,15 @@ typedef struct {
                                            int capability);
     clr_object_handle_t (*pass_manager_run)(clr_object_handle_t pass_manager,
                                             clr_object_handle_t module);
+    clr_object_handle_t (*ir_module_compile_to_cubin)(
+        clr_object_handle_t module, const char *options_json,
+        size_t options_json_length);
+    size_t (*native_cuda_compile_result_get_json)(clr_object_handle_t result,
+                                                  char *buffer,
+                                                  size_t buffer_length);
+    size_t (*native_cuda_compile_result_get_cubin)(clr_object_handle_t result,
+                                                   char *buffer,
+                                                   size_t buffer_length);
 
     // IR functions.
     clr_object_handle_t (*file_location_create)(const char *file_path,
@@ -920,6 +929,38 @@ class ir_module : public expr {
                 obj_.get(), text.data(), text.size());
         }
         return text;
+    }
+};
+
+class native_cuda_compile_result : public clr_object_base {
+  public:
+    using clr_object_base::clr_object_base;
+
+    native_cuda_compile_result(ir_module module, std::string_view options_json) {
+        obj_ = nncase_clr_api()->ir_module_compile_to_cubin(
+            module.get(), options_json.data(), options_json.length());
+    }
+
+    std::string metadata_json() const {
+        auto length = nncase_clr_api()->native_cuda_compile_result_get_json(
+            obj_.get(), nullptr, 0);
+        std::string text(length, '\0');
+        if (length != 0) {
+            nncase_clr_api()->native_cuda_compile_result_get_json(
+                obj_.get(), text.data(), text.size());
+        }
+        return text;
+    }
+
+    std::string cubin() const {
+        auto length = nncase_clr_api()->native_cuda_compile_result_get_cubin(
+            obj_.get(), nullptr, 0);
+        std::string bytes(length, '\0');
+        if (length != 0) {
+            nncase_clr_api()->native_cuda_compile_result_get_cubin(
+                obj_.get(), bytes.data(), bytes.size());
+        }
+        return bytes;
     }
 };
 

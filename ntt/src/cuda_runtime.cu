@@ -26,29 +26,15 @@ using namespace nncase::ntt;
 using namespace nncase::ntt::distributed;
 using namespace nncase::ntt::runtime;
 
-decltype(nncase::ntt::make_tensor<nncase::ntt::vector<uintptr_t, 2>>(
-    nncase::ntt::distributed::topology_shape))
-    nncase::ntt::distributed::detail::global_local_data_ptr =
-        nncase::ntt::make_tensor<nncase::ntt::vector<uintptr_t, 2>>(
-            nncase::ntt::distributed::topology_shape);
-
-decltype(nncase::ntt::make_tensor<nncase::ntt::vector<uintptr_t, 2>>(
-    nncase::ntt::distributed::topology_shape))
-    nncase::ntt::distributed::detail::global_thread_local_rdata_ptr =
-        nncase::ntt::make_tensor<nncase::ntt::vector<uintptr_t, 2>>(
-            nncase::ntt::distributed::topology_shape);
-
-decltype(nncase::ntt::make_tensor<nncase::ntt::vector<uintptr_t, 3>>(
-    nncase::ntt::distributed::topology_shape))
-    nncase::ntt::distributed::detail::global_thread_local_cache_ptr =
-        nncase::ntt::make_tensor<nncase::ntt::vector<uintptr_t, 3>>(
-            nncase::ntt::distributed::topology_shape);
-
-decltype(nncase::ntt::make_tensor<nncase::ntt::vector<uintptr_t, 2>>(
-    nncase::ntt::distributed::topology_shape))
-    nncase::ntt::distributed::detail::global_block_local_rdata_ptr =
-        nncase::ntt::make_tensor<nncase::ntt::vector<uintptr_t, 2>>(
-            nncase::ntt::distributed::topology_shape);
+namespace nncase::ntt::distributed::detail {
+__device__ uintptr_t global_local_data_ptr[topology_element_count * 2];
+__device__ uintptr_t
+    global_thread_local_rdata_ptr[topology_element_count * 2];
+__device__ uintptr_t
+    global_thread_local_cache_ptr[topology_element_count * 3];
+__device__ uintptr_t
+    global_block_local_rdata_ptr[topology_element_count * 2];
+} // namespace nncase::ntt::distributed::detail
 
 namespace nncase::ntt::runtime {
 alignas(cuda_thread_context_t) __shared__ std::byte
@@ -145,18 +131,21 @@ block_entry(const cuda_block_entry_params_t &params) {
     const auto program_ids = make_shape(params.cid, bid(), wid(), tid());
 
     // Set distributed pointers
-    ntt::distributed::detail::global_thread_local_rdata_ptr(program_ids)(
-        0_dim) = (uintptr_t)thread_local_rdata.data();
-    ntt::distributed::detail::global_thread_local_rdata_ptr(program_ids)(
-        1_dim) = (uintptr_t)(thread_local_rdata.data() +
-                             thread_local_rdata.size_bytes());
-    ntt::distributed::detail::global_local_data_ptr(program_ids)(0_dim) =
-        (uintptr_t)thread_local_data.data();
-    ntt::distributed::detail::global_local_data_ptr(program_ids)(1_dim) =
+    auto thread_local_rdata_desc =
+        ntt::distributed::detail::global_thread_local_rdata_desc(program_ids);
+    thread_local_rdata_desc[0] = (uintptr_t)thread_local_rdata.data();
+    thread_local_rdata_desc[1] =
+        (uintptr_t)(thread_local_rdata.data() +
+                    thread_local_rdata.size_bytes());
+    auto local_data_desc =
+        ntt::distributed::detail::global_local_data_desc(program_ids);
+    local_data_desc[0] = (uintptr_t)thread_local_data.data();
+    local_data_desc[1] =
         (uintptr_t)(thread_local_data.data() + thread_local_data.size_bytes());
-    ntt::distributed::detail::global_block_local_rdata_ptr(program_ids)(0_dim) =
-        (uintptr_t)params.block_local_rdata.data();
-    ntt::distributed::detail::global_block_local_rdata_ptr(program_ids)(1_dim) =
+    auto block_local_rdata_desc =
+        ntt::distributed::detail::global_block_local_rdata_desc(program_ids);
+    block_local_rdata_desc[0] = (uintptr_t)params.block_local_rdata.data();
+    block_local_rdata_desc[1] =
         (uintptr_t)(params.block_local_rdata.data() +
                     params.block_local_rdata.size_bytes());
 

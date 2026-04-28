@@ -183,6 +183,19 @@ void nncase::init_triton_ir(py::module &&m) {
             return clr::compiler_services::inference_type(self);
         });
 
+    m.def("compile_to_cubin", [](clr::ir_module &module, py::dict options) {
+        auto json = py::module_::import("json");
+        auto options_json = json.attr("dumps")(options).cast<std::string>();
+        clr::native_cuda_compile_result result(module, options_json);
+        auto payload = json.attr("loads")(result.metadata_json()).cast<py::dict>();
+        if (payload.contains("error") && !payload["error"].is_none()) {
+            throw std::runtime_error(payload["error"].cast<std::string>());
+        }
+        auto cubin = result.cubin();
+        payload["cubin"] = py::bytes(cubin.data(), cubin.size());
+        return payload;
+    });
+
     py::class_<clr::sequential, clr::expr>(m, "sequential")
         .def("has_terminator", &clr::sequential::has_terminator);
 

@@ -16,7 +16,7 @@
 #include "nncase/ntt/compiler_defs.h"
 #if defined(NNCASE_XPU_MODULE)
 #include "../arch/xpu/topology_def.h"
-#elif defined(__CUDA_ARCH__)
+#elif defined(__CUDA_ARCH__) || defined(NNCASE_CUDA_MODULE)
 #include "../arch/cuda/topology_def.h"
 #else
 #include "../arch/cpu/topology_def.h"

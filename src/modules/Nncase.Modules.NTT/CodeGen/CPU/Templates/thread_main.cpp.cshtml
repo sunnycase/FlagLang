@@ -5,6 +5,35 @@
 @model Nncase.CodeGen.NTT.KernelMainModel
 @{
   var inputCount = Model.PrimFunction.Parameters.Length;
+  const string tritonEntryName = "flaglang_native_entry";
+  string RawEntryParamType(IVar input)
+  {
+    if (input.CheckedDataType is PointerType pointerType)
+    {
+      return $"{pointerType.ElemType.ToC()} *";
+    }
+
+    if (input.CheckedDataType is PrimType)
+    {
+      return input.CheckedDataType.ToC();
+    }
+
+    return "std::byte *";
+  }
+
+  string RawEntryDefaultArg(IVar input)
+  {
+    if (input.CheckedDataType is PointerType)
+    {
+      return "nullptr";
+    }
+
+    return "0";
+  }
+
+  ulong NonZeroSize(ulong size) => size == 0UL ? 1UL : size;
+  var rawEntryParameters = string.Join(",\n", Model.PrimFunction.Parameters.ToArray().Select(input => $"{RawEntryParamType(input)} {IRHelpers.GetIdentityName(input.Name)}"));
+  var rawEntryDefaultArgs = string.Join(", ", Model.PrimFunction.Parameters.ToArray().Select(RawEntryDefaultArg));
 }
 
 extern "C" NTT_DEVICE void thread_main(const nncase::ntt::runtime::thread_inout_desc *input_descs,
@@ -38,7 +67,12 @@ extern "C" NTT_DEVICE void thread_main(const nncase::ntt::runtime::thread_inout_
       var elemType = input.CheckedDataType.ToC();
       var dimStr = $"make_shape({string.Join(", ", Enumerable.Range(0, rank).Select(d => shape[d].IsFixed ? $"{shape[d].FixedValue}_dim" : $"input_descs[{i}].shape[{d}]"))})";
       var strideStr = $"make_strides({string.Join(", ", Enumerable.Range(0, rank).Select(d => $"input_descs[{i}].strides[{d}]"))})";
-      if (input.CheckedDataType is ReferenceType referenceType) {
+      if (rank == 0 && input.CheckedDataType is PointerType pointerType) {
+        var pointerElemType = pointerType.ElemType.ToC();
+  @:auto @(name) = *reinterpret_cast<@Html.Raw(pointerElemType) **>(input_descs[@i].data);
+      } else if (rank == 0 && input.CheckedDataType is PrimType) {
+  @:auto @(name) = *reinterpret_cast<const @Html.Raw(elemType) *>(input_descs[@i].data);
+      } else if (input.CheckedDataType is ReferenceType referenceType) {
         if (referenceType.ElemType is Nncase.IR.NN.PagedAttentionKVCacheType kvcacheType) {
           var size = TensorUtilities.GetProduct(shape.ToValueArray()); // todo: support dynamic shape
           var kv_tensor_shape = kvcacheType.Config.AxisPolicies.Select(p => p.Axes.Select(i => Model.Options.Hierarchies[0][i]).Product()).ToArray();
@@ -76,6 +110,50 @@ extern "C" NTT_DEVICE void thread_main(const nncase::ntt::runtime::thread_inout_
   
   @(Model.PrimFunction.Name)(@(string.Concat(names.Select(x => $"{x}, ")))rdata, thread_local_rdata, warp_local_rdata, block_local_rdata, thread_local_data, warp_local_data, block_local_data, output, output_descs);
 }
+
+#if defined(NNCASE_CUDA_MODULE)
+@Html.Raw($"extern \"C\" __global__ __attribute__((used)) void {tritonEntryName}({rawEntryParameters}) {{")
+  alignas(@Model.Alignment) std::byte flaglang_rdata_storage[@NonZeroSize(Model.RDataSize)];
+  alignas(@Model.Alignment) std::byte flaglang_thread_local_rdata_storage[@NonZeroSize(Model.ThreadLocalRdataPoolSize)];
+  alignas(@Model.Alignment) std::byte flaglang_warp_local_rdata_storage[1];
+  alignas(@Model.Alignment) std::byte flaglang_block_local_rdata_storage[@NonZeroSize(Model.BlockLocalRdataPoolSize)];
+  alignas(@Model.Alignment) std::byte flaglang_thread_local_data_storage[@NonZeroSize(Model.DataSize)];
+  alignas(@Model.Alignment) std::byte flaglang_warp_local_data_storage[@NonZeroSize(Model.WarpLocalDataPoolSize)];
+  alignas(@Model.Alignment) std::byte flaglang_block_local_data_storage[@NonZeroSize(Model.BlockLocalDataPoolSize)];
+  nncase::ntt::runtime::thread_inout_desc flaglang_input_descs[@inputCount] = {};
+  nncase::ntt::runtime::thread_inout_desc flaglang_output_descs[1] = {};
+  nncase::ntt::runtime::profile_record flaglang_profile_records[1] = {};
+  uint32_t flaglang_profile_record_count = 0;
+  nncase::ntt::runtime::cuda_thread_context_t::current() = {
+    .cid = 0,
+    .enable_profiling = 0,
+    .profile_records = ntt::span<nncase::ntt::runtime::profile_record>(flaglang_profile_records, 1),
+    .profile_record_counts = &flaglang_profile_record_count,
+  };
+@foreach(var (input,i) in Model.PrimFunction.Parameters.ToArray().Select((input,i)=>(input,i)))
+{
+  var name = IRHelpers.GetIdentityName(input.Name);
+  @:  auto flaglang_arg_@i = @Html.Raw(name);
+  @:  flaglang_input_descs[@i].data = reinterpret_cast<std::byte *>(&flaglang_arg_@i);
+  @:  flaglang_input_descs[@i].size = sizeof(flaglang_arg_@i);
+  @:  flaglang_input_descs[@i].shape = nullptr;
+  @:  flaglang_input_descs[@i].strides = nullptr;
+  @:  flaglang_input_descs[@i].rank = 0;
+}
+
+  thread_main(flaglang_input_descs, flaglang_output_descs,
+              flaglang_rdata_storage, flaglang_thread_local_rdata_storage,
+              flaglang_warp_local_rdata_storage,
+              flaglang_block_local_rdata_storage,
+              flaglang_thread_local_data_storage,
+              flaglang_warp_local_data_storage,
+              flaglang_block_local_data_storage, nullptr);
+}
+
+__attribute__((used)) static void flaglang_native_entry_anchor() {
+  flaglang_native_entry<<<1, 1>>>(@Html.Raw(rawEntryDefaultArgs));
+}
+#endif
 
 #ifdef NNCASE_STANDALONE
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {

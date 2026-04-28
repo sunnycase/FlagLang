@@ -23,6 +23,8 @@ public class CSourceCompiler
     private static string? _vcVarPath;
 
     private readonly bool _isCUDA;
+    private readonly string _cudaCompiler;
+    private readonly int _cudaArchitecture;
 
     /// <summary>
     /// compiler exe name.
@@ -39,9 +41,11 @@ public class CSourceCompiler
     /// </summary>
     private string _ext = string.Empty;
 
-    public CSourceCompiler(bool isCUDA)
+    public CSourceCompiler(bool isCUDA, string cudaCompiler = "nvcc", int cudaArchitecture = 80)
     {
         _isCUDA = isCUDA;
+        _cudaCompiler = string.IsNullOrWhiteSpace(cudaCompiler) ? "nvcc" : cudaCompiler;
+        _cudaArchitecture = cudaArchitecture <= 0 ? 80 : cudaArchitecture;
         PlatformSpecific();
         ArchSpecific();
     }
@@ -81,6 +85,8 @@ public class CSourceCompiler
                 proc.StartInfo.WorkingDirectory = Directory.GetCurrentDirectory();
                 proc.StartInfo.RedirectStandardError = true;
                 proc.StartInfo.RedirectStandardOutput = true;
+                Directory.CreateDirectory(sourcePath);
+                File.WriteAllText(Path.Join(sourcePath, "compiler.cmd"), $"{proc.StartInfo.FileName} {proc.StartInfo.Arguments}");
                 proc.OutputDataReceived += (sender, e) =>
                 {
                     try
@@ -105,10 +111,22 @@ public class CSourceCompiler
                 proc.BeginErrorReadLine();
                 proc.BeginOutputReadLine();
                 proc.WaitForExit();
+                File.WriteAllText(Path.Join(sourcePath, "compiler.log"), errMsg.ToString());
                 if (proc.ExitCode != 0)
                 {
                     throw new InvalidOperationException(errMsg.ToString());
                 }
+            }
+        }
+
+        if (_isCUDA)
+        {
+            var linkedCubin = Path.Join(sourcePath, "build", $"linked_sm_{_cudaArchitecture}.o");
+            var namedCubin = Path.Join(sourcePath, "build", "nncase_ntt_module.cubin");
+            if (File.Exists(linkedCubin))
+            {
+                File.Copy(linkedCubin, namedCubin, overwrite: true);
+                return namedCubin;
             }
         }
 
@@ -192,7 +210,7 @@ public class CSourceCompiler
         string archConfig = string.Empty;
         if (_isCUDA)
         {
-            archConfig = $"-DCMAKE_CUDA_ARCHITECTURES=120 -DCMAKE_CUDA_COMPILER=clang++";
+            archConfig = $"-DCMAKE_CUDA_ARCHITECTURES={_cudaArchitecture} -DCMAKE_CUDA_COMPILER={_cudaCompiler}";
         }
         else
         {

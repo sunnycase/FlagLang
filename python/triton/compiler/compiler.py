@@ -329,14 +329,24 @@ def compile(src, target=None, options=None, _env_vars=None):
         elif full_name := fn_override_manager.get_file(ir_filename):
             print(f"\nOverriding kernel with file {full_name}")
             next_module = parse(full_name, ext, context)
+        suppress_stage_file = getattr(next_module, "suppress_stage_file", False)
         # If TRITON_STORE_BINARY_ONLY is 1, only store cubin/hsaco/json
-        if (not store_only_binary) or (ext in ("cubin", "hsaco", "json")):
+        if ((not store_only_binary) or (ext in ("cubin", "hsaco", "json"))) and not suppress_stage_file:
             metadata_group[ir_filename] = fn_cache_manager.put(_serialize_ir_for_storage(next_module, ext), ir_filename)
         if fn_dump_manager is not None:
-            fn_dump_manager.put(_serialize_ir_for_storage(next_module, ext), ir_filename)
+            if not suppress_stage_file:
+                fn_dump_manager.put(_serialize_ir_for_storage(next_module, ext), ir_filename)
             if ext == "cubin":
                 sass = get_sass(next_module)
                 fn_dump_manager.put(sass, file_name + ".sass")
+        cache_artifacts = getattr(next_module, "cache_artifacts", None)
+        if callable(cache_artifacts):
+            for artifact_ext, artifact in cache_artifacts().items():
+                artifact_filename = f"{file_name}.{artifact_ext}"
+                metadata_group[artifact_filename] = fn_cache_manager.put(_serialize_ir_for_storage(artifact, artifact_ext),
+                                                                         artifact_filename)
+                if fn_dump_manager is not None:
+                    fn_dump_manager.put(_serialize_ir_for_storage(artifact, artifact_ext), artifact_filename)
         # use an env variable to parse ir from file
         if use_ir_loc == ext:
             ir_full_name = fn_cache_manager.get_file(ir_filename)

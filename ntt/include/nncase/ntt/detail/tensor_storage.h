@@ -100,10 +100,12 @@ template <> class tensor_storage<bool, std::dynamic_extent, false> {
     constexpr buffer_type &buffer() noexcept { return buffer_; }
 
     span<const bool> elements() const noexcept {
-        return {reinterpret_cast<const bool *>(buffer_.data()), buffer_.size()};
+        return span<const bool>(reinterpret_cast<const bool *>(buffer_.data()),
+                                buffer_.size());
     }
     span<bool> elements() noexcept {
-        return {reinterpret_cast<bool *>(buffer_.data()), buffer_.size()};
+        return span<bool>(reinterpret_cast<bool *>(buffer_.data()),
+                          buffer_.size());
     }
 
   private:

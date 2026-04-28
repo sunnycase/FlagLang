@@ -148,11 +148,19 @@ class basic_tensor
     using storage_type::buffer;
     using storage_type::elements;
 
-    template <bool IsViewV = IsView, class = std::enable_if_t<!IsViewV>>
-    NTT_ALWAYS_INLINE constexpr basic_tensor(TShape shape = {},
-                                             TStrides strides = {}) noexcept
+    NTT_ALWAYS_INLINE constexpr basic_tensor() noexcept
+        requires(!IsView && FixedShape<TShape> && FixedStrides<TStrides>) =
+        default;
+
+    NTT_ALWAYS_INLINE constexpr basic_tensor(TShape shape,
+                                             TStrides strides) noexcept
+        requires(!IsView)
         : size_impl_type(std::move(shape), std::move(strides)),
           storage_type(shape.length()) {}
+
+    NTT_ALWAYS_INLINE constexpr explicit basic_tensor(TShape shape) noexcept
+        requires(!IsView)
+        : basic_tensor(std::move(shape), TStrides{}) {}
 
     NTT_ALWAYS_INLINE constexpr basic_tensor(buffer_type buffer,
                                              TShape shape = {},

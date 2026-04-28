@@ -16,7 +16,7 @@ public class StoreEvaluator : ITypeInferencer<Store>, IOpPrinter<Store>
     public IRType Visit(ITypeInferenceContext context, Store target)
     {
         var handle = context.CheckArgumentType<TensorType>(target, Store.Handle);
-        var index = context.CheckArgumentType<TensorType>(target, Store.Index);
+        var index = context.GetArgumentType(target, Store.Index);
         var value = context.CheckArgumentType<TensorType>(target, Store.Value);
         return Visit(target, handle, index, value);
     }
@@ -30,16 +30,21 @@ public class StoreEvaluator : ITypeInferencer<Store>, IOpPrinter<Store>
         return $"{handle}[{index}] = {value}";
     }
 
-    private IRType Visit(Store target, TensorType handle, TensorType index, TensorType value)
+    private IRType Visit(Store target, TensorType handle, IRType index, TensorType value)
     {
         if (handle.DType is not PointerType { ElemType: DataType elemType } || elemType != value.DType)
         {
             return new InvalidType($"You Can't Load The {value.DType} To {handle.DType}");
         }
 
-        if (index.DType != DataTypes.Int32)
+        if (index is DimensionType)
         {
-            return new InvalidType($"store value type {index.DType} not supported");
+            return TupleType.Void;
+        }
+
+        if (index is not TensorType { Shape.IsScalar: true } indexTensor || !indexTensor.DType.IsIntegral())
+        {
+            return new InvalidType($"store index type {index} not supported");
         }
 
         return TupleType.Void;

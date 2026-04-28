@@ -24,39 +24,40 @@
 
 namespace nncase::ntt {
 namespace detail {
-template <size_t Axis, class Shape, FixedShape TTile, class Offsets,
-          class Callable, class... Strides>
-NTT_ALWAYS_INLINE constexpr void
-apply_impl(dynamic_shape_t<Shape::rank()> &index, Offsets offsets,
-           const Shape &shape, const TTile &tile, Callable &&callable,
-           const ntt::tuple<Strides...> &strides) {
+template <size_t Axis, class Index, class Shape, class TTile, class Offsets,
+          class Callable, class TStrides>
+NTT_HOST_DEVICE NTT_ALWAYS_INLINE constexpr void
+apply_impl(Index &index, Offsets offsets, const Shape &shape,
+           const TTile &tile, Callable &&callable, const TStrides &strides) {
+    constexpr auto strides_count = Offsets::rank();
     auto call = [&]<size_t... I>(std::index_sequence<I...>) {
-        if constexpr (sizeof...(Strides)) {
-            callable(index, offsets[fixed_dim_v<I>]...);
+        if constexpr (strides_count) {
+            callable(index, offsets.template at<I>()...);
         } else {
             callable(index);
         }
     };
-    auto &dim = index[fixed_dim_v<Axis>];
-    for (dim = 0; dim < shape[fixed_dim_v<Axis>];
-         dim += tile[fixed_dim_v<Axis>]) {
+    auto &dim = index.template at<Axis>();
+    for (dim = 0; dim < shape.template at<Axis>();
+         dim += tile.template at<Axis>()) {
         if constexpr (Axis == Shape::rank() - 1) {
-            call(std::make_index_sequence<sizeof...(Strides)>{});
+            call(std::make_index_sequence<strides_count>{});
         } else {
             apply_impl<Axis + 1>(index, offsets, shape, tile,
                                  std::forward<Callable>(callable), strides);
         }
-        ntt::loop<sizeof...(Strides)>([&](auto i) {
-            offsets[i] += ntt::get<i>(strides)[fixed_dim_v<Axis>] *
-                          tile[fixed_dim_v<Axis>];
+        ntt::loop<strides_count>([&](auto i) {
+            offsets.template at<decltype(i)::value>() +=
+                ntt::get<decltype(i)::value>(strides).template at<Axis>() *
+                tile.template at<Axis>();
         });
     }
 }
 } // namespace detail
 
 template <Shape TShape, class Callable, Strides... TStrides>
-NTT_ALWAYS_INLINE constexpr void apply(const TShape &shape, Callable &&callable,
-                                       const TStrides &...strides) {
+NTT_HOST_DEVICE NTT_ALWAYS_INLINE constexpr void
+apply(const TShape &shape, Callable &&callable, const TStrides &...strides) {
     if constexpr (TShape::rank()) {
         dynamic_shape_t<TShape::rank()> index{};
         detail::apply_impl<0>(index, make_repeat_shape<sizeof...(TStrides)>(0),
@@ -73,7 +74,7 @@ NTT_ALWAYS_INLINE constexpr void apply(const TShape &shape, Callable &&callable,
 }
 
 template <Shape TShape, FixedShape TTile, class Callable, Strides... TStrides>
-NTT_ALWAYS_INLINE constexpr void
+NTT_HOST_DEVICE NTT_ALWAYS_INLINE constexpr void
 apply_tiled(const TShape &shape, const TTile &tile, Callable &&callable,
             const TStrides &...strides) {
     if constexpr (TShape::rank()) {

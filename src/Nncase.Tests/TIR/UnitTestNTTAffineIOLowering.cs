@@ -4,6 +4,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Nncase.Diagnostics;
 using Nncase.IR;
 using Nncase.IR.Affine;
 using Nncase.IR.Buffers;
@@ -39,6 +40,25 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         Assert.IsType<Load>(Assert.IsType<Call>(thenStore[BufferStore.Value]).Target);
         var elseStore = AssertSingleCall<BufferStore>(guard.Else);
         Assert.IsType<BufferLoad>(Assert.IsType<Call>(elseStore[BufferStore.Value]).Target);
+    }
+
+    [Fact]
+    public async Task MaskedSymbolicGatherWithoutDefaultUsesZeroFallback()
+    {
+        var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
+        var output = CreateVectorBuffer("output");
+        var (relation, symbols) = CreateVectorAddRelation(symbolCount: 2);
+        var call = Nncase.TIR.F.NTT.AffineGather(source, None.Default, output, relation, symbols, new RankedShape(4));
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(call));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var guard = GetSingleGuard(lowered);
+        var elseStore = AssertSingleCall<BufferStore>(guard.Else);
+        var fallback = Assert.IsType<TensorConst>(elseStore[BufferStore.Value]);
+
+        Assert.Equal(0f, fallback.Value.ToScalar<float>());
+        Assert.True(CompilerServices.InferenceType(lowered));
+        Assert.NotEmpty(CompilerServices.Print(lowered, PrinterFlags.Script));
     }
 
     [Fact]
@@ -81,6 +101,7 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         Assert.IsType<DimCompare>(guard.Condition);
         AssertSingleCall<Store>(guard.Then);
         Assert.Empty(guard.Else.Fields.ToArray());
+        Assert.True(CompilerServices.InferenceType(lowered));
     }
 
     [Fact]

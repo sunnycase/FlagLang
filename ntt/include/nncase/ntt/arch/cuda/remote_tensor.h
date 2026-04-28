@@ -19,21 +19,56 @@
 
 namespace nncase::ntt::distributed {
 namespace detail {
-extern __device__ decltype(nncase::ntt::make_tensor<
-                           nncase::ntt::vector<uintptr_t, 2>>(
-    nncase::ntt::distributed::topology_shape)) global_local_data_ptr;
+inline constexpr size_t topology_element_count =
+    (size_t)nncase::ntt::dim_value(program_dim<topology::chip>() *
+                                   program_dim<topology::block>() *
+                                   program_dim<topology::warp>() *
+                                   program_dim<topology::thread>());
 
-extern __device__ decltype(nncase::ntt::make_tensor<
-                           nncase::ntt::vector<uintptr_t, 2>>(
-    nncase::ntt::distributed::topology_shape)) global_thread_local_rdata_ptr;
+extern __device__ uintptr_t global_local_data_ptr[topology_element_count * 2];
+extern __device__ uintptr_t
+    global_thread_local_rdata_ptr[topology_element_count * 2];
+extern __device__ uintptr_t
+    global_thread_local_cache_ptr[topology_element_count * 3];
+extern __device__ uintptr_t
+    global_block_local_rdata_ptr[topology_element_count * 2];
 
-extern __device__ decltype(nncase::ntt::make_tensor<
-                           nncase::ntt::vector<uintptr_t, 3>>(
-    nncase::ntt::distributed::topology_shape)) global_thread_local_cache_ptr;
+template <class TProgramIds>
+__device__ size_t program_linear_offset(const TProgramIds &program_ids) {
+    return (size_t)((((program_ids.template at<0>() *
+                       program_dim<topology::block>()) +
+                      program_ids.template at<1>()) *
+                         program_dim<topology::warp>() +
+                     program_ids.template at<2>()) *
+                        program_dim<topology::thread>() +
+                    program_ids.template at<3>());
+}
 
-extern __device__ decltype(nncase::ntt::make_tensor<
-                           nncase::ntt::vector<uintptr_t, 2>>(
-    nncase::ntt::distributed::topology_shape)) global_block_local_rdata_ptr;
+template <class TProgramIds>
+__device__ uintptr_t *global_local_data_desc(const TProgramIds &program_ids) {
+    return global_local_data_ptr + program_linear_offset(program_ids) * 2;
+}
+
+template <class TProgramIds>
+__device__ uintptr_t *
+global_thread_local_rdata_desc(const TProgramIds &program_ids) {
+    return global_thread_local_rdata_ptr +
+           program_linear_offset(program_ids) * 2;
+}
+
+template <class TProgramIds>
+__device__ uintptr_t *
+global_thread_local_cache_desc(const TProgramIds &program_ids) {
+    return global_thread_local_cache_ptr +
+           program_linear_offset(program_ids) * 3;
+}
+
+template <class TProgramIds>
+__device__ uintptr_t *
+global_block_local_rdata_desc(const TProgramIds &program_ids) {
+    return global_block_local_rdata_ptr +
+           program_linear_offset(program_ids) * 2;
+}
 
 template <class T, topology RemoteScope, topology TensorScope,
           ScopedProgramIds<TensorScope> TLocalProgramIds,
@@ -41,21 +76,25 @@ template <class T, topology RemoteScope, topology TensorScope,
 __device__ auto get_remote_address(const TLocalProgramIds &local_program_ids,
                                    const TRemoteProgramIds &remote_program_ids,
                                    T *local_address) {
-    auto start = (size_t)global_local_data_ptr(local_program_ids)(0_dim);
-    auto end = (size_t)global_local_data_ptr(local_program_ids)(1_dim);
-    auto remote_address =
-        (size_t)global_local_data_ptr(remote_program_ids)(0_dim);
+    auto local_data = global_local_data_desc(local_program_ids);
+    auto remote_data = global_local_data_desc(remote_program_ids);
+    auto start = (size_t)local_data[0];
+    auto end = (size_t)local_data[1];
+    auto remote_address = (size_t)remote_data[0];
     if ((uintptr_t)local_address < start || (uintptr_t)local_address >= end) {
-        start = (size_t)global_thread_local_rdata_ptr(local_program_ids)(0_dim);
-        end = (size_t)global_thread_local_rdata_ptr(local_program_ids)(1_dim);
-        remote_address =
-            (size_t)global_thread_local_rdata_ptr(remote_program_ids)(0_dim);
+        auto local_rdata = global_thread_local_rdata_desc(local_program_ids);
+        auto remote_rdata = global_thread_local_rdata_desc(remote_program_ids);
+        start = (size_t)local_rdata[0];
+        end = (size_t)local_rdata[1];
+        remote_address = (size_t)remote_rdata[0];
         if ((uintptr_t)local_address < start ||
             (uintptr_t)local_address >= end) {
-            start =
-                (size_t)global_block_local_rdata_ptr(local_program_ids)(0_dim);
-            remote_address =
-                (size_t)global_block_local_rdata_ptr(remote_program_ids)(0_dim);
+            auto local_block_rdata =
+                global_block_local_rdata_desc(local_program_ids);
+            auto remote_block_rdata =
+                global_block_local_rdata_desc(remote_program_ids);
+            start = (size_t)local_block_rdata[0];
+            remote_address = (size_t)remote_block_rdata[0];
         }
     }
 
@@ -68,10 +107,10 @@ struct remote_tensor_constructor {
     template <class T, Shape TShape, Strides TStrides,
               ScopedProgramIds<TensorScope> TLocalProgramIds,
               ScopedProgramIds<TensorScope> TRemoteProgramIds>
-    constexpr auto operator()(T *data, const TShape &shape,
-                              const TStrides &strides,
-                              const TLocalProgramIds &local_program_ids,
-                              const TRemoteProgramIds &remote_program_ids) {
+    __device__ auto operator()(T *data, const TShape &shape,
+                               const TStrides &strides,
+                               const TLocalProgramIds &local_program_ids,
+                               const TRemoteProgramIds &remote_program_ids) {
         auto remote_address =
             detail::get_remote_address<T, RemoteScope, TensorScope>(
                 local_program_ids, remote_program_ids, data);

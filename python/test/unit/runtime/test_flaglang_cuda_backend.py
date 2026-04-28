@@ -143,6 +143,63 @@ def test_native_module_without_compile_helper_fails_closed(monkeypatch):
         backend.make_ptx(FakeNativeModule(), {}, options, 80)
 
 
+def test_native_compile_helper_receives_parsed_capability_and_options(monkeypatch):
+    backend = _cuda_backend()
+    options = backend.parse_options({})
+    captured = {}
+
+    class FakeNativeModule:
+        def get_entry_func_name(self):
+            return "primfunc_0"
+
+    def fake_compile_to_cubin(src, helper_options):
+        captured["src"] = src
+        captured["options"] = helper_options
+        return {
+            "cubin": b"\x7fELF-fake-cubin",
+            "metadata": {"name": "block_entry"},
+            "asm": {"ntt_cu": "__global__ void block_entry() {}"},
+            "compiler_log": "nvcc --gpu-architecture=sm_90a",
+        }
+
+    monkeypatch.setattr(nvidia_compiler.ir, "module", FakeNativeModule, raising=False)
+    monkeypatch.setattr(nvidia_compiler.ir, "compile_to_cubin", fake_compile_to_cubin, raising=False)
+
+    result = backend.make_ptx(FakeNativeModule(), {}, options, 90)
+
+    assert isinstance(result, nvidia_compiler.NativeCudaCompilation)
+    assert captured["src"].get_entry_func_name() == "primfunc_0"
+    assert captured["options"]["entry_name"] == "primfunc_0"
+    assert captured["options"]["capability"] == 90
+    assert captured["options"]["arch"] == "sm_90a"
+    assert captured["options"]["threads_per_cta"] == options.num_warps * options.warp_size
+    assert captured["options"]["binary_ext"] == "cubin"
+    assert captured["options"]["enable_auto_dist"] is False
+    assert "ntt_cu" in captured["options"]["stage_names"]
+    assert "compiler_log" in captured["options"]["stage_names"]
+
+
+def test_native_compile_result_cache_artifacts_uses_truthful_stage_names():
+    result = nvidia_compiler.NativeCudaCompilation(
+        cubin=b"\x7fELF-fake-cubin",
+        metadata={"name": "block_entry"},
+        asm={
+            "triton_tir": "triton module text",
+            "nncase_ir": "nncase module text",
+            "after_compile": "compiled module text",
+            "tir": "tir module text",
+            "ntt_cu": "__global__ void block_entry() {}",
+        },
+        compiler_log="nvcc --gpu-architecture=sm_80",
+    )
+
+    artifacts = result.cache_artifacts()
+    assert "ptx" not in artifacts
+    assert artifacts["triton_tir"] == "triton module text"
+    assert artifacts["compiler_log"] == "nvcc --gpu-architecture=sm_80"
+    assert result.suppress_stage_file is True
+
+
 def test_native_compile_result_supplies_cubin_and_metadata(monkeypatch):
     backend = _cuda_backend()
     options = backend.parse_options({})
@@ -243,6 +300,7 @@ def test_compiled_kernel_rejects_malformed_target_metadata(tmp_path):
 def test_vector_add_cannot_fallback_to_direct_ptx_when_helper_is_missing(monkeypatch):
     torch = _torch_cuda()
     monkeypatch.setenv("TRITON_ALWAYS_COMPILE", "1")
+    monkeypatch.setattr(nvidia_compiler.ir, "compile_to_cubin", None, raising=False)
 
     with pytest.raises(RuntimeError, match="native CUDA compile helper is unavailable"):
         _vector_add_kernel.warmup(
@@ -259,6 +317,7 @@ def test_vector_add_cannot_fallback_to_direct_ptx_when_helper_is_missing(monkeyp
 def test_non_vector_add_named_add_kernel_is_rejected(monkeypatch):
     torch = _torch_cuda()
     monkeypatch.setenv("TRITON_ALWAYS_COMPILE", "1")
+    monkeypatch.setattr(nvidia_compiler.ir, "compile_to_cubin", None, raising=False)
 
     with pytest.raises(RuntimeError, match="native CUDA compile helper is unavailable"):
         add_kernel.warmup(

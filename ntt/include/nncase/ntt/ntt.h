@@ -98,7 +98,7 @@
 #include "arch/xpu/arch_types.h"
 #include "arch/xpu/distributed.h"
 #include "arch/xpu/runtime.h"
-#elif defined(__CUDA_ARCH__)
+#elif defined(__CUDA_ARCH__) || defined(NNCASE_CUDA_MODULE)
 #include "arch/cuda/distributed.h"
 #include "arch/cuda/runtime.h"
 #else

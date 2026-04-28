@@ -55,8 +55,7 @@ NTT_DEVICE auto dest_ptr_tensor = nncase::ntt::make_tensor<void *>(nncase::ntt::
 
 template <size_t Level> NTT_DEVICE static std::byte *get_cache_address() {
     return reinterpret_cast<std::byte *>(
-        ntt::distributed::detail::global_thread_local_cache_ptr(program_ids())(
-            Level));
+        ntt::distributed::detail::global_thread_local_cache_desc(program_ids())[Level]);
 }
 }
 
@@ -95,7 +94,7 @@ template <tar::reduce_kind Kind> class group_hierarchy_getter;
 @:template <> class group_hierarchy_getter<tar::reduce_kind::@(GetName(comb, string.Empty))> {
   var shape = Enumerable.Range(0, hierarchy.Length).Select(i => comb.Contains(i) ?  hierarchy[i] : 1).ToArray();
 @:public:
-@:    NTT_DEVICE static constexpr auto group_hierarchy = ntt::fixed_shape_v<@(string.Join(", ", shape))>;
+@:    static constexpr auto group_hierarchy = ntt::fixed_shape_v<@(string.Join(", ", shape))>;
 @:};
 }
 

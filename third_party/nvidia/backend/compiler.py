@@ -131,6 +131,7 @@ class NativeCudaCompilation:
     metadata: Dict[str, Any]
     asm: Dict[str, Any]
     compiler_log: str = ""
+    suppress_stage_file: bool = True
 
     def __str__(self):
         for key in ("ntt_cu", "cuda_source", "compiler_log"):
@@ -140,6 +141,12 @@ class NativeCudaCompilation:
         if self.compiler_log:
             return self.compiler_log
         return "<FlagLang native CUDA compilation result: cubin bytes are stored in the cubin stage>"
+
+    def cache_artifacts(self):
+        artifacts = dict(self.asm)
+        if self.compiler_log:
+            artifacts.setdefault("compiler_log", self.compiler_log)
+        return artifacts
 
 
 def _require_native_ir_module(src):
@@ -183,14 +190,34 @@ def _normalize_native_cuda_compilation(result) -> NativeCudaCompilation:
     return NativeCudaCompilation(cubin=cubin, metadata=metadata, asm=asm, compiler_log=compiler_log)
 
 
-def _native_compile_options(opt, capability):
+def _native_compile_options(src, opt, capability):
+    cluster_dims = tuple(opt.cluster_dims or (1, 1, 1))
     return {
+        "entry_name": _module_entry_name(src),
         "arch": sm_arch_from_capability(capability),
         "capability": capability,
         "num_warps": opt.num_warps,
         "num_ctas": opt.num_ctas,
-        "cluster_dims": tuple(opt.cluster_dims or (1, 1, 1)),
+        "cluster_dims": cluster_dims,
+        "warp_size": opt.warp_size,
+        "threads_per_warp": opt.warp_size,
+        "threads_per_cta": opt.num_warps * opt.warp_size,
+        "binary_ext": "cubin",
+        "required_metadata": [
+            "name",
+            "shared",
+            "num_warps",
+            "num_ctas",
+            "cluster_dims",
+            "tmem_size",
+            "global_scratch_size",
+            "global_scratch_align",
+            "profile_scratch_size",
+            "profile_scratch_align",
+        ],
+        "stage_names": ["triton_tir", "nncase_ir", "after_compile", "tir", "ntt_cu", "compiler_log", "cubin"],
         "dump_dir": os.environ.get("TRITON_DUMP_DIR"),
+        "enable_auto_dist": False,
     }
 
 
@@ -202,7 +229,7 @@ def _compile_native_module_to_cubin(src, metadata, opt, capability) -> NativeCud
             "FlagLang native CUDA compile helper is unavailable; refusing to emit handwritten PTX shortcut."
         )
 
-    result = compile_to_cubin(src, _native_compile_options(opt, capability))
+    result = compile_to_cubin(src, _native_compile_options(src, opt, capability))
     return _normalize_native_cuda_compilation(result)
 
 
@@ -549,7 +576,7 @@ class CUDABackend(BaseBackend):
 
     def make_ptx(self, src, metadata, opt, capability):
         if not isinstance(src, str):
-            return _compile_native_module_to_cubin(src, metadata, opt, self.target.arch)
+            return _compile_native_module_to_cubin(src, metadata, opt, capability)
 
         return src
 

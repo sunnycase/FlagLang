@@ -163,6 +163,7 @@ internal sealed class LinkableModule : ILinkableModule
                     primFunction: (TIR.PrimFunction)mainFunc.SourceFunction,
                     dataAlign: scheduleResult.DataAlign,
                     dataUsage: scheduleResult.DataUsage,
+                    warpLocalDataPoolSize: scheduleResult.WarpLocalDataPoolSize,
                     blockLocalDataPoolSize: scheduleResult.BlockLocalDataPoolSize,
                     rdataPoolSize: memoryPoolDesc.RdataPoolSize,
                     threadLocalRdataPoolSize: memoryPoolDesc.ThreadLocalRdataPoolSize,
@@ -209,7 +210,10 @@ internal sealed class LinkableModule : ILinkableModule
 
     private string CompileCSource(string sourcePath)
     {
-        var compiler = new CSourceCompiler(_moduleKind == CUDATarget.Kind);
+        var compiler = new CSourceCompiler(
+            _moduleKind == CUDATarget.Kind,
+            _targetOptions.CudaCompiler,
+            _targetOptions.CudaArchitecture);
         var binDir = Path.Join(sourcePath, "build", "nncase_ntt_module");
         return compiler.Compile(sourcePath, binDir);
     }

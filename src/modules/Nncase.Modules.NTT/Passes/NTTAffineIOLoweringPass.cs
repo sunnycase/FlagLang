@@ -77,7 +77,7 @@ namespace Nncase.Passes
                         return storeLoaded;
                     }
 
-                    var fallback = ReadDefaultValue(defaultValue, indices);
+                    var fallback = ReadDefaultValue(defaultValue, indices, output.ElemType);
                     var storeFallback = T.BufferStore(output, indices, fallback);
                     return T.If(EvaluateConstraint(gather.Relation.Constraint, loopVars)).Then(storeLoaded).Else(storeFallback).Build();
                 });
@@ -146,12 +146,12 @@ namespace Nncase.Passes
                 return EvaluateAffineExpr(relation.Results[0], domainValues, extents, symbolMap);
             }
 
-            private Expr ReadDefaultValue(Expr defaultValue, Expr[] indices)
+            private Expr ReadDefaultValue(Expr defaultValue, Expr[] indices, DataType elemType)
             {
                 return defaultValue switch
                 {
                     TIR.Buffer buffer => T.BufferLoad(buffer, indices),
-                    None => throw new NotSupportedException("Masked affine gather requires a default value."),
+                    None => Const.FromTensor(Tensor.Zero(elemType)),
                     Expr expr when expr.CheckedType is TensorType { Shape.IsScalar: true } => expr,
                     _ => throw new NotSupportedException($"Unsupported affine gather default value {defaultValue.GetType().Name}."),
                 };
@@ -283,7 +283,7 @@ internal static class DimVarExtensions
         var result = new Expr[loopVars.Count];
         for (int i = 0; i < loopVars.Count; i++)
         {
-            result[i] = global::Nncase.IR.F.Shapes.AsTensor(loopVars[i]);
+            result[i] = global::Nncase.IR.F.Tensors.Cast(global::Nncase.IR.F.Shapes.AsTensor(loopVars[i]), global::Nncase.DataTypes.Int32);
         }
 
         return result;

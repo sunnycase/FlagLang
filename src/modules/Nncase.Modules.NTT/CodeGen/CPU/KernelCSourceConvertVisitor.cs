@@ -142,6 +142,7 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
             IndentScope.Writer.IndWrite($"{{\n");
 
             WriteDimVars();
+            PredeclareLocalBuffers(expr);
 
             // 3. Function body
             using (_ = new IndentScope())
@@ -155,6 +156,28 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
 
         symbol = new(ctype, expr.Name);
         _exprMemo.Add(expr, symbol);
+        return symbol;
+    }
+
+    protected override CSymbol VisitDimVar(DimVar expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var symbol))
+        {
+            return symbol;
+        }
+
+        foreach (var parameter in VisitEntry.Parameters)
+        {
+            if (parameter.Name == expr.Name && parameter is Expr parameterExpr)
+            {
+                symbol = Visit(parameterExpr);
+                _exprMemo.TryAdd(expr, symbol);
+                return symbol;
+            }
+        }
+
+        symbol = base.VisitDimVar(expr);
+        _exprMemo.TryAdd(expr, symbol);
         return symbol;
     }
 
@@ -640,38 +663,52 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
         }
         else
         {
-            var arguments = expr.Arguments.AsValueEnumerable().Select(Visit).ToArray();
-            switch (expr.Target)
+            if (expr.Target is IR.Buffers.BufferLoad)
             {
-                case IR.Math.Binary op:
-                    str = CSourceUtilities.ConvertBinary(op, arguments);
-                    break;
-                case IR.Math.Unary op:
-                    str = CSourceUtilities.ConvertUnary(op, arguments);
-                    break;
-                case IR.Math.Compare op:
-                    str = CSourceUtilities.ConvertCompare(op, arguments);
-                    break;
-                case IR.Math.Select op:
-                    str = CSourceUtilities.ConvertSelect(op, arguments);
-                    break;
-                case TIR.Load op:
-                    str = $"{arguments[0].Name}[{arguments[1].Name}]";
-                    break;
-                case TIR.Store op:
-                    IndentScope.Writer.IndWrite($"{arguments[0].Name}[{arguments[1].Name}] = {arguments[1].Name};\n");
-                    break;
-                case TIR.NTT.PtrOf op:
-                    str = op.PtrName;
-                    break;
-                case IR.Math.Clamp op:
-                    str = CSourceUtilities.ConvertClamp(op, arguments);
-                    break;
-                case IR.Shapes.AsTensor op:
-                    str = CSourceUtilities.ConvertAsTensor(op, arguments);
-                    break;
-                default:
-                    throw new NotSupportedException($"Unsupported call target: {expr.Target}");
+                str = VisitBufferLoad(expr);
+            }
+            else if (expr.Target is IR.Buffers.BufferStore)
+            {
+                WriteBufferStore(expr);
+            }
+            else
+            {
+                var arguments = expr.Arguments.AsValueEnumerable().Select(Visit).ToArray();
+                switch (expr.Target)
+                {
+                    case IR.Math.Binary op:
+                        str = CSourceUtilities.ConvertBinary(op, arguments);
+                        break;
+                    case IR.Math.Unary op:
+                        str = CSourceUtilities.ConvertUnary(op, arguments);
+                        break;
+                    case IR.Math.Compare op:
+                        str = CSourceUtilities.ConvertCompare(op, arguments);
+                        break;
+                    case IR.Math.Select op:
+                        str = CSourceUtilities.ConvertSelect(op, arguments);
+                        break;
+                    case IR.Tensors.Cast op:
+                        str = $"(({op.NewType.ToC()}){arguments[0].Name})";
+                        break;
+                    case TIR.Load op:
+                        str = $"{arguments[0].Name}[{arguments[1].Name}]";
+                        break;
+                    case TIR.Store op:
+                        IndentScope.Writer.IndWrite($"{arguments[0].Name}[{arguments[1].Name}] = {arguments[2].Name};\n");
+                        break;
+                    case TIR.NTT.PtrOf op:
+                        str = op.PtrName;
+                        break;
+                    case IR.Math.Clamp op:
+                        str = CSourceUtilities.ConvertClamp(op, arguments);
+                        break;
+                    case IR.Shapes.AsTensor op:
+                        str = CSourceUtilities.ConvertAsTensor(op, arguments);
+                        break;
+                    default:
+                        throw new NotSupportedException($"Unsupported call target: {expr.Target}");
+                }
             }
         }
 
@@ -713,6 +750,27 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
         }
 
         symbol = new(type, str);
+        _exprMemo.Add(expr, symbol);
+        return symbol;
+    }
+
+    protected override CSymbol VisitFor(For expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var symbol))
+        {
+            return symbol;
+        }
+
+        var loopVar = Visit(expr.LoopVar);
+        IndentScope.Writer.IndWrite($"for ({loopVar.Type} {loopVar.Name} = {Visit(expr.Domain.Start).Name}; {loopVar.Name} < {Visit(expr.Domain.Stop).Name}; {loopVar.Name} += {Visit(expr.Domain.Step).Name}) {{\n");
+        using (new IndentScope())
+        {
+            Visit(expr.Body);
+        }
+
+        IndentScope.Writer.IndWrite("}\n");
+
+        symbol = new(string.Empty, string.Empty);
         _exprMemo.Add(expr, symbol);
         return symbol;
     }
@@ -818,6 +876,62 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
         symbol = new(string.Empty, string.Empty);
         _exprMemo.Add(expr, symbol);
         return symbol;
+    }
+
+    private string VisitBufferLoad(Call expr)
+    {
+        var buffer = VisitBuffer((TIR.Buffer)expr[IR.Buffers.BufferLoad.Input]);
+        var indices = VisitBufferIndices((IR.Tuple)expr[IR.Buffers.BufferLoad.Indices]);
+        return $"{buffer.Name}({indices})";
+    }
+
+    private void WriteBufferStore(Call expr)
+    {
+        var buffer = VisitBuffer((TIR.Buffer)expr[IR.Buffers.BufferStore.Input]);
+        var indices = VisitBufferIndices((IR.Tuple)expr[IR.Buffers.BufferStore.Indices]);
+        var value = Visit((Expr)expr[IR.Buffers.BufferStore.Value]);
+        IndentScope.Writer.IndWrite($"{buffer.Name}({indices}) = {value.Name};\n");
+    }
+
+    private string VisitBufferIndices(IR.Tuple indices) =>
+        StringUtility.Join(", ", indices.Fields.AsValueEnumerable().Select(index => Visit(UnwrapBufferIndex(index)).Name).ToArray());
+
+    private void PredeclareLocalBuffers(PrimFunction expr)
+    {
+        var seen = new HashSet<TIR.Buffer>(ReferenceEqualityComparer.Instance);
+        foreach (var buffer in ExprCollector.Collect(expr.Body).OfType<TIR.Buffer>())
+        {
+            if (!seen.Add(buffer) ||
+                buffer.MemSpan.Buffer.Start is None ||
+                expr.Parameters.AsValueEnumerable().Any(parameter => ReferenceEquals(parameter, buffer)))
+            {
+                continue;
+            }
+
+            VisitBuffer(buffer);
+        }
+    }
+
+    private BaseExpr UnwrapBufferIndex(BaseExpr index)
+    {
+        while (index is Call call)
+        {
+            if (call.Target is IR.Tensors.Cast)
+            {
+                index = (BaseExpr)call[IR.Tensors.Cast.Input];
+                continue;
+            }
+
+            if (call.Target is IR.Shapes.AsTensor)
+            {
+                index = (BaseExpr)call[IR.Shapes.AsTensor.Input];
+                continue;
+            }
+
+            break;
+        }
+
+        return index;
     }
 
     private CSymbol VisitBuffer(BaseExpr buffer, bool local)

@@ -97,4 +97,14 @@ public class NTTTargetOptions : INTTTargetOptions
     [Description("the custom-op scheme path.")]
     [DefaultValue("")]
     public string CustomOpScheme { get; set; } = string.Empty;
+
+    [DisplayName("--cuda-compiler")]
+    [Description("CUDA compiler executable used for CUDA cubin generation.")]
+    [DefaultValue("nvcc")]
+    public string CudaCompiler { get; set; } = "nvcc";
+
+    [DisplayName("--cuda-architecture")]
+    [Description("CUDA SM architecture number used for cubin generation.")]
+    [DefaultValue(80)]
+    public int CudaArchitecture { get; set; } = 80;
 }

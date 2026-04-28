@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using NetFabric.Hyperlinq;
 using Nncase.IR;
 using Nncase.IR.Affine;
+using Nncase.IR.Logics;
 using Nncase.IR.Shapes;
 using Nncase.TIR;
 
@@ -286,6 +287,8 @@ internal sealed partial class TypeInferenceVisitor : ExprVisitor<IRType, Unit>
     }
 
     protected override IRType VisitLeafAffineExpr(AffineExpr expr) => TensorType.Scalar(DataTypes.Int64);
+
+    protected override IRType VisitLeafLogicalExpr(LogicalExpr expr) => TensorType.Scalar(DataTypes.Boolean);
 
     protected override IRType VisitLeafAffineDomain(AffineDomain expr) => new TupleType(ImmutableArray.Create(expr.Offset.CheckedType, expr.Extent.CheckedType));
 

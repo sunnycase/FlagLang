@@ -13,6 +13,7 @@ using NetFabric.Hyperlinq;
 using Nncase;
 using Nncase.IR;
 using Nncase.IR.Buffers;
+using Nncase.IR.Logics;
 using Nncase.IR.Math;
 using Nncase.IR.Shapes;
 using Nncase.TIR;
@@ -694,6 +695,54 @@ internal sealed class ScriptPrintVisitor : ExprFunctor<IPrintSymbol, string>
         return doc;
     }
 
+    protected override IPrintSymbol VisitLogicalConst(LogicalConst expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var doc))
+        {
+            return doc;
+        }
+
+        doc = new(expr.Value ? "true" : "false");
+        _exprMemo.Add(expr, doc);
+        return doc;
+    }
+
+    protected override IPrintSymbol VisitDimCompare(DimCompare expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var doc))
+        {
+            return doc;
+        }
+
+        doc = new($"({Visit(expr.Lhs)} {CompareOpToString(expr.Op)} {Visit(expr.Rhs)})");
+        _exprMemo.Add(expr, doc);
+        return doc;
+    }
+
+    protected override IPrintSymbol VisitLogicalAnd(LogicalAnd expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var doc))
+        {
+            return doc;
+        }
+
+        doc = new($"({StringUtility.Join(" && ", expr.Operands.ToArray().Select(Visit))})");
+        _exprMemo.Add(expr, doc);
+        return doc;
+    }
+
+    protected override IPrintSymbol VisitLogicalOr(LogicalOr expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var doc))
+        {
+            return doc;
+        }
+
+        doc = new($"({StringUtility.Join(" || ", expr.Operands.ToArray().Select(Visit))})");
+        _exprMemo.Add(expr, doc);
+        return doc;
+    }
+
     /// <inheritdoc/>
     protected override IPrintSymbol VisitLet(Let expr)
     {
@@ -850,6 +899,17 @@ internal sealed class ScriptPrintVisitor : ExprFunctor<IPrintSymbol, string>
         _exprMemo.Add(expr, doc);
         return doc;
     }
+
+    private static string CompareOpToString(CompareOp op) => op switch
+    {
+        CompareOp.Equal => "==",
+        CompareOp.NotEqual => "!=",
+        CompareOp.LowerThan => "<",
+        CompareOp.LowerOrEqual => "<=",
+        CompareOp.GreaterThan => ">",
+        CompareOp.GreaterOrEqual => ">=",
+        _ => throw new ArgumentOutOfRangeException(nameof(op)),
+    };
 
     /// <summary>
     /// indent xxxxxx ( // type_info

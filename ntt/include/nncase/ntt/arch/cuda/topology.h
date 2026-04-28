@@ -21,7 +21,7 @@
 namespace nncase::ntt::distributed {
 template <> struct program_id_getter<topology::thread> {
     __device__ static size_t id() noexcept {
-        if constexpr (program_dim<topology::thread>() == warpSize) {
+        if constexpr (program_dim<topology::thread>() == 32) {
             return cuda::ptx::get_sreg_laneid();
 
         } else {

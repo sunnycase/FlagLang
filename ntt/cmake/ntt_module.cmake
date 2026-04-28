@@ -49,10 +49,18 @@ endif()
 if (CMAKE_CUDA_COMPILER)
     target_sources(${NNCASE_NTT_MODULE_TARGET_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../src/cuda_runtime.cu)
     target_compile_definitions(${NNCASE_NTT_MODULE_TARGET_NAME} PUBLIC -DNNCASE_CUDA_MODULE=1)
-    target_compile_options(${NNCASE_NTT_MODULE_TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
-        -fgpu-rdc
-        --cuda-device-only
-        >)
+    if(CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
+        target_compile_options(${NNCASE_NTT_MODULE_TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
+            -rdc=true
+            --device-c
+            --expt-relaxed-constexpr
+            >)
+    else()
+        target_compile_options(${NNCASE_NTT_MODULE_TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
+            -fgpu-rdc
+            --cuda-device-only
+            >)
+    endif()
 
     foreach(arch ${CMAKE_CUDA_ARCHITECTURES})
         # Link device code for this architecture

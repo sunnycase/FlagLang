@@ -15,7 +15,7 @@
 #pragma once
 #include "compiler_defs.h"
 
-#ifdef __CUDA_ARCH__
+#ifdef __CUDACC__
 #include <cuda/std/array>
 #include <cuda/std/barrier>
 #include <cuda/std/span>
@@ -27,7 +27,7 @@
 #include <tuple>
 #endif
 
-#ifdef __CUDA_ARCH__
+#ifdef __CUDACC__
 #define NTT_NS_STD cuda::std
 #else
 #define NTT_NS_STD std

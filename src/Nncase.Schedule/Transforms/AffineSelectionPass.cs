@@ -72,9 +72,10 @@ public abstract class AffineSelectionPass : FunctionPass
             {
                 TensorType t => IR.F.Buffer.Uninitialized(t.DType, TIR.MemoryLocation.Data, t.Shape),
                 DistributedType dt => IR.F.Buffer.Uninitialized(dt.TensorType.DType, TIR.MemoryLocation.Data, dt.TensorType.Shape, dt.AxisPolicies, dt.Placement),
+                TupleType { Count: 0 } => null,
                 _ => throw new ArgumentOutOfRangeException(nameof(expr), $"Unsupported type {expr.CheckedType}"),
             };
-            return _selectionPass.SelectCall(expr, outBuffer);
+            return outBuffer is null ? expr : _selectionPass.SelectCall(expr, outBuffer);
         }
     }
 }
