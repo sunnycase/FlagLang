@@ -560,7 +560,7 @@ public static unsafe partial class CApi
             var dumpDir = GetString(root, "dump_dir", string.Empty);
             if (string.IsNullOrWhiteSpace(dumpDir))
             {
-                dumpDir = Path.Combine(Path.GetTempPath(), "flaglang-cuda-pipeline", Guid.NewGuid().ToString("N"));
+                dumpDir = Path.Combine("dump", "flaglang-cuda-pipeline", Guid.NewGuid().ToString("N"));
             }
 
             return new(

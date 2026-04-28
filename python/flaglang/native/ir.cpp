@@ -503,6 +503,7 @@ void nncase::init_triton_ir(py::module &&m) {
              [](clr::ir_module &self, clr::base_function func) {
                  self.add(std::move(func));
              })
+        .def("set_entry", &clr::ir_module::set_entry)
         .def("has_function", &clr::ir_module::has_function)
         .def("get_function", &clr::ir_module::get_function_by_name)
         .def("__str__", &clr::ir_module::to_text)

@@ -11,7 +11,7 @@ import torch
 import triton
 import triton.language as tl
 from triton._internal_testing import is_hip
-from triton.runtime.cache import get_cache_manager, make_so_cache_key, _managed_compiler_payload_hash
+from triton.runtime.cache import get_cache_key, get_cache_manager, make_so_cache_key, _managed_compiler_payload_hash
 from triton.backends.compiler import BaseBackend, GPUTarget
 
 
@@ -136,6 +136,33 @@ def test_make_so_cache_key_can_create_cache_manager(fresh_triton_cache):
 
     cache_manager = get_cache_manager(key)
     assert cache_manager.cache_dir
+
+
+def test_nncase_cuda_compiler_affects_cache_key(monkeypatch):
+
+    class KeyPart:
+
+        def __init__(self, value):
+            self.value = value
+
+        def hash(self):
+            return self.value
+
+    src = KeyPart("src")
+    backend = KeyPart("backend")
+    options = KeyPart("options")
+
+    monkeypatch.delenv("NNCASE_CUDA_COMPILER", raising=False)
+    baseline = get_cache_key(src, backend, options, {})
+
+    monkeypatch.setenv("NNCASE_CUDA_COMPILER", "nvcc")
+    nvcc_key = get_cache_key(src, backend, options, {})
+
+    monkeypatch.setenv("NNCASE_CUDA_COMPILER", "clang++")
+    clang_key = get_cache_key(src, backend, options, {})
+
+    assert baseline != nvcc_key
+    assert nvcc_key != clang_key
 
 
 class MinimalBackend(BaseBackend):

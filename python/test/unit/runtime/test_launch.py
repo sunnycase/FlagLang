@@ -97,6 +97,24 @@ def test_constexpr_args_are_not_passed_to_launcher(device) -> None:
     assert used_hook
 
 
+def test_jit_helper_return_does_not_require_create_block(device) -> None:
+
+    @triton.jit
+    def identity(x):
+        return x
+
+    @triton.jit
+    def kernel(x, out, BLOCK: tl.constexpr):
+        offsets = tl.arange(0, BLOCK)
+        values = identity(tl.load(x + offsets))
+        tl.store(out + offsets, values)
+
+    x = torch.ones(1, device=device)
+    out = torch.empty_like(x)
+    kernel[(1, )](x, out, BLOCK=1)
+    torch.testing.assert_close(out, x)
+
+
 def test_load_hook() -> None:
 
     used_start_hook = False

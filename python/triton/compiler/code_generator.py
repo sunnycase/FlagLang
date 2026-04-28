@@ -78,6 +78,9 @@ _NATIVE_CONTROL_FLOW_BUILDER_METHODS = (
 )
 
 
+_RETURN_TERMINATED = object()
+
+
 def _missing_builder_methods(builder: Any, methods: Iterable[str]) -> List[str]:
     return [name for name in methods if not callable(getattr(builder, name, None))]
 
@@ -541,11 +544,12 @@ class CodeGenerator(ast.NodeVisitor):
         if not _is_list_like(stmts):
             stmts = [stmts]
         for stmt in stmts:
-            self.visit(stmt)
+            result = self.visit(stmt)
             # Stop parsing as soon as we hit a `return` statement; everything
             # after this is dead code.
-            if isinstance(stmt, ast.Return):
-                break
+            if result is _RETURN_TERMINATED or isinstance(stmt, ast.Return):
+                return _RETURN_TERMINATED
+        return None
 
     def visit_Module(self, node):
         ast.NodeVisitor.generic_visit(self, node)
@@ -599,8 +603,10 @@ class CodeGenerator(ast.NodeVisitor):
 
         # A return op must always terminate the basic block, so we create a dead
         # basic block in case there are any ops after the return.
-        post_ret_block = self.builder.create_block()
-        self.builder.set_insertion_point_to_end(post_ret_block)
+        if callable(getattr(self.builder, "create_block", None)):
+            post_ret_block = self.builder.create_block()
+            self.builder.set_insertion_point_to_end(post_ret_block)
+        return _RETURN_TERMINATED
 
     def visit_Starred(self, node) -> Any:
         args = self.visit(node.value)
@@ -633,6 +639,11 @@ class CodeGenerator(ast.NodeVisitor):
         fn_ty = self.prototype.serialize(self.builder)
         self.fn = self.builder.get_or_insert_function(self.module, self.function_name, fn_ty, visibility, self.noinline)
         self.module.push_back(self.fn)
+        if self.is_kernel:
+            set_entry = getattr(self.module, "set_entry", None)
+            if not callable(set_entry):
+                raise RuntimeError("Native IR module does not expose set_entry for kernel lowering")
+            set_entry(self.fn)
         entry = self.fn.add_entry_block()
         arg_values = self.prototype.deserialize(self.fn)
         if self.caller_context is not None:
@@ -647,17 +658,20 @@ class CodeGenerator(ast.NodeVisitor):
         self.visit_compound_statement(node.body)
 
         # finalize function
-        assert not self.builder.get_insertion_block().has_terminator()
+        has_terminator = self.builder.get_insertion_block().has_terminator()
         if self.ret_type is None or self.ret_type == language.void:
             self.ret_type = language.void
-            self.builder.ret([])
+            if not has_terminator:
+                self.builder.ret([])
         else:
             if isinstance(self.ret_type, language.tuple_type):
                 self.prototype.ret_types = self.ret_type.types
             else:
                 self.prototype.ret_types = [self.ret_type]
-            self.fn.reset_type(self.prototype.serialize(self.builder))
-            self.builder.ret([self.builder.create_poison(ty) for ty in self.prototype.return_types_ir(self.builder)])
+            if callable(getattr(self.fn, "reset_type", None)):
+                self.fn.reset_type(self.prototype.serialize(self.builder))
+            if not has_terminator:
+                self.builder.ret([self.builder.create_poison(ty) for ty in self.prototype.return_types_ir(self.builder)])
         self.fn.finalize()
 
         if insert_pt:
@@ -945,7 +959,7 @@ class CodeGenerator(ast.NodeVisitor):
                         type(cond).__name__))
 
             active_block = node.body if cond else node.orelse
-            self.visit_compound_statement(active_block)
+            return self.visit_compound_statement(active_block)
 
     def visit_IfExp(self, node):
         cond = self.visit(node.test)

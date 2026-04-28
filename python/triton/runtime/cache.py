@@ -11,6 +11,18 @@ import sysconfig
 from triton import __version__, knobs
 
 
+_FLAGLANG_CACHE_INVALIDATING_ENV_VARS = ("NNCASE_CUDA_COMPILER",)
+
+
+def _with_flaglang_cache_invalidating_env_vars(env_vars):
+    merged = dict(env_vars)
+    for name in _FLAGLANG_CACHE_INVALIDATING_ENV_VARS:
+        value = os.environ.get(name)
+        if value is not None:
+            merged[name] = value
+    return merged
+
+
 class CacheManager(ABC):
 
     def __init__(self, key, override=False, dump=False):
@@ -340,5 +352,6 @@ def triton_key():
 
 
 def get_cache_key(src, backend, backend_options, env_vars):
+    env_vars = _with_flaglang_cache_invalidating_env_vars(env_vars)
     key = f"{triton_key()}-{src.hash()}-{backend.hash()}-{backend_options.hash()}-{str(sorted(env_vars.items()))}"
     return key

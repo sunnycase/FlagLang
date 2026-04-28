@@ -283,6 +283,8 @@ typedef struct {
     clr_object_handle_t (*ir_module_create)();
     void (*ir_module_add)(clr_object_handle_t module,
                           clr_object_handle_t function);
+    void (*ir_module_set_entry)(clr_object_handle_t module,
+                                clr_object_handle_t function);
     clr_object_handle_t (*ir_module_get_function_by_name)(
         clr_object_handle_t module, const char *name, size_t name_length);
 
@@ -948,6 +950,10 @@ class ir_module : public expr {
 
     void add(base_function func) {
         nncase_clr_api()->ir_module_add(obj_.get(), func.get());
+    }
+
+    void set_entry(base_function func) {
+        nncase_clr_api()->ir_module_set_entry(obj_.get(), func.get());
     }
 
     prim_function get_function_by_name(std::string_view name) {

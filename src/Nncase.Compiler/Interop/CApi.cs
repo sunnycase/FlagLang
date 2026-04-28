@@ -67,6 +67,7 @@ public unsafe struct CApiMT
 
     public delegate* unmanaged<IntPtr> IRModuleCreatePtr;
     public delegate* unmanaged<IntPtr, IntPtr, void> IRModuleAddPtr;
+    public delegate* unmanaged<IntPtr, IntPtr, void> IRModuleSetEntryPtr;
     public delegate* unmanaged<IntPtr, byte*, nuint, IntPtr> IRModuleGetFunctionByNamePtr;
 
     public delegate* unmanaged<IntPtr> DataTypesGetBooleanPtr;
@@ -179,6 +180,7 @@ public static unsafe partial class CApi
 
         mt->IRModuleCreatePtr = &IRModuleCreate;
         mt->IRModuleAddPtr = &IRModuleAdd;
+        mt->IRModuleSetEntryPtr = &IRModuleSetEntry;
         mt->IRModuleGetFunctionByNamePtr = &IRModuleGetFunctionByName;
 
         mt->DataTypesGetBooleanPtr = &DataTypesGetBoolean;

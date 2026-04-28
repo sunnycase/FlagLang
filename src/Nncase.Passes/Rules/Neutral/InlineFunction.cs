@@ -37,7 +37,7 @@ public sealed partial class InlineFunction : RewriteRule<Pattern>
             {
                 var mapper = target.Parameters.ToArray().Zip(expr.Arguments.ToArray(), (p, a) => (p, a)).ToDictionary(x => x.p, x => x.a);
                 var cloner = new FunctionBodyCloner(mapper);
-                return (Expr)cloner.Visit(target.Body, Unit.Default);
+                return (Expr)cloner.Visit(target.Body.Body, Unit.Default);
             }
         }
 

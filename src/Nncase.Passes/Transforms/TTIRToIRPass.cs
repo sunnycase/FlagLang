@@ -34,11 +34,36 @@ public sealed class TTIRToIRPass : FunctionPass
         if (pre is PrimFunction pf)
         {
             var stores = StoreCollector.Collect(pf.Body);
-            var newBody = new IRBlock(stores.Count == 1 ? stores[0] : new IR.Tuple(stores.ToArray()), pf.Parameters);
+            var returns = ReturnCollector.Collect(pf.Body);
+            var body = stores.Count > 0
+                ? stores.Count == 1 ? stores[0] : new IR.Tuple(stores.ToArray())
+                : BuildReturnBody(returns);
+            var newBody = new IRBlock(body, pf.Parameters);
             return Task.FromResult<BaseFunction>(new Function(pf.Name, newBody));
         }
 
         return Task.FromResult(pre);
+    }
+
+    private static BaseExpr BuildReturnBody(IReadOnlyList<Return> returns)
+    {
+        if (returns.Count == 0)
+        {
+            return new IR.Tuple();
+        }
+
+        if (returns.Count != 1)
+        {
+            throw new InvalidOperationException($"Expected at most one return in Triton helper function, got {returns.Count}.");
+        }
+
+        var values = returns[0].Values.ToArray();
+        return values.Length switch
+        {
+            0 => new IR.Tuple(),
+            1 => values[0],
+            _ => new IR.Tuple(values),
+        };
     }
 
     private sealed class StoreCollector : ExprWalker<List<BaseExpr>>
@@ -58,6 +83,22 @@ public sealed class TTIRToIRPass : FunctionPass
             }
 
             return base.VisitLeafCall(expr, context);
+        }
+    }
+
+    private sealed class ReturnCollector : ExprWalker<List<Return>>
+    {
+        public static IReadOnlyList<Return> Collect(BaseExpr expr)
+        {
+            var returns = new List<Return>();
+            new ReturnCollector().Visit(expr, returns);
+            return returns;
+        }
+
+        protected override Unit VisitLeafReturn(Return expr, List<Return> context)
+        {
+            context.Add(expr);
+            return base.VisitLeafReturn(expr, context);
         }
     }
 }

@@ -59,6 +59,14 @@ public static unsafe partial class CApi
     }
 
     [UnmanagedCallersOnly]
+    private static void IRModuleSetEntry(IntPtr modulePtr, IntPtr functionPtr)
+    {
+        var module = Get<IR.IRModule>(modulePtr);
+        var function = Get<IR.BaseFunction>(functionPtr);
+        module.Entry = function;
+    }
+
+    [UnmanagedCallersOnly]
     private static IntPtr IRModuleGetFunctionByName(IntPtr modulePtr, byte* namePtr, nuint nameLength)
     {
         var module = Get<IR.IRModule>(modulePtr);

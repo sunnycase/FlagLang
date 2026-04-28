@@ -111,6 +111,11 @@ internal sealed class InferRangeVisitor : ExprVisitor<ValueRange<double>, Unit>
 
     protected override ValueRange<double> VisitLeafTuple(IR.Tuple expr)
     {
+        if (expr.Count == 0)
+        {
+            return ValueRange<double>.Full;
+        }
+
         var ranges = expr.Fields.AsValueEnumerable().Select(Visit).ToArray();
         return new ValueRange<double>(ranges.Min(x => x.Min), ranges.Max(x => x.Max));
     }
