@@ -9,6 +9,7 @@ from . import utils
 import importlib.util
 import importlib.metadata
 from typing import List, Tuple
+from python.build_helpers import get_base_dir
 
 extend_backends = []
 default_backends = ["nvidia", "amd"]
@@ -101,7 +102,7 @@ def post_install():
 class FlagTreeCache:
 
     def __init__(self):
-        self.flagtree_dir = os.path.dirname(os.getcwd())
+        self.flagtree_dir = Path(get_base_dir())
         self.dir_name = ".flagtree"
         self.sub_dirs = {}
         self.cache_files = {}

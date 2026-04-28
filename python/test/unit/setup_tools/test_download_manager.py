@@ -1,3 +1,4 @@
+import importlib
 import subprocess
 import sys
 import tarfile
@@ -6,6 +7,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 from python.setup_tools.utils import tools  # noqa: E402
+
+
+def test_flagtree_submodule_dir_uses_repo_root():
+    repo_root = Path(__file__).resolve().parents[4]
+
+    assert Path(tools.flagtree_root_dir) == repo_root
+    assert Path(tools.flagtree_submodule_dir) == repo_root / "third_party"
+
+
+def test_flagtree_cache_uses_repo_root_for_copy_destinations(tmp_path, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[4]
+    monkeypatch.delenv("FLAGTREE_BACKEND", raising=False)
+    monkeypatch.delenv("FLAGTREE_OFFLINE_BUILD_DIR", raising=False)
+    monkeypatch.delenv("TRITON_OFFLINE_BUILD", raising=False)
+    monkeypatch.setenv("FLAGTREE_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.chdir(tmp_path)
+
+    setup_helper = importlib.import_module("python.setup_tools.setup_helper")
+    cache = setup_helper.FlagTreeCache()
+
+    assert Path(cache.flagtree_dir) == repo_root
 
 
 def test_offline_url_download_decompresses_cached_archive(tmp_path, monkeypatch):

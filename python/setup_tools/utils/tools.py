@@ -13,7 +13,7 @@ import json
 from python.build_helpers import get_base_dir
 import platform
 
-flagtree_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+flagtree_root_dir = get_base_dir()
 flagtree_submodule_dir = os.path.join(flagtree_root_dir, "third_party")
 flagtree_backend = os.environ.get("FLAGTREE_BACKEND")
 use_cuda_toolkit = ["aipu"]
