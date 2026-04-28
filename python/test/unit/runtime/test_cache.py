@@ -262,6 +262,27 @@ def test_bound_constexpr_fn_global_owner_tracks_identity():
     assert globals_dict["CONSTEXPR_METHOD_OWNER"] is owner_value
 
 
+def test_nonlocal_dependency_lookup_reads_rebound_cell():
+    offset = 1
+
+    @triton.jit
+    def nonlocal_user(out):
+        tl.store(out, offset)
+
+    def set_offset(value):
+        nonlocal offset
+        offset = value
+
+    assert nonlocal_user.cache_key
+    old_value, scope_lookup = next(value for (name, _), value in nonlocal_user.used_global_vals.items()
+                                   if name == "offset")
+    assert old_value == 1
+
+    set_offset(2)
+
+    assert scope_lookup.get("offset") == 2
+
+
 @triton.constexpr_function
 def invalid_constexpr_fn():
     return torch.cuda.get_device_capability()

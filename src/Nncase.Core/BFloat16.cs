@@ -156,89 +156,231 @@ public struct BFloat16 : IEquatable<BFloat16>, IComparable<BFloat16>, INumber<BF
         return FromRaw((ushort)(input >> 16));
     }
 
-    public static BFloat16 Abs(BFloat16 value) => throw new NotImplementedException();
+    public static BFloat16 Abs(BFloat16 value) => FromRaw((ushort)(value._value & 0x7fff));
 
-    public static bool IsCanonical(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsCanonical(BFloat16 value) => true;
 
-    public static bool IsComplexNumber(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsComplexNumber(BFloat16 value) => false;
 
-    public static bool IsEvenInteger(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsEvenInteger(BFloat16 value) => float.IsEvenInteger(value);
 
-    public static bool IsFinite(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsFinite(BFloat16 value) => float.IsFinite(value);
 
-    public static bool IsImaginaryNumber(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsImaginaryNumber(BFloat16 value) => false;
 
     public static bool IsInfinity(BFloat16 value) => float.IsInfinity(value);
 
-    public static bool IsInteger(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsInteger(BFloat16 value) => float.IsInteger(value);
 
-    public static bool IsNaN(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsNaN(BFloat16 value) => float.IsNaN(value);
 
-    public static bool IsNegative(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsNegative(BFloat16 value) => float.IsNegative(value);
 
     public static bool IsNegativeInfinity(BFloat16 value) => float.IsNegativeInfinity(value);
 
-    public static bool IsNormal(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsNormal(BFloat16 value) => float.IsNormal(value);
 
-    public static bool IsOddInteger(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsOddInteger(BFloat16 value) => float.IsOddInteger(value);
 
-    public static bool IsPositive(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsPositive(BFloat16 value) => float.IsPositive(value);
 
-    public static bool IsPositiveInfinity(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsPositiveInfinity(BFloat16 value) => float.IsPositiveInfinity(value);
 
-    public static bool IsRealNumber(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsRealNumber(BFloat16 value) => float.IsRealNumber(value);
 
-    public static bool IsSubnormal(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsSubnormal(BFloat16 value) => float.IsSubnormal(value);
 
-    public static bool IsZero(BFloat16 value) => throw new NotImplementedException();
+    public static bool IsZero(BFloat16 value) => value._value == 0 || value._value == 0x8000;
 
-    public static BFloat16 MaxMagnitude(BFloat16 x, BFloat16 y) => throw new NotImplementedException();
+    public static BFloat16 MaxMagnitude(BFloat16 x, BFloat16 y) => (BFloat16)float.MaxMagnitude(x, y);
 
-    public static BFloat16 MaxMagnitudeNumber(BFloat16 x, BFloat16 y) => throw new NotImplementedException();
+    public static BFloat16 MaxMagnitudeNumber(BFloat16 x, BFloat16 y) => (BFloat16)float.MaxMagnitudeNumber(x, y);
 
-    public static BFloat16 MinMagnitude(BFloat16 x, BFloat16 y) => throw new NotImplementedException();
+    public static BFloat16 MinMagnitude(BFloat16 x, BFloat16 y) => (BFloat16)float.MinMagnitude(x, y);
 
-    public static BFloat16 MinMagnitudeNumber(BFloat16 x, BFloat16 y) => throw new NotImplementedException();
+    public static BFloat16 MinMagnitudeNumber(BFloat16 x, BFloat16 y) => (BFloat16)float.MinMagnitudeNumber(x, y);
 
-    public static BFloat16 Parse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider) => throw new NotImplementedException();
+    public static BFloat16 Parse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider) => (BFloat16)float.Parse(s, style, provider);
 
-    public static BFloat16 Parse(string s, NumberStyles style, IFormatProvider? provider) => throw new NotImplementedException();
+    public static BFloat16 Parse(string s, NumberStyles style, IFormatProvider? provider) => (BFloat16)float.Parse(s, style, provider);
 
     public static bool TryConvertFromChecked<TOther>(TOther value, [MaybeNullWhen(false)] out BFloat16 result)
         where TOther : INumberBase<TOther>
-        => throw new NotImplementedException();
+    {
+        if (value is BFloat16 bfloat16)
+        {
+            result = bfloat16;
+            return true;
+        }
+
+        try
+        {
+            result = (BFloat16)float.CreateChecked(value);
+            return true;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or OverflowException)
+        {
+            result = default;
+            return false;
+        }
+    }
 
     public static bool TryConvertFromSaturating<TOther>(TOther value, [MaybeNullWhen(false)] out BFloat16 result)
         where TOther : INumberBase<TOther>
-        => throw new NotImplementedException();
+    {
+        if (value is BFloat16 bfloat16)
+        {
+            result = bfloat16;
+            return true;
+        }
+
+        try
+        {
+            result = (BFloat16)float.CreateSaturating(value);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            result = default;
+            return false;
+        }
+    }
 
     public static bool TryConvertFromTruncating<TOther>(TOther value, [MaybeNullWhen(false)] out BFloat16 result)
         where TOther : INumberBase<TOther>
-        => throw new NotImplementedException();
+    {
+        if (value is BFloat16 bfloat16)
+        {
+            result = bfloat16;
+            return true;
+        }
+
+        try
+        {
+            result = (BFloat16)float.CreateTruncating(value);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            result = default;
+            return false;
+        }
+    }
 
     public static bool TryConvertToChecked<TOther>(BFloat16 value, [MaybeNullWhen(false)] out TOther result)
         where TOther : INumberBase<TOther>
-        => throw new NotImplementedException();
+    {
+        if (typeof(TOther) == typeof(BFloat16))
+        {
+            result = (TOther)(object)value;
+            return true;
+        }
+
+        try
+        {
+            result = TOther.CreateChecked((float)value);
+            return true;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or OverflowException)
+        {
+            result = default;
+            return false;
+        }
+    }
 
     public static bool TryConvertToSaturating<TOther>(BFloat16 value, [MaybeNullWhen(false)] out TOther result)
         where TOther : INumberBase<TOther>
-        => throw new NotImplementedException();
+    {
+        if (typeof(TOther) == typeof(BFloat16))
+        {
+            result = (TOther)(object)value;
+            return true;
+        }
+
+        try
+        {
+            result = TOther.CreateSaturating((float)value);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            result = default;
+            return false;
+        }
+    }
 
     public static bool TryConvertToTruncating<TOther>(BFloat16 value, [MaybeNullWhen(false)] out TOther result)
         where TOther : INumberBase<TOther>
-        => throw new NotImplementedException();
+    {
+        if (typeof(TOther) == typeof(BFloat16))
+        {
+            result = (TOther)(object)value;
+            return true;
+        }
 
-    public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider, [MaybeNullWhen(false)] out BFloat16 result) => throw new NotImplementedException();
+        try
+        {
+            result = TOther.CreateTruncating((float)value);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            result = default;
+            return false;
+        }
+    }
 
-    public static bool TryParse([NotNullWhen(true)] string? s, NumberStyles style, IFormatProvider? provider, [MaybeNullWhen(false)] out BFloat16 result) => throw new NotImplementedException();
+    public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider, [MaybeNullWhen(false)] out BFloat16 result)
+    {
+        if (float.TryParse(s, style, provider, out var floatValue))
+        {
+            result = (BFloat16)floatValue;
+            return true;
+        }
 
-    public static BFloat16 Parse(ReadOnlySpan<char> s, IFormatProvider? provider) => throw new NotImplementedException();
+        result = default;
+        return false;
+    }
 
-    public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider? provider, [MaybeNullWhen(false)] out BFloat16 result) => throw new NotImplementedException();
+    public static bool TryParse([NotNullWhen(true)] string? s, NumberStyles style, IFormatProvider? provider, [MaybeNullWhen(false)] out BFloat16 result)
+    {
+        if (float.TryParse(s, style, provider, out var floatValue))
+        {
+            result = (BFloat16)floatValue;
+            return true;
+        }
 
-    public static BFloat16 Parse(string s, IFormatProvider? provider) => throw new NotImplementedException();
+        result = default;
+        return false;
+    }
 
-    public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out BFloat16 result) => throw new NotImplementedException();
+    public static BFloat16 Parse(ReadOnlySpan<char> s, IFormatProvider? provider) => (BFloat16)float.Parse(s, provider);
+
+    public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider? provider, [MaybeNullWhen(false)] out BFloat16 result)
+    {
+        if (float.TryParse(s, provider, out var floatValue))
+        {
+            result = (BFloat16)floatValue;
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
+
+    public static BFloat16 Parse(string s, IFormatProvider? provider) => (BFloat16)float.Parse(s, provider);
+
+    public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out BFloat16 result)
+    {
+        if (float.TryParse(s, provider, out var floatValue))
+        {
+            result = (BFloat16)floatValue;
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
 
     /// <summary>
     /// Returns a value indicating whether this instance and other BFloat16 represent the same value.
@@ -289,9 +431,25 @@ public struct BFloat16 : IEquatable<BFloat16>, IComparable<BFloat16>, INumber<BF
         return ((float)this).CompareTo(other);
     }
 
-    public int CompareTo(object? obj) => throw new NotImplementedException();
+    public int CompareTo(object? obj)
+    {
+        if (obj is null)
+        {
+            return 1;
+        }
 
-    public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider? provider) => throw new NotImplementedException();
+        if (obj is BFloat16 other)
+        {
+            return CompareTo(other);
+        }
 
-    public string ToString(string? format, IFormatProvider? formatProvider) => throw new NotImplementedException();
+        throw new ArgumentException($"Object must be of type {nameof(BFloat16)}.", nameof(obj));
+    }
+
+    public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider? provider)
+    {
+        return ((float)this).TryFormat(destination, out charsWritten, format, provider);
+    }
+
+    public string ToString(string? format, IFormatProvider? formatProvider) => ((float)this).ToString(format, formatProvider);
 }

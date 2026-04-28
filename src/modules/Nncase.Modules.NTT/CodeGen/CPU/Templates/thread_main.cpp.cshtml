@@ -5,6 +5,7 @@
 @model Nncase.CodeGen.NTT.KernelMainModel
 @{
   var inputCount = Model.PrimFunction.Parameters.Length;
+  var inputDescCount = Math.Max(inputCount, 1);
   const string tritonEntryName = "flaglang_native_entry";
   string RawEntryParamType(IVar input)
   {
@@ -120,7 +121,7 @@ extern "C" NTT_DEVICE void thread_main(const nncase::ntt::runtime::thread_inout_
   alignas(@Model.Alignment) std::byte flaglang_thread_local_data_storage[@NonZeroSize(Model.DataSize)];
   alignas(@Model.Alignment) std::byte flaglang_warp_local_data_storage[@NonZeroSize(Model.WarpLocalDataPoolSize)];
   alignas(@Model.Alignment) std::byte flaglang_block_local_data_storage[@NonZeroSize(Model.BlockLocalDataPoolSize)];
-  nncase::ntt::runtime::thread_inout_desc flaglang_input_descs[@inputCount] = {};
+  nncase::ntt::runtime::thread_inout_desc flaglang_input_descs[@inputDescCount] = {};
   nncase::ntt::runtime::thread_inout_desc flaglang_output_descs[1] = {};
   nncase::ntt::runtime::profile_record flaglang_profile_records[1] = {};
   uint32_t flaglang_profile_record_count = 0;
@@ -157,7 +158,7 @@ __attribute__((used)) static void flaglang_native_entry_anchor() {
 
 #ifdef NNCASE_STANDALONE
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
-  std::byte *inputs[@inputCount];
+  std::byte *inputs[@inputDescCount];
   size_t align = @(Model.Alignment);
   @foreach(var (b,i) in Model.PrimFunction.Parameters.ToArray().OfType<Nncase.TIR.Buffer>().Select((b,i)=>(Model.GetInfo(b),i)))
   {

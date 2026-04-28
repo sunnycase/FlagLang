@@ -161,6 +161,15 @@ public class UnitTestInterop
     }
 
     [Fact]
+    public void TestFromHandleClassifiesTensor()
+    {
+        var tensor = (Tensor)new float[] { 1.0f, 2.0f };
+        var rtTensor = RTTensor.FromTensor(tensor);
+        using var value = RTValue.FromHandle(rtTensor.DangerousGetHandle(), addRef: true);
+        Assert.IsType<RTTensor>(value);
+    }
+
+    [Fact]
     public void TestRTDatatype()
     {
         {

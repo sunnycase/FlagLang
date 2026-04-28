@@ -113,7 +113,7 @@ internal static class Native
     public static extern unsafe ErrorCode ValueDTypeGetUUID(RTValueType dtype, [Out] byte[] uuid, int uuidLength);
 
     [DllImport(LibraryName, EntryPoint = "nncase_value_is_tensor")]
-    public static extern unsafe ErrorCode ValueIsTensor(IntPtr value, out bool isTensor);
+    public static extern unsafe ErrorCode ValueIsTensor(IntPtr value, [MarshalAs(UnmanagedType.I1)] out bool isTensor);
 
     [DllImport(LibraryName, EntryPoint = "nncase_tensor_create")]
     public static extern unsafe ErrorCode TensorCreate(RTDataType dtype, uint* dims, uint dimsLength, uint* strides, uint stridesLength, in RTBufferSlice.RuntimeStruct bufferSlice, out RTTensor tensor);

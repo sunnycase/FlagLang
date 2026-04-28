@@ -28,6 +28,33 @@ GLUON_MODULE = "triton.experimental.gluon.language"
 
 T = TypeVar("T")
 
+_MISSING = object()
+
+
+class _ClosureVarsLookup:
+    def __init__(self, fn):
+        closure = fn.__closure__ or ()
+        self._cells = dict(zip(fn.__code__.co_freevars, closure))
+
+    def get(self, name, default=None):
+        cell = self._cells.get(name)
+        if cell is None:
+            return default
+
+        try:
+            return cell.cell_contents
+        except ValueError:
+            return default
+
+    def snapshot(self):
+        values = {}
+        for name in self._cells:
+            value = self.get(name, _MISSING)
+            if value is not _MISSING:
+                values[name] = value
+        return values
+
+
 # -----------------------------------------------------------------------------
 # Dependencies Finder
 # -----------------------------------------------------------------------------
@@ -80,11 +107,11 @@ class DependenciesFinder(ast.NodeVisitor):
         # C, and B calls C, then the values for C in used_global_vals will be
         # from the first time C was run, either by A or B.)
         #
-        # Each function may have a different __globals__ dict, so the global
+        # Each function may have a different lookup scope, so the global
         # variable `foo` may actually have a different value in the different
-        # functions.  Thus this map is actually
-        #  (var_name, id(__globals__)) -> (var_value, __globals__).
-        self.used_global_vals: Dict[Tuple[str, int], Tuple[Any, Dict[str, Any]]] = {}
+        # functions.  Thus this map is actually:
+        #  (var_name, id(scope_lookup)) -> (initial_value, scope_lookup).
+        self.used_global_vals: Dict[Tuple[str, int], Tuple[Any, Any]] = {}
 
         self.visiting_arg_default_value = False
 
@@ -521,10 +548,10 @@ class JITCallable:
         # we check that the values of the globals match what's expected,
         # otherwise we raise an error.
         #
-        # Different functions can have different __globals__ maps, so the map
-        # key is actually (var name, id(__globals__)), and the map value is
-        # (value, __globals__).
-        self.used_global_vals: Dict[Tuple[str, int], Tuple[Any, Dict[str, Any]]] = {}
+        # Different functions can have different lookup scopes, so the map key
+        # is actually (var name, id(scope_lookup)), and the map value is
+        # (initial value, scope_lookup).
+        self.used_global_vals: Dict[Tuple[str, int], Tuple[Any, Any]] = {}
 
         # reuse docs of wrapped function
         self.__doc__ = fn.__doc__
@@ -532,9 +559,10 @@ class JITCallable:
         self.__qualname__ = fn.__qualname__
         self.__globals__ = fn.__globals__
         self.__module__ = fn.__module__
+        self._closure_vars = _ClosureVarsLookup(fn)
 
     def get_capture_scope(self):
-        return self.__globals__ | inspect.getclosurevars(self.fn).nonlocals
+        return self.__globals__ | self._closure_vars.snapshot()
 
     @property
     def cache_key(self):
@@ -545,9 +573,8 @@ class JITCallable:
             # Set a placeholder hash to break recursion in case the function
             # transitively calls itself. The full hash is set after.
             self.hash = f"recursion:{self._fn_name}"
-            nonlocals = inspect.getclosurevars(self.fn).nonlocals
-            dependencies_finder = DependenciesFinder(name=self._fn_name, globals=self.__globals__, nonlocals=nonlocals,
-                                                     src=self.src)
+            dependencies_finder = DependenciesFinder(name=self._fn_name, globals=self.__globals__,
+                                                     nonlocals=self._closure_vars, src=self.src)
             dependencies_finder.visit(self.parse())
             self.hash = dependencies_finder.ret + str(self.starting_line_number)
             self.used_global_vals = dict(sorted(dependencies_finder.used_global_vals.items()))
