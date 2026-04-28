@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using CommunityToolkit.HighPerformance;
 using Nncase.IR;
 using Nncase.Tests.TestFixture;
@@ -22,6 +23,31 @@ public sealed class UnitTestEvaluatorNTT : TestClassBase
     {
         { new[] { new long[] { 1, 64, 384, 64 }, new long[] { 1, 64, 384, 64 } }, new[] { new[] { 2, 3 }, new[] { 2, 3 } }, 1 },
     };
+
+    [Fact]
+    public void TestVectorizedResizePreservesResultElementTypeAndShape()
+    {
+        var lanes = new[] { 4 };
+        var vectorizedAxes = new[] { 1 };
+        var inputType = new TensorType(new VectorType(DataTypes.Int32, lanes), new[] { 1, 1, 1 });
+        var input = new Var("input", inputType);
+        var resize = IR.F.NTT.ResizeImage(
+            input,
+            new RankedShape(0),
+            vectorizedAxes,
+            new[] { 1, 4, 1 },
+            ImageResizeMode.NearestNeighbor,
+            ImageResizeTransformationMode.Asymmetric,
+            ImageResizeNearestMode.Floor);
+        var data = new[] { 0, 1, 2, 3 };
+        var inputTensor = Tensor.FromBytes(inputType, new Memory<byte>(MemoryMarshal.AsBytes(data.AsSpan()).ToArray()));
+
+        var result = resize.Evaluate(new Dictionary<IVar, IValue> { { input, Value.FromTensor(inputTensor) } }).AsTensor();
+
+        Assert.Equal(new VectorType(DataTypes.Int32, lanes), result.ElementType);
+        Assert.Equal(new[] { 1L, 1L, 1L }, result.Shape.ToValueArray());
+        Assert.Equal(data, MemoryMarshal.Cast<byte, int>(result.BytesBuffer).ToArray());
+    }
 
     [Theory]
     [InlineData(new object[] { false, new long[] { 1, 1, 4, 4 }, new long[] { 8, 1, 3, 3 }, new int[] { 1, 1, 1, 1 }, new int[] { 1, 1 } })]

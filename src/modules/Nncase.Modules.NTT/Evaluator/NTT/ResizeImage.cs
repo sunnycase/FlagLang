@@ -9,6 +9,7 @@ using System.Linq;
 using Nncase.CostModel;
 using Nncase.IR;
 using Nncase.IR.NTT;
+using Nncase.Utilities;
 using OrtKISharp;
 using static Nncase.PatternMatch.F.Math;
 using static Nncase.PatternMatch.Utility;
@@ -47,7 +48,9 @@ public class ResizeImageEvaluator : IEvaluator<ResizeImage>, ITypeInferencer<Res
         resized = NTTEvaluatorUtility.RevectorizeTensor(resized, lanes, target.VectorizedAxes, paddedNums);
         if (lanes.Count > 0)
         {
-            return Value.FromTensor(Tensor.FromBytes(new TensorType(new VectorType(DataTypes.Float32, lanes), resized.Shape.Take(4).Select(i => (int)i).ToArray()), resized.BytesBuffer.ToArray()));
+            var shape = resized.Shape.SkipLast(target.VectorizedAxes.Count).Select(i => (int)i).ToArray();
+            var elementType = new VectorType(resized.DataType.ToDataType(), lanes);
+            return Value.FromTensor(Tensor.FromBytes(new TensorType(elementType, shape), resized.BytesBuffer.ToArray()));
         }
 
         return resized.ToValue();
