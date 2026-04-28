@@ -19,6 +19,7 @@ python/triton/_C/*.dylib
 python/triton/_C/*.pdb
 python/triton/_C/*.exe
 python/triton/_C/*.ilk
+python/triton/_C/nncase/
 python/triton/FileCheck
 
 # Backends copied from submodules

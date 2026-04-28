@@ -7,27 +7,21 @@ __version__ = '3.5.1'
 # initialize dotnet
 import os
 
-def _repo_root():
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+
+def _require_compiler_file(path, source):
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"Nncase.Compiler.dll from {source} does not exist: {path}")
+    return path
 
 
 def _resolve_compiler_path(libtriton):
     compiler_path = os.getenv("NNCASE_COMPILER")
     if compiler_path:
-        return compiler_path
+        return _require_compiler_file(os.path.abspath(compiler_path), "NNCASE_COMPILER")
 
     extension_dir = os.path.dirname(libtriton.__file__)
-    candidates = [
-        os.path.join(extension_dir, "nncase", "Nncase.Compiler.dll"),
-        os.path.join(_repo_root(), "src", "Nncase.Compiler", "bin", "Debug", "net8.0", "Nncase.Compiler.dll"),
-        os.path.join(_repo_root(), "src", "Nncase.Compiler", "bin", "Release", "net8.0", "Nncase.Compiler.dll"),
-    ]
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
-
-    searched = os.pathsep.join(candidates)
-    raise FileNotFoundError(f"Nncase.Compiler.dll was not found; searched {searched}")
+    compiler_path = os.path.join(extension_dir, "nncase", "Nncase.Compiler.dll")
+    return _require_compiler_file(compiler_path, "the Python package")
 
 
 def _initialize_dotnet():

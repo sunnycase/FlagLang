@@ -79,6 +79,30 @@ endif()
 # Python binding
 if(BUILD_PYTHON_BINDING)
     add_subdirectory(python/flaglang/native)
+
+    find_program(DOTNET_EXECUTABLE dotnet REQUIRED)
+    if(NOT DEFINED FLAGLANG_DOTNET_CONFIGURATION)
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+            set(FLAGLANG_DOTNET_CONFIGURATION ${CMAKE_BUILD_TYPE})
+        else()
+            set(FLAGLANG_DOTNET_CONFIGURATION Release)
+        endif()
+    endif()
+    set(FLAGLANG_MANAGED_COMPILER_DIR
+        ${CMAKE_CURRENT_BINARY_DIR}/python/nncase)
+    file(MAKE_DIRECTORY ${FLAGLANG_MANAGED_COMPILER_DIR})
+    add_custom_target(flaglang-managed-compiler ALL
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${FLAGLANG_MANAGED_COMPILER_DIR}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${FLAGLANG_MANAGED_COMPILER_DIR}
+        COMMAND ${DOTNET_EXECUTABLE} publish
+            ${CMAKE_CURRENT_LIST_DIR}/src/Nncase.Compiler/Nncase.Compiler.csproj
+            -c ${FLAGLANG_DOTNET_CONFIGURATION}
+            -o ${FLAGLANG_MANAGED_COMPILER_DIR}
+            --no-self-contained
+            -nr:false
+        WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+        COMMENT "Publishing Nncase.Compiler for the Python package"
+        VERBATIM)
 endif()
 
 # Install
@@ -125,3 +149,9 @@ install(DIRECTORY python/flaglang
     FILES_MATCHING
     PATTERN "*.py"
     )
+
+if(BUILD_PYTHON_BINDING)
+    install(DIRECTORY ${FLAGLANG_MANAGED_COMPILER_DIR}/
+        DESTINATION _C/nncase
+        COMPONENT flaglang-python)
+endif()

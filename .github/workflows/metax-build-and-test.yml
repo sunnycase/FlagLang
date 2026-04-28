@@ -70,7 +70,6 @@ jobs:
           pip uninstall -y triton
           source ~/env_setup.sh
           export FLAGTREE_BACKEND=metax
-          cd python
           MAX_JOBS=32 python3.10 -m pip install . --no-build-isolation
 
       - name: FlagTree Test on Metax

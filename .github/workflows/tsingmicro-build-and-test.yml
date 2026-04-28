@@ -58,7 +58,6 @@ jobs:
           pip uninstall -y triton
           source ~/env.sh
           export FLAGTREE_BACKEND=tsingmicro
-          cd python
           python3.11 -m pip install . --no-build-isolation -v
 
       - name: FlagTree Test on Tsingmicro
