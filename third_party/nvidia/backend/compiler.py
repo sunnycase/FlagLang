@@ -126,7 +126,7 @@ def _initialize_cuda_kernel_metadata(metadata, name, opt):
 
 
 def _extract_ptx_entry_name(src):
-    names = re.findall(r"^\s*\.(?:visible|extern)\s+\.entry\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", src,
+    names = re.findall(r"^\s*(?:\.(?:visible|extern)\s+)?\.entry\s+([A-Za-z_][A-Za-z0-9_$]*)\s*\(", src,
                        flags=re.MULTILINE)
     if len(names) != 1:
         raise ValueError(f"PTX text must contain exactly one launchable .entry symbol, found {len(names)}.")

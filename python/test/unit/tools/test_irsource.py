@@ -4,8 +4,15 @@ import triton
 from triton.compiler import IRSource, make_backend
 from triton._C.libtriton import ir
 
-target = triton.runtime.driver.active.get_current_target()
-backend = make_backend(target)
+
+@pytest.fixture
+def active_target_backend():
+    try:
+        target = triton.runtime.driver.active.get_current_target()
+    except RuntimeError as exc:
+        pytest.skip(f"Test requires an active Triton GPU driver: {exc}")
+    backend = make_backend(target)
+    return target, backend
 
 
 def test_ptx_source_make_ir_returns_raw_text(tmp_path: pathlib.Path) -> None:
@@ -23,14 +30,61 @@ def test_ptx_source_make_ir_returns_raw_text(tmp_path: pathlib.Path) -> None:
 """
     temp_file = tmp_path / "raw_ptx_kernel.ptx"
     temp_file.write_text(sample_ptx)
-    context = ir.context()
-    src = IRSource(str(temp_file), context, backend)
+    src = IRSource(str(temp_file), None)
 
     assert src.name == "raw_ptx_kernel"
-    assert src.make_ir(target, backend.parse_options({}), {}, {}, context) == sample_ptx
+    assert src.make_ir(None, None, {}, {}, None) == sample_ptx
 
 
-def test_mlir_attribute_parsing(tmp_path: pathlib.Path) -> None:
+def test_ptx_source_uses_entry_signature_after_helper_func(tmp_path: pathlib.Path) -> None:
+    sample_ptx = r"""
+.version 8.0
+.target sm_80
+.address_size 64
+
+.visible .func helper(
+    .param .u64 helper_param_0
+)
+{
+    ret;
+}
+
+.visible .entry raw_ptx_kernel(
+    .param .u64 raw_ptx_kernel_param_0,
+    .param .u32 raw_ptx_kernel_param_1
+)
+{
+    ret;
+}
+"""
+    temp_file = tmp_path / "raw_ptx_kernel.ptx"
+    temp_file.write_text(sample_ptx)
+    src = IRSource(str(temp_file), None)
+
+    assert src.name == "raw_ptx_kernel"
+    assert src.signature == {0: "u64", 1: "u32"}
+
+
+def test_ptx_source_rejects_ambiguous_entries(tmp_path: pathlib.Path) -> None:
+    sample_ptx = r"""
+.visible .entry first_kernel()
+{
+    ret;
+}
+
+.visible .entry second_kernel()
+{
+    ret;
+}
+"""
+    temp_file = tmp_path / "ambiguous.ptx"
+    temp_file.write_text(sample_ptx)
+
+    with pytest.raises(ValueError, match=r"exactly one launchable \.entry symbol"):
+        IRSource(str(temp_file), None)
+
+
+def test_mlir_attribute_parsing(tmp_path: pathlib.Path, active_target_backend) -> None:
     '''
     Tests that MLIR attributes are parsed correctly from input ttir/ttgir.
 
@@ -39,6 +93,7 @@ def test_mlir_attribute_parsing(tmp_path: pathlib.Path) -> None:
     2. _get_num_warps_from_ir_str() works
     3. tt.nv_tma_desc attribute is parsed correctly
     '''
+    target, backend = active_target_backend
 
     sample_ttgir = r"""
 #blocked = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [8, 1], order = [1, 0]}>

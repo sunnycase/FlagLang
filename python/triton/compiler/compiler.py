@@ -18,15 +18,7 @@ import time
 import copy
 import inspect
 
-# - ^\s*tt\.func\s+ : match the start of the string, any leading whitespace, the keyword func,
-#    and any following whitespace
-# - (public\s+)? : optionally match the keyword public and any following whitespace
-# - (@\w+) : match an @ symbol followed by one or more word characters
-#   (letters, digits, or underscores), and capture it as group 1 (the function name)
-# - (\((?:%\w+: \S+(?: \{\S+ = \S+ : \S+\})?(?:, )?)*\)) : match a pair of parentheses enclosing
-#   zero or more arguments separated by commas, and capture it as group 2 (the argument list)
-# - (attributes \{[\S\s]+\})? : optionally match attributes enclosed in braces and capture it as group 3
-ptx_prototype_pattern = r"\.(?:visible|extern)\s+\.(?:entry|func)\s+(\w+)\s*\(([^)]*)\)"
+ptx_prototype_pattern = r"^\s*(?:\.(?:visible|extern)\s+)?\.entry\s+([A-Za-z_][A-Za-z0-9_$]*)\s*\(([^)]*)\)"
 prototype_pattern = {
     "ptx": ptx_prototype_pattern,
 }
@@ -48,6 +40,13 @@ def convert_type_repr(x):
     if match is not None:
         return '*' + convert_type_repr(match.group(1))
     return x
+
+
+def _extract_ptx_entry_signature(src):
+    matches = re.findall(prototype_pattern["ptx"], src, flags=re.MULTILINE)
+    if len(matches) != 1:
+        raise ValueError(f"PTX text must contain exactly one launchable .entry symbol, found {len(matches)}.")
+    return matches[0]
 
 
 class ASTSource:
@@ -105,9 +104,7 @@ class IRSource:
         # We don't have a easy-to-use PTX parser that we can use, so keep that regex for now.
         # TODO - replace with a proper parser
         if self.ext == "ptx":
-            match = re.search(prototype_pattern[self.ext], self.src, re.MULTILINE)
-            self.name = match.group(1)
-            signature = match.group(2)
+            self.name, signature = _extract_ptx_entry_signature(self.src)
             types = re.findall(arg_type_pattern[self.ext], signature)
             self.signature = {k: convert_type_repr(ty) for k, ty in enumerate(types)}
         else:
