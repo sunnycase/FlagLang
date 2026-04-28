@@ -586,7 +586,7 @@ if helper.flagtree_backend:
 else:
     print(helper.default_backends)
     #backends = [*BackendInstaller.copy(["nvidia", "amd"]), *BackendInstaller.copy_externals()]
-    backends= [*BackendInstaller.copy(["nvidia"]), *BackendInstaller.copy_externals()]
+    backends = [*BackendInstaller.copy(helper.default_backends), *BackendInstaller.copy_externals()]
 
 # backends = [*BackendInstaller.copy(["nvidia", "amd"]), *BackendInstaller.copy_externals()]
 

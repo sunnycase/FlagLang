@@ -457,6 +457,9 @@ class MusaDriver(GPUDriver):
         capability = capability[0] * 10 + capability[1]
         return GPUTarget("musa", capability, warp_size)
 
+    def map_python_to_cpp_type(self, ty: str) -> str:
+        return ty_to_cpp(ty)
+
     @staticmethod
     def is_active():
         try:

@@ -402,6 +402,9 @@ class CudaDriver(GPUDriver):
         warp_size = 64
         return GPUTarget("cuda", capability, warp_size)
 
+    def map_python_to_cpp_type(self, ty: str) -> str:
+        return ty_to_cpp(ty)
+
     def get_cache_path(self):
         return self.utils.cache_path
 

@@ -1,5 +1,4 @@
 from triton.backends.compiler import BaseBackend, GPUTarget, Language
-from triton._C.libtriton import ir, passes, llvm, amd
 from triton import knobs
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
@@ -10,6 +9,33 @@ import re
 import functools
 import warnings
 from pathlib import Path
+
+ir = None
+passes = None
+llvm = None
+amd = None
+
+
+def _require_native_amd_backend():
+    global ir, passes, llvm, amd
+    if ir is not None and passes is not None and llvm is not None and amd is not None:
+        return ir, passes, llvm, amd
+    try:
+        from triton._C.libtriton import ir as ir_module
+        from triton._C.libtriton import passes as passes_module
+        from triton._C.libtriton import llvm as llvm_module
+        from triton._C.libtriton import amd as amd_module
+    except ImportError as exc:
+        raise ImportError(
+            "The AMD backend is installed, but this libtriton build does not expose "
+            "the legacy Triton AMD MLIR/LLVM bindings. Use a libtriton build with "
+            "ir, passes, llvm, and amd modules before compiling HIP targets."
+        ) from exc
+    ir = ir_module
+    passes = passes_module
+    llvm = llvm_module
+    amd = amd_module
+    return ir, passes, llvm, amd
 
 
 def get_min_dot_size(target: GPUTarget):
@@ -104,6 +130,13 @@ class HIPBackend(BaseBackend):
         assert isinstance(target.arch, str)
         self.binary_ext = "hsaco"
 
+    def make_context(self, options: object):
+        ir, _, _, _ = _require_native_amd_backend()
+        context = ir.context()
+        ir.load_dialects(context)
+        self.load_dialects(context)
+        return context
+
     def get_target_name(self, options) -> str:
         return f"hip:{options.arch}"
 
@@ -152,6 +185,7 @@ class HIPBackend(BaseBackend):
         return {"triton.language.extra.libdevice": libdevice}
 
     def load_dialects(self, ctx):
+        _, _, _, amd = _require_native_amd_backend()
         amd.load_dialects(ctx)
         if HIPBackend.instrumentation:
             HIPBackend.instrumentation.load_dialects(ctx)
@@ -185,6 +219,7 @@ class HIPBackend(BaseBackend):
 
     @staticmethod
     def make_ttir(mod, metadata, options):
+        ir, passes, _, _ = _require_native_amd_backend()
         pm = ir.pass_manager(mod.context)
         pm.enable_debug()
         passes.common.add_inliner(pm)
@@ -202,6 +237,7 @@ class HIPBackend(BaseBackend):
 
     @staticmethod
     def make_ttgir(mod, metadata, options):
+        ir, passes, _, amd = _require_native_amd_backend()
         pm = ir.pass_manager(mod.context)
         pm.enable_debug()
         passes.ttir.add_convert_to_ttgpuir(pm, f"hip:{options.arch}", options.num_warps, options.warp_size,
@@ -261,6 +297,7 @@ class HIPBackend(BaseBackend):
 
     @staticmethod
     def gluon_to_ttgir(src, metadata, options):
+        ir, passes, _, _ = _require_native_amd_backend()
         mod = src
         pm = ir.pass_manager(mod.context)
         pm.enable_debug()
@@ -277,6 +314,7 @@ class HIPBackend(BaseBackend):
 
     @staticmethod
     def make_llir(src, metadata, options):
+        ir, passes, llvm, amd = _require_native_amd_backend()
         mod = src
         # TritonGPU -> LLVM-IR (MLIR)
         pm = ir.pass_manager(mod.context)
@@ -409,6 +447,7 @@ class HIPBackend(BaseBackend):
 
     @staticmethod
     def make_amdgcn(src, metadata, options):
+        _, _, llvm, amd = _require_native_amd_backend()
         # Find kernel names (there should only be one)
         # We get the name at the last possible step to accommodate `triton.compile`
         # on user-provided LLVM
@@ -433,6 +472,7 @@ class HIPBackend(BaseBackend):
 
     @staticmethod
     def make_hsaco(src, metadata, options):
+        _, _, _, amd = _require_native_amd_backend()
         target_features = ''
         if knobs.compilation.enable_asan:
             target_features = '+xnack'

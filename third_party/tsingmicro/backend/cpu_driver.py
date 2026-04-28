@@ -360,6 +360,9 @@ class CPUDriver(DriverBase):
         self.launcher_cls = CPULauncher
         self.binary_ext = "cpuasm"
 
+    def map_python_to_cpp_type(self, ty: str) -> str:
+        return _ty_to_cpp(ty)
+
     # CPU driver won't be automatically chosen unless explicitly set through
     # triton.runtime.driver.set_active(CPUDriver())
     @staticmethod

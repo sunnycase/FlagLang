@@ -392,6 +392,9 @@ class XPUDriver(GPUDriver):
     def is_active():
         return True
 
+    def map_python_to_cpp_type(self, ty: str) -> str:
+        return ty_to_cpp(ty)
+
     def get_current_target(self):
         arch = int(os.environ.get('TRITON_XPU_ARCH', '3'))
         warp_size = 1  # we don't have warp

@@ -842,6 +842,9 @@ class TXDADriver(GPUDriver):
         self.set_current_device = torch.txda.set_device
         atexit.register(torch.txda.cleanup_device)
 
+    def map_python_to_cpp_type(self, ty: str) -> str:
+        return _ty_to_cpp(ty)
+
     @staticmethod
     def is_active():
         try:
