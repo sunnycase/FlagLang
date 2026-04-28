@@ -65,6 +65,28 @@ def test_ptx_source_uses_entry_signature_after_helper_func(tmp_path: pathlib.Pat
     assert src.signature == {0: "u64", 1: "u32"}
 
 
+def test_ptx_source_parses_aligned_byte_array_parameters(tmp_path: pathlib.Path) -> None:
+    sample_ptx = r"""
+.version 8.0
+.target sm_80
+.address_size 64
+
+.visible .entry raw_ptx_kernel(
+    .param .align 8 .b8 desc[16],
+    .param .u64 raw_ptx_kernel_param_1
+)
+{
+    ret;
+}
+"""
+    temp_file = tmp_path / "raw_ptx_kernel.ptx"
+    temp_file.write_text(sample_ptx)
+    src = IRSource(str(temp_file), None)
+
+    assert src.name == "raw_ptx_kernel"
+    assert src.signature == {0: "b8[16]", 1: "u64"}
+
+
 def test_ptx_source_rejects_ambiguous_entries(tmp_path: pathlib.Path) -> None:
     sample_ptx = r"""
 .visible .entry first_kernel()

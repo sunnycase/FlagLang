@@ -347,6 +347,66 @@ public static unsafe partial class CApi
     }
 
     [UnmanagedCallersOnly]
+    private static IntPtr CallCreate(IntPtr targetPtr, IntPtr* argPtrs, nuint argCount)
+    {
+        var target = Get<IR.Expr>(targetPtr);
+        var args = new IR.BaseExpr[argCount];
+        for (nuint i = 0; i < argCount; i++)
+        {
+            args[i] = Get<IR.BaseExpr>(argPtrs[i]);
+        }
+
+        var call = new IR.Call(target, args);
+        return GCHandle.ToIntPtr(GCHandle.Alloc(call));
+    }
+
+    [UnmanagedCallersOnly]
+    private static nuint CallGetNumResults(IntPtr callPtr)
+    {
+        var call = Get<IR.Call>(callPtr);
+        return (nuint)GetCallResultCount(call.Target);
+    }
+
+    [UnmanagedCallersOnly]
+    private static IntPtr CallGetResult(IntPtr callPtr, nuint index)
+    {
+        var call = Get<IR.Call>(callPtr);
+        var resultCount = GetCallResultCount(call.Target);
+        if (index >= (nuint)resultCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), $"Call result index {index} is out of range for {resultCount} results.");
+        }
+
+        IR.Expr result = resultCount == 1
+            ? call
+            : IR.F.Tensors.GetItem(call, (int)index);
+        return GCHandle.ToIntPtr(GCHandle.Alloc(result));
+    }
+
+    private static int GetCallResultCount(IR.Expr target) => target switch
+    {
+        TIR.PrimFunction function => GetPrimFunctionReturnValues(function).Length,
+        IR.PrimFunctionWrapper wrapper => GetTypeResultCount(wrapper.ReturnType),
+        _ => throw new NotSupportedException($"Native call result access does not support target '{target.GetType().FullName}'."),
+    };
+
+    private static ReadOnlySpan<IR.Expr> GetPrimFunctionReturnValues(TIR.PrimFunction function)
+    {
+        if (!function.Body.HasTerminator || function.Body.Fields[^1] is not TIR.Return ret)
+        {
+            throw new InvalidOperationException($"PrimFunction '{function.Name}' must have a return terminator before it is called.");
+        }
+
+        return ret.Values;
+    }
+
+    private static int GetTypeResultCount(IRType type) => type switch
+    {
+        TupleType tupleType => tupleType.Count,
+        _ => 1,
+    };
+
+    [UnmanagedCallersOnly]
     private static IntPtr Triton_Load(IntPtr ptrPtr, IntPtr maskPtr, IntPtr otherPtr, IR.Triton.CacheModifier cacheModifier, IR.Triton.EvictionPolicy evictionPolicy)
     {
         var ptr = Get<IR.Expr>(ptrPtr);

@@ -1,6 +1,7 @@
 import functools
 import os
 import inspect
+import shutil
 import subprocess
 import tempfile
 
@@ -17,8 +18,46 @@ from triton._C.libtriton import ir
 # Stub target for testing the frontend.
 stub_target = GPUTarget("cuda", 100, 32)
 
-triton_dir = os.path.dirname(__file__)
-filecheck_path = os.path.join(triton_dir, "FileCheck")
+_FILECHECK_ENV_VARS = ("FILECHECK_PATH", "LLVM_FILECHECK")
+
+
+def _resolve_filecheck_path():
+    for env_var in _FILECHECK_ENV_VARS:
+        configured = os.environ.get(env_var)
+        if not configured:
+            continue
+        path = os.path.abspath(os.path.expanduser(configured))
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"{env_var} points to missing FileCheck binary: {path}")
+        return path
+
+    candidates = []
+    llvm_syspath = os.environ.get("LLVM_SYSPATH")
+    if llvm_syspath:
+        candidates.append(os.path.join(llvm_syspath, "bin", "FileCheck"))
+    llvm_library_dir = os.environ.get("LLVM_LIBRARY_DIR")
+    if llvm_library_dir:
+        candidates.append(os.path.abspath(os.path.join(llvm_library_dir, os.pardir, "bin", "FileCheck")))
+
+    path = shutil.which("FileCheck")
+    if path:
+        return path
+
+    llvm_config = shutil.which("llvm-config")
+    if llvm_config:
+        bindir = subprocess.check_output([llvm_config, "--bindir"], text=True).strip()
+        if not bindir:
+            raise RuntimeError(f"{llvm_config} --bindir returned an empty path")
+        candidates.append(os.path.join(bindir, "FileCheck"))
+
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+
+    checked = ", ".join(candidates) if candidates else "no LLVM candidate paths"
+    raise FileNotFoundError(
+        "Unable to locate FileCheck. Set FILECHECK_PATH or LLVM_FILECHECK, "
+        f"or install FileCheck on PATH. Checked {checked}.")
 
 
 class MatchError(ValueError):
@@ -43,7 +82,7 @@ def run_filecheck(name, module_str, check_template):
 
         try:
             subprocess.check_output(
-                [filecheck_path, temp_expected, "--input-file", temp_module, "--dump-input-context=50"],
+                [_resolve_filecheck_path(), temp_expected, "--input-file", temp_module, "--dump-input-context=50"],
                 stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError as error:
             decoded = error.output.decode('unicode_escape')

@@ -353,6 +353,13 @@ typedef struct {
     clr_object_handle_t (*tir_return)(const clr_object_handle_t *value_ptrs,
                                       size_t value_count);
 
+    clr_object_handle_t (*call_create)(clr_object_handle_t target,
+                                       const clr_object_handle_t *arg_ptrs,
+                                       size_t arg_count);
+    size_t (*call_get_num_results)(clr_object_handle_t call);
+    clr_object_handle_t (*call_get_result)(clr_object_handle_t call,
+                                           size_t index);
+
     clr_object_handle_t (*triton_load)(
         clr_object_handle_t ptr, clr_object_handle_t mask,
         clr_object_handle_t other, nncase_cache_modifier_t cache_modifier,
@@ -726,6 +733,30 @@ class ir_tuple : public expr {
         }
         return {std::in_place, nncase_clr_api()->tuple_create(
                                    field_handles.data(), field_handles.size())};
+    }
+};
+
+class call : public expr {
+  public:
+    using expr::expr;
+
+    call(expr target, const std::vector<expr> &args) {
+        std::vector<clr_object_handle_t> arg_handles;
+        arg_handles.reserve(args.size());
+        for (const auto &arg : args) {
+            arg_handles.push_back(arg.get());
+        }
+        obj_ = nncase_clr_api()->call_create(
+            target.get(), arg_handles.data(), arg_handles.size());
+    }
+
+    size_t get_num_results() {
+        return nncase_clr_api()->call_get_num_results(obj_.get());
+    }
+
+    expr get_result(size_t index) {
+        return {std::in_place,
+                nncase_clr_api()->call_get_result(obj_.get(), index)};
     }
 };
 

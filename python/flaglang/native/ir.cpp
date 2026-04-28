@@ -346,6 +346,12 @@ class triton_op_builder {
         return expr;
     }
 
+    clr::call insert_call(clr::expr target, std::vector<clr::expr> args) {
+        clr::call call(std::move(target), args);
+        insertion_point_.block.insert_at(insertion_point_.index++, call);
+        return call;
+    }
+
   private:
     clr::compile_session session_;
     clr::location last_location_;
@@ -485,6 +491,10 @@ void nncase::init_triton_ir(py::module &&m) {
 
     py::class_<clr::var, clr::expr>(m, "var");
     py::class_<clr::tensor_const, clr::expr>(m, "tensor_const");
+
+    py::class_<clr::call, clr::expr>(m, "call")
+        .def("get_num_results", &clr::call::get_num_results)
+        .def("get_result", &clr::call::get_result);
 
     py::class_<clr::base_function, clr::expr>(m, "base_function");
 
@@ -674,6 +684,7 @@ void nncase::init_triton_ir(py::module &&m) {
                  }
                  return func;
              })
+        .def("call", &triton_op_builder::insert_call)
         // Function
         .def("ret",
              [](triton_op_builder &self, std::vector<clr::expr> &vals) {

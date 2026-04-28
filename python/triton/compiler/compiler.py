@@ -23,9 +23,20 @@ prototype_pattern = {
     "ptx": ptx_prototype_pattern,
 }
 
-ptx_arg_type_pattern = r"\.param\s+\.(\w+)"
-arg_type_pattern = {
-    "ptx": ptx_arg_type_pattern,
+ptx_param_storage_types = {
+    "b8", "b16", "b32", "b64",
+    "s8", "s16", "s32", "s64",
+    "u8", "u16", "u32", "u64",
+    "f16", "f32", "f64",
+    "pred",
+}
+
+ptx_param_modifiers_with_value = {
+    "align",
+}
+
+ptx_param_modifiers = {
+    "ptr", "global", "const", "local", "shared",
 }
 
 
@@ -47,6 +58,43 @@ def _extract_ptx_entry_signature(src):
     if len(matches) != 1:
         raise ValueError(f"PTX text must contain exactly one launchable .entry symbol, found {len(matches)}.")
     return matches[0]
+
+
+def _parse_ptx_param_type(param_decl):
+    tokens = param_decl.strip().split()
+    if not tokens or tokens[0] != ".param":
+        raise ValueError(f"Malformed PTX parameter declaration: {param_decl!r}")
+
+    idx = 1
+    while idx < len(tokens):
+        token = tokens[idx]
+        if not token.startswith("."):
+            raise ValueError(f"PTX parameter declaration is missing a storage type: {param_decl!r}")
+
+        name = token[1:]
+        if name in ptx_param_modifiers_with_value:
+            idx += 2
+            continue
+        if name in ptx_param_modifiers:
+            idx += 1
+            continue
+        if name not in ptx_param_storage_types:
+            raise ValueError(f"Unsupported PTX parameter modifier or storage type '.{name}' in {param_decl!r}")
+        if idx + 1 >= len(tokens):
+            raise ValueError(f"PTX parameter declaration is missing a name: {param_decl!r}")
+
+        match = re.match(r"^[A-Za-z_.$][A-Za-z0-9_.$]*(?:\[(\d+)\])?$", tokens[idx + 1])
+        if match is None:
+            raise ValueError(f"Malformed PTX parameter name or shape in {param_decl!r}")
+        shape = match.group(1)
+        return f"{name}[{shape}]" if shape is not None else convert_type_repr(name)
+
+    raise ValueError(f"PTX parameter declaration is missing a storage type: {param_decl!r}")
+
+
+def _parse_ptx_param_types(signature):
+    params = [param.strip() for param in signature.split(",") if param.strip()]
+    return [_parse_ptx_param_type(param) for param in params]
 
 
 class ASTSource:
@@ -105,7 +153,7 @@ class IRSource:
         # TODO - replace with a proper parser
         if self.ext == "ptx":
             self.name, signature = _extract_ptx_entry_signature(self.src)
-            types = re.findall(arg_type_pattern[self.ext], signature)
+            types = _parse_ptx_param_types(signature)
             self.signature = {k: convert_type_repr(ty) for k, ty in enumerate(types)}
         else:
             self.module = ir.parse_mlir_module(self.path, context)

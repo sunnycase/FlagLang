@@ -115,6 +115,10 @@ public unsafe struct CApiMT
 
     public delegate* unmanaged<IntPtr*, nuint, IntPtr> TIR_ReturnPtr;
 
+    public delegate* unmanaged<IntPtr, IntPtr*, nuint, IntPtr> CallCreatePtr;
+    public delegate* unmanaged<IntPtr, nuint> CallGetNumResultsPtr;
+    public delegate* unmanaged<IntPtr, nuint, IntPtr> CallGetResultPtr;
+
     public delegate* unmanaged<IntPtr, IntPtr, IntPtr, IR.Triton.CacheModifier, IR.Triton.EvictionPolicy, IntPtr> Triton_LoadPtr;
     public delegate* unmanaged<IntPtr, IntPtr, IntPtr, IR.Triton.CacheModifier, IR.Triton.EvictionPolicy, IntPtr> Triton_StorePtr;
 
@@ -222,6 +226,10 @@ public static unsafe partial class CApi
         mt->Tensors_RangePtr = &Tensors_Range;
 
         mt->TIR_ReturnPtr = &TIR_Return;
+
+        mt->CallCreatePtr = &CallCreate;
+        mt->CallGetNumResultsPtr = &CallGetNumResults;
+        mt->CallGetResultPtr = &CallGetResult;
 
         mt->Triton_LoadPtr = &Triton_Load;
         mt->Triton_StorePtr = &Triton_Store;

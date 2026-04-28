@@ -48,6 +48,32 @@ def test_native_ir_module_function_lookup_surface():
     assert module.get_function("helper").get_num_args() == 0
 
 
+def test_native_ir_builder_call_surface():
+    builder = ir.builder(ir.context())
+    module = builder.create_module()
+    i32 = builder.get_int32_ty()
+
+    callee_ty = builder.get_function_ty([i32], [i32])
+    callee = builder.get_or_insert_function(module, "callee", callee_ty, "private", False)
+    module.push_back(callee)
+    callee_body = callee.add_entry_block()
+    builder.set_insertion_point_to_end(callee_body)
+    builder.ret([callee.args(0)])
+    callee.finalize()
+
+    caller_ty = builder.get_function_ty([i32], [i32])
+    caller = builder.get_or_insert_function(module, "caller", caller_ty, "public", False)
+    module.push_back(caller)
+    caller_body = caller.add_entry_block()
+    builder.set_insertion_point_to_end(caller_body)
+    call = builder.call(callee, [caller.args(0)])
+
+    assert call.get_num_results() == 1
+    builder.ret([call.get_result(0)])
+    caller.finalize()
+    assert module.verify_with_diagnostics()
+
+
 def _build_vector_add_module():
     session = ir.compile_session(ir.target("cuda"), ir.compile_options())
     builder = ir.builder(session)
