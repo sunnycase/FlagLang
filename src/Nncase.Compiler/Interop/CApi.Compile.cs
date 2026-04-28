@@ -125,6 +125,7 @@ public static unsafe partial class CApi
         var compiler = (Nncase.Compiler.Compiler)session.Compiler;
         compiler.ImportIRModule(module);
         var nncaseModule = RunNativeCudaImportPass(session, compiler.Module);
+        var importedAbi = DescribeNativeCudaEntryAbi(nncaseModule);
         compiler.ImportIRModule(nncaseModule);
         compiler.CompileAsync().ConfigureAwait(false).GetAwaiter().GetResult();
         var compiledModule = compiler.Module;
@@ -144,7 +145,7 @@ public static unsafe partial class CApi
         {
             ["name"] = "flaglang_native_entry",
             ["original_entry_name"] = request.EntryName,
-            ["flaglang_abi"] = DescribeNativeCudaAbi(compiledModule, "flaglang_native_entry", request),
+            ["flaglang_abi"] = DescribeNativeCudaAbi(importedAbi, compiledModule, "flaglang_native_entry", request),
             ["shared"] = 0,
             ["num_warps"] = request.NumWarps,
             ["num_ctas"] = request.NumCtas,
@@ -284,11 +285,33 @@ public static unsafe partial class CApi
         }
     }
 
-    private static Dictionary<string, object?> DescribeNativeCudaAbi(IR.IRModule module, string entryName, NativeCudaCompileRequest request)
+    private static NativeCudaParameterAbi DescribeNativeCudaEntryAbi(IR.IRModule module)
     {
-        var entry = SelectNativeCudaEntryPrimFunction(module);
+        var entry = SelectEntryBaseFunction(module)
+            ?? throw new InvalidOperationException("Native CUDA ABI description requires an entry function.");
+        return new NativeCudaParameterAbi(
+            GetFunctionParameterNames(entry),
+            GetFunctionParameterTypes(entry));
+    }
+
+    private static Dictionary<string, object?> DescribeNativeCudaAbi(
+        NativeCudaParameterAbi importedAbi,
+        IR.IRModule compiledModule,
+        string entryName,
+        NativeCudaCompileRequest request)
+    {
+        var entry = SelectNativeCudaEntryPrimFunction(compiledModule);
         var parameterOrder = GetFunctionParameterNames(entry);
         var parameterTypes = GetFunctionParameterTypes(entry);
+        if (!parameterOrder.SequenceEqual(importedAbi.ArgumentOrder, StringComparer.Ordinal) ||
+            !parameterTypes.SequenceEqual(importedAbi.ArgumentTypes, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Native CUDA compiled entry ABI does not match post-import entry ABI. " +
+                $"Imported: ({string.Join(", ", importedAbi.ArgumentOrder)}) [{string.Join(", ", importedAbi.ArgumentTypes)}]; " +
+                $"Compiled: ({string.Join(", ", parameterOrder)}) [{string.Join(", ", parameterTypes)}].");
+        }
+
         var rawParameterOrder = parameterOrder.Select(IR.IRHelpers.GetIdentityName).ToArray();
         var rawParameterTypes = GetRawEntryParameterTypes(entry);
         if (request.RuntimeArgumentOrder.Length != parameterOrder.Length ||
@@ -303,6 +326,8 @@ public static unsafe partial class CApi
             ["entry"] = entryName,
             ["wrapped_entry"] = request.EntryName,
             ["argument_count"] = parameterOrder.Length,
+            ["imported_argument_order"] = importedAbi.ArgumentOrder,
+            ["imported_argument_types"] = importedAbi.ArgumentTypes,
             ["argument_order"] = parameterOrder,
             ["argument_types"] = parameterTypes,
             ["raw_argument_order"] = rawParameterOrder,
@@ -344,12 +369,23 @@ public static unsafe partial class CApi
             IR.Fusion f => f.Parameters.ToArray().Select(p => p.Name).ToArray(),
             IR.PrimFunctionWrapper f => f.Target.Parameters.ToArray().Select(p => p.Name).ToArray(),
             Nncase.TIR.PrimFunction f => f.Parameters.ToArray().Select(p => p.Name).ToArray(),
-            _ => Array.Empty<string>(),
+            _ => throw new InvalidOperationException(
+                $"Native CUDA ABI description does not support function node '{function?.GetType().FullName ?? "<null>"}'."),
         };
     }
 
-    private static string[] GetFunctionParameterTypes(Nncase.TIR.PrimFunction function) =>
-        function.Parameters.ToArray().Select(p => p.CheckedDataType.ToString()).ToArray();
+    private static string[] GetFunctionParameterTypes(IR.BaseFunction? function)
+    {
+        return function switch
+        {
+            IR.Function f => f.Parameters.ToArray().Select(p => p.CheckedDataType.ToString()).ToArray(),
+            IR.Fusion f => f.Parameters.ToArray().Select(p => p.CheckedDataType.ToString()).ToArray(),
+            IR.PrimFunctionWrapper f => f.Target.Parameters.ToArray().Select(p => p.CheckedDataType.ToString()).ToArray(),
+            Nncase.TIR.PrimFunction f => f.Parameters.ToArray().Select(p => p.CheckedDataType.ToString()).ToArray(),
+            _ => throw new InvalidOperationException(
+                $"Native CUDA ABI description does not support function node '{function?.GetType().FullName ?? "<null>"}'."),
+        };
+    }
 
     private static string[] GetRawEntryParameterTypes(Nncase.TIR.PrimFunction function) =>
         function.Parameters.ToArray().Select(RawEntryParamType).ToArray();
@@ -494,6 +530,8 @@ public static unsafe partial class CApi
     }
 
     private sealed record NativeCudaCompileResult(byte[] Cubin, string Json);
+
+    private sealed record NativeCudaParameterAbi(string[] ArgumentOrder, string[] ArgumentTypes);
 
     private sealed record NativeCudaCompileRequest(
         string EntryName,

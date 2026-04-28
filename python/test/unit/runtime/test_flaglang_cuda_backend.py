@@ -101,11 +101,13 @@ def _raw_arg_type(arg):
     return "int32_t" if arg.endswith("_3") else "float*"
 
 
-def _native_metadata(name="native_entry", argument_order=None, raw_argument_order=None):
+def _native_metadata(name="native_entry", argument_order=None, raw_argument_order=None, imported_argument_order=None):
     if argument_order is None:
         argument_order = ["param_0", "param_1", "param_2", "param_3"]
     if raw_argument_order is None:
         raw_argument_order = [f"id_{arg}" for arg in argument_order]
+    if imported_argument_order is None:
+        imported_argument_order = ["param_0", "param_1", "param_2", "param_3"]
     return {
         "name": name,
         "cuda_compiler": "nvcc",
@@ -114,6 +116,8 @@ def _native_metadata(name="native_entry", argument_order=None, raw_argument_orde
             "entry": name,
             "wrapped_entry": "primfunc_0",
             "argument_count": len(argument_order),
+            "imported_argument_order": imported_argument_order,
+            "imported_argument_types": [_native_arg_type(arg) for arg in imported_argument_order],
             "argument_order": argument_order,
             "argument_types": [_native_arg_type(arg) for arg in argument_order],
             "raw_argument_order": raw_argument_order,
@@ -435,9 +439,9 @@ def test_native_compile_metadata_accepts_matching_runtime_abi(monkeypatch):
 @pytest.mark.parametrize(
     ("argument_order", "match"),
     [
-        (["param_3", "param_2", "param_1", "param_0"], "raw_argument_order"),
-        (["param_0", "param_1", "param_2"], "runtime_argument_count"),
-        (["param_0", "param_1", "param_2", "param_3", "param_4"], "runtime_argument_count"),
+        (["param_3", "param_2", "param_1", "param_0"], "imported_argument_order"),
+        (["param_0", "param_1", "param_2"], "imported_argument_order"),
+        (["param_0", "param_1", "param_2", "param_3", "param_4"], "imported_argument_order"),
     ],
 )
 def test_native_compile_metadata_rejects_abi_argument_order_mismatch(argument_order, match):
@@ -449,6 +453,21 @@ def test_native_compile_metadata_rejects_abi_argument_order_mismatch(argument_or
     )
 
     with pytest.raises(ValueError, match=match):
+        nvidia_compiler._apply_native_cuda_metadata(metadata, result, _cuda_backend().parse_options({}))
+
+
+def test_native_compile_metadata_rejects_self_consistent_reordered_wrapper_abi():
+    metadata = _runtime_metadata()
+    argument_order = ["param_3", "param_2", "param_1", "param_0"]
+    raw_argument_order = ["id_param_3", "id_param_2", "id_param_1", "id_param_0"]
+    raw_argument_types = [_raw_arg_type(arg) for arg in argument_order]
+    result = nvidia_compiler.NativeCudaCompilation(
+        cubin=b"validated-cubin",
+        metadata=_native_metadata(argument_order=argument_order, raw_argument_order=raw_argument_order),
+        asm={"ntt_cu": _native_entry_source(raw_argument_order=raw_argument_order, raw_argument_types=raw_argument_types)},
+    )
+
+    with pytest.raises(ValueError, match="imported_argument_order"):
         nvidia_compiler._apply_native_cuda_metadata(metadata, result, _cuda_backend().parse_options({}))
 
 

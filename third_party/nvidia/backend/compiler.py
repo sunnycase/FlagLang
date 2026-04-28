@@ -291,9 +291,17 @@ def _validate_native_cuda_abi(metadata, native_metadata, compilation: NativeCuda
     if not isinstance(argument_count, int) or argument_count != len(argument_order):
         raise ValueError("Native CUDA ABI argument_count must match argument_order length.")
 
+    imported_argument_order = _require_string_list(abi.get("imported_argument_order"), "imported_argument_order")
+    if imported_argument_order != argument_order:
+        raise ValueError("Native CUDA ABI argument_order must match imported_argument_order.")
+
     argument_types = _require_string_list(abi.get("argument_types"), "argument_types")
     if len(argument_types) != argument_count:
         raise ValueError("Native CUDA ABI argument_types must match argument_count.")
+
+    imported_argument_types = _require_string_list(abi.get("imported_argument_types"), "imported_argument_types")
+    if imported_argument_types != argument_types:
+        raise ValueError("Native CUDA ABI argument_types must match imported_argument_types.")
 
     raw_argument_order = _require_string_list(abi.get("raw_argument_order"), "raw_argument_order")
     if len(raw_argument_order) != argument_count or len(raw_argument_order) != len(set(raw_argument_order)):
