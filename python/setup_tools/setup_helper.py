@@ -141,6 +141,9 @@ class FlagTreeCache:
                 md5_hash.update(chunk)
         return md5_hash.hexdigest()
 
+    def _matches_md5_digest(self, file_path, md5_digest):
+        return md5_digest is None or self._md5(file_path).startswith(md5_digest)
+
     def check_file(self, file_name=None, url=None, path=None, md5_digest=None):
         origin_file_path = None
         if url is not None:
@@ -153,11 +156,7 @@ class FlagTreeCache:
         empty = (not os.path.exists(_path)) or (origin_file_path and not os.path.exists(origin_file_path))
         if empty:
             return False
-        if md5_digest is None:
-            return True
-        else:
-            cur_md5 = self._md5(_path)
-            return cur_md5[:8] == md5_digest
+        return self._matches_md5_digest(_path, md5_digest)
 
     def clear(self):
         shutil.rmtree(self.dir_path)
@@ -167,17 +166,14 @@ class FlagTreeCache:
             return False
         if os.path.exists(cache_file_path):
             return False
-        copy_needed = True
-        if md5_digest is None or self._md5(src_path) == md5_digest:
-            copy_needed = False
-        if copy_needed:
-            print(f"copying {src_path} to {cache_file_path}")
-            if os.path.isdir(src_path):
-                shutil.copytree(src_path, cache_file_path, dirs_exist_ok=True)
-            else:
-                shutil.copy(src_path, cache_file_path)
-            return True
-        return False
+        if not self._matches_md5_digest(src_path, md5_digest):
+            return False
+        print(f"copying {src_path} to {cache_file_path}")
+        if os.path.isdir(src_path):
+            shutil.copytree(src_path, cache_file_path, dirs_exist_ok=True)
+        else:
+            shutil.copy(src_path, cache_file_path)
+        return True
 
     def store(self, file=None, condition=None, url=None, copy_src_path=None, copy_dst_path=None, files=None,
               md5_digest=None, pre_hock=None, post_hock=None):

@@ -1,4 +1,6 @@
 import importlib
+import hashlib
+import json
 import subprocess
 import sys
 import tarfile
@@ -68,6 +70,69 @@ def test_offline_url_download_copies_cached_file_name(tmp_path, monkeypatch):
         required=True,
     )
     assert (dst_dir / "plugin.so").read_text() == "binary"
+
+
+def test_offline_toolkits_skip_undefined_blackwell_ptxas(tmp_path, monkeypatch):
+    base_dir = tmp_path / "repo"
+    cmake_dir = base_dir / "cmake"
+    cmake_dir.mkdir(parents=True)
+    (cmake_dir / "nvidia-toolchain-version.json").write_text(json.dumps({
+        "ptxas": "12.8.93",
+        "cudacrt": "12.8.61",
+    }))
+
+    offline_dir = tmp_path / "offline"
+    required_toolkits = [
+        "nvidia/nvcc/cuda_nvcc-linux-x86_64-12.8.93-archive",
+        "nvidia/nvcc/cuda_nvcc-linux-x86_64-12.8.61-archive",
+        "nvidia/nvdisasm",
+        "nvidia/cuobjdump",
+        "nvidia/cudart",
+        "nvidia/cupti",
+        "json",
+    ]
+    for toolkit in required_toolkits:
+        (offline_dir / toolkit).mkdir(parents=True)
+
+    monkeypatch.setenv("FLAGTREE_OFFLINE_BUILD_DIR", str(offline_dir))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(tools, "get_base_dir", lambda: str(base_dir))
+    monkeypatch.setattr(tools.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(tools.platform, "machine", lambda: "x86_64")
+
+    manager = tools.OfflineBuildManager()
+    manager.handle_triton_origin_toolkits()
+
+    nvcc_cache = tmp_path / "home" / ".triton" / "nvidia" / "nvcc"
+    assert sorted(path.name for path in nvcc_cache.iterdir()) == [
+        "cuda_nvcc-linux-x86_64-12.8.61-archive",
+        "cuda_nvcc-linux-x86_64-12.8.93-archive",
+    ]
+
+
+def test_flagtree_cache_reverse_copy_requires_matching_digest(tmp_path, monkeypatch):
+    monkeypatch.delenv("FLAGTREE_BACKEND", raising=False)
+    monkeypatch.setenv("FLAGTREE_CACHE_DIR", str(tmp_path / "cache-root"))
+    setup_helper = importlib.import_module("python.setup_tools.setup_helper")
+    cache = setup_helper.FlagTreeCache()
+
+    src_path = tmp_path / "plugin.so"
+    cache_path = tmp_path / "cache" / "plugin.so"
+    cache_path.parent.mkdir()
+    src_path.write_bytes(b"plugin")
+    expected_md5 = hashlib.md5(b"plugin").hexdigest()
+
+    assert cache.reverse_copy(src_path, cache_path, None)
+    assert cache_path.read_bytes() == b"plugin"
+
+    cache_path.unlink()
+    assert cache.reverse_copy(src_path, cache_path, expected_md5[:8])
+    assert cache_path.read_bytes() == b"plugin"
+    assert cache.check_file(path=cache_path, md5_digest=expected_md5)
+
+    cache_path.unlink()
+    assert not cache.reverse_copy(src_path, cache_path, "00000000")
+    assert not cache_path.exists()
 
 
 def test_sys_clone_checks_commands_and_runs_checkout_in_clone(tmp_path, monkeypatch):
