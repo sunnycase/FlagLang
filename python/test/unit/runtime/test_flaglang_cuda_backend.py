@@ -7,6 +7,7 @@ import triton
 import triton.language as tl
 from triton.backends import backends
 from triton.backends.compiler import GPUTarget
+from triton.backends.nvidia import compiler as nvidia_compiler
 from triton.compiler.compiler import CompiledKernel
 from triton.runtime.jit import MockTensor
 
@@ -74,8 +75,15 @@ def test_make_cubin_rejects_non_ptx_artifact():
     backend = _cuda_backend()
     options = backend.parse_options({})
 
-    with pytest.raises(TypeError, match="expected PTX text"):
+    with pytest.raises(TypeError, match="expected PTX text or native CUDA compilation result"):
         backend.make_cubin(object(), {}, options, 80)
+
+
+def test_direct_vector_add_ptx_emitter_is_not_available():
+    assert not hasattr(nvidia_compiler, "_emit_vector_add_ptx")
+    source = Path(nvidia_compiler.__file__).read_text()
+    assert "mad.lo.u32" not in source
+    assert "flaglang_kernel" not in source
 
 
 def test_name_only_add_kernel_is_rejected_before_ptxas():
@@ -86,7 +94,7 @@ def test_name_only_add_kernel_is_rejected_before_ptxas():
         def get_entry_func_name(self):
             return "add_kernel"
 
-    with pytest.raises(TypeError, match="actual post-TTIR native .*inspection"):
+    with pytest.raises(TypeError, match="actual post-TTIR native .*ir\\.module"):
         backend.make_ptx(NamedOnlyModule(), {}, options, 80)
 
 
@@ -101,7 +109,7 @@ def test_fake_vector_add_descriptor_is_rejected_before_ptxas():
         def get_entry_func_name(self):
             return "add_kernel"
 
-    with pytest.raises(TypeError, match="actual post-TTIR native .*inspection"):
+    with pytest.raises(TypeError, match="actual post-TTIR native .*ir\\.module"):
         backend.make_ptx(FakeDescriptorModule(), {}, options, 80)
 
 
@@ -118,6 +126,55 @@ def test_forged_describe_vector_add_json_is_rejected_before_ptxas():
 
     with pytest.raises(TypeError, match="actual post-TTIR native ir\\.module"):
         backend.make_ptx(ForgedDescribeModule(), {}, options, 80)
+
+
+def test_native_module_without_compile_helper_fails_closed(monkeypatch):
+    backend = _cuda_backend()
+    options = backend.parse_options({})
+
+    class FakeNativeModule:
+        def get_entry_func_name(self):
+            return "primfunc_0"
+
+    monkeypatch.setattr(nvidia_compiler.ir, "module", FakeNativeModule, raising=False)
+    monkeypatch.delattr(nvidia_compiler.ir, "compile_to_cubin", raising=False)
+
+    with pytest.raises(RuntimeError, match="native CUDA compile helper is unavailable"):
+        backend.make_ptx(FakeNativeModule(), {}, options, 80)
+
+
+def test_native_compile_result_supplies_cubin_and_metadata(monkeypatch):
+    backend = _cuda_backend()
+    options = backend.parse_options({})
+    metadata = {"name": "placeholder"}
+
+    class FakeNativeModule:
+        pass
+
+    def fake_compile(src, metadata, opt, capability):
+        assert isinstance(src, FakeNativeModule)
+        assert capability == 80
+        return nvidia_compiler.NativeCudaCompilation(
+            cubin=b"\x7fELF-fake-cubin",
+            metadata={"name": "native_entry", "cuda_compiler": "nvcc", "cuda_arch": "sm_80"},
+            asm={"ntt_cu": "__global__ void native_entry() {}"},
+            compiler_log="nvcc --gpu-architecture=sm_80",
+        )
+
+    monkeypatch.setattr(nvidia_compiler, "_compile_native_module_to_cubin", fake_compile)
+
+    result = backend.make_ptx(FakeNativeModule(), metadata, options, 80)
+    assert isinstance(result, nvidia_compiler.NativeCudaCompilation)
+
+    cubin = backend.make_cubin(result, metadata, options, 80)
+    assert cubin == b"\x7fELF-fake-cubin"
+    assert metadata["name"] == "native_entry"
+    assert metadata["shared"] == 0
+    assert metadata["num_warps"] == 4
+    assert metadata["cluster_dims"] == (1, 1, 1)
+    assert metadata["flaglang_pipeline"]["kind"] == "native_cuda"
+    assert metadata["flaglang_pipeline"]["artifact"] == "cubin"
+    assert "flaglang_kernel" not in metadata
 
 
 def test_compiled_kernel_rejects_missing_launcher_metadata(tmp_path):
@@ -183,55 +240,27 @@ def test_compiled_kernel_rejects_malformed_target_metadata(tmp_path):
         CompiledKernel(object(), {"kernel.json": metadata_path, "kernel.cubin": cubin_path}, "hash")
 
 
-def test_vector_add_compile_metadata_and_text_dumps_for_non_default_block_size(monkeypatch):
+def test_vector_add_cannot_fallback_to_direct_ptx_when_helper_is_missing(monkeypatch):
     torch = _torch_cuda()
     monkeypatch.setenv("TRITON_ALWAYS_COMPILE", "1")
 
-    kernel = _vector_add_kernel.warmup(
-        MockTensor(torch.float32),
-        MockTensor(torch.float32),
-        MockTensor(torch.float32),
-        128,
-        BLOCK_SIZE=128,
-        grid=(1, ),
-        num_warps=4,
-    )
-
-    required_fields = [
-        "name",
-        "shared",
-        "num_warps",
-        "num_ctas",
-        "cluster_dims",
-        "tmem_size",
-        "global_scratch_size",
-        "global_scratch_align",
-        "profile_scratch_size",
-        "profile_scratch_align",
-    ]
-    for field in required_fields:
-        assert hasattr(kernel.metadata, field)
-    assert isinstance(kernel.metadata.cluster_dims, tuple)
-    assert kernel.metadata.cluster_dims == (1, 1, 1)
-    assert hasattr(kernel.metadata, "flaglang_kernel")
-    assert kernel.metadata.flaglang_kernel["block_size"] == 128
-    assert kernel.metadata.flaglang_kernel["entry_name"]
-    assert "mad.lo.u32 %r5, %r2, 128, %r3;" in kernel.asm["ptx"]
-
-    for stage in ("ttir", "ttgir", "llir"):
-        text = kernel.asm[stage]
-        assert "<triton._C.libtriton.ir.module object" not in text
-        assert kernel.metadata.flaglang_kernel["entry_name"] in text
-        assert "Gather((d0)[s0, s1]" in text
-        assert "Scatter((d0)[s0, s1]" in text
-        assert "descriptor_json" not in text
+    with pytest.raises(RuntimeError, match="native CUDA compile helper is unavailable"):
+        _vector_add_kernel.warmup(
+            MockTensor(torch.float32),
+            MockTensor(torch.float32),
+            MockTensor(torch.float32),
+            128,
+            BLOCK_SIZE=128,
+            grid=(1, ),
+            num_warps=4,
+        )
 
 
 def test_non_vector_add_named_add_kernel_is_rejected(monkeypatch):
     torch = _torch_cuda()
     monkeypatch.setenv("TRITON_ALWAYS_COMPILE", "1")
 
-    with pytest.raises(TypeError, match="Unsupported native module|descriptor"):
+    with pytest.raises(RuntimeError, match="native CUDA compile helper is unavailable"):
         add_kernel.warmup(
             MockTensor(torch.float32),
             MockTensor(torch.float32),

@@ -7,7 +7,6 @@ from triton.runtime.errors import PTXASError
 
 from dataclasses import dataclass
 import functools
-import json
 from typing import Any, Dict, Tuple, Optional
 from types import ModuleType
 import hashlib
@@ -127,169 +126,100 @@ def _initialize_cuda_kernel_metadata(metadata, name, opt):
 
 
 @dataclass(frozen=True)
-class VectorAddKernel:
-    name: str
-    block_size: int
-    dtype: str
-    element_size: int
-    parameter_order: Tuple[str, str, str, str]
+class NativeCudaCompilation:
+    cubin: bytes
+    metadata: Dict[str, Any]
+    asm: Dict[str, Any]
+    compiler_log: str = ""
+
+    def __str__(self):
+        for key in ("ntt_cu", "cuda_source", "compiler_log"):
+            value = self.asm.get(key)
+            if value:
+                return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
+        if self.compiler_log:
+            return self.compiler_log
+        return "<FlagLang native CUDA compilation result: cubin bytes are stored in the cubin stage>"
 
 
-def _inspect_vector_add_native_module(src) -> Dict[str, Any]:
+def _require_native_ir_module(src):
     module_type = getattr(ir, "module", None)
     if module_type is None or not isinstance(src, module_type):
         entry = _module_entry_name(src)
         raise TypeError(
             "Unsupported native module for CUDA cubin emission: expected actual post-TTIR native "
-            f"ir.module inspection support, got entry {entry!r} of type {type(src).__name__}."
+            f"ir.module, got entry {entry!r} of type {type(src).__name__}."
         )
 
-    describe = getattr(src, "describe_vector_add", None)
-    if not callable(describe):
-        entry = _module_entry_name(src)
-        raise TypeError(
-            "Unsupported native module for CUDA cubin emission: expected actual post-TTIR native "
-            f"module inspection support, got entry {entry!r} of type {type(src).__name__}."
-        )
 
-    try:
-        result = json.loads(describe())
-    except Exception as exc:
-        raise TypeError("Native module vector-add inspection did not return valid JSON.") from exc
+def _normalize_native_cuda_compilation(result) -> NativeCudaCompilation:
+    if isinstance(result, NativeCudaCompilation):
+        return result
+    if not isinstance(result, dict):
+        raise TypeError(f"Native CUDA compile helper returned {type(result).__name__}, expected dict.")
 
-    if not isinstance(result, dict) or not result.get("valid"):
-        reason = result.get("reason", "unknown validation failure") if isinstance(result, dict) else "malformed validation result"
-        raise TypeError(f"Unsupported native module for CUDA cubin emission: {reason}")
+    cubin = result.get("cubin")
+    if isinstance(cubin, memoryview):
+        cubin = cubin.tobytes()
+    elif isinstance(cubin, bytearray):
+        cubin = bytes(cubin)
+    if not isinstance(cubin, bytes) or not cubin:
+        raise TypeError("Native CUDA compile helper must return non-empty cubin bytes.")
 
-    descriptor = result.get("descriptor")
-    if not isinstance(descriptor, dict):
-        raise TypeError("Native module vector-add inspection did not return a descriptor.")
-    return descriptor
+    metadata = result.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise TypeError("Native CUDA compile helper metadata must be a dict.")
+
+    asm = result.get("asm", result.get("stages", {}))
+    if not isinstance(asm, dict):
+        raise TypeError("Native CUDA compile helper asm/stages must be a dict.")
+
+    compiler_log = result.get("compiler_log", "")
+    if compiler_log is None:
+        compiler_log = ""
+    if not isinstance(compiler_log, str):
+        raise TypeError("Native CUDA compile helper compiler_log must be a string.")
+
+    return NativeCudaCompilation(cubin=cubin, metadata=metadata, asm=asm, compiler_log=compiler_log)
 
 
-def _recognize_vector_add_native_module(src) -> VectorAddKernel:
-    descriptor = _inspect_vector_add_native_module(src)
-
-    required = {
-        "kind",
-        "version",
-        "ir_source",
-        "entry_name",
-        "parameter_order",
-        "pointers",
-        "n_elements_arg",
-        "block_size",
-        "dtype",
-        "element_size",
-        "program_id_axis",
-        "relation",
-        "constraint",
-        "loads",
-        "compute",
-        "store",
+def _native_compile_options(opt, capability):
+    return {
+        "arch": sm_arch_from_capability(capability),
+        "capability": capability,
+        "num_warps": opt.num_warps,
+        "num_ctas": opt.num_ctas,
+        "cluster_dims": tuple(opt.cluster_dims or (1, 1, 1)),
+        "dump_dir": os.environ.get("TRITON_DUMP_DIR"),
     }
-    missing = sorted(required.difference(descriptor))
-    if missing:
-        raise TypeError(f"Malformed vector-add descriptor; missing fields: {', '.join(missing)}.")
-
-    if descriptor["kind"] != "flaglang.vector_add" or descriptor["version"] != 1:
-        raise TypeError(f"Unsupported vector-add descriptor kind/version: {descriptor.get('kind')!r}/{descriptor.get('version')!r}.")
-    if descriptor["ir_source"] != "post_ttir_native_module":
-        raise TypeError(f"Vector-add descriptor must come from post-TTIR native module inspection, got {descriptor['ir_source']!r}.")
-
-    name = descriptor["entry_name"]
-    module_entry = _module_entry_name(src)
-    if module_entry is not None and module_entry != name:
-        raise TypeError(f"Vector-add descriptor entry {name!r} does not match module entry {module_entry!r}.")
-
-    pointers = descriptor["pointers"]
-    parameter_order = tuple(descriptor["parameter_order"])
-    if len(pointers) != 3 or len(parameter_order) != 4:
-        raise TypeError("Vector-add descriptor must contain three pointer parameters and one problem-size parameter.")
-    if tuple(pointers) != parameter_order[:3] or descriptor["n_elements_arg"] != parameter_order[3]:
-        raise TypeError("Vector-add descriptor parameter order does not match pointer/problem-size roles.")
-
-    if descriptor["dtype"] != "float32" or descriptor["element_size"] != 4:
-        raise TypeError(f"Only float32 vector-add emission is supported, got {descriptor['dtype']!r}.")
-    if descriptor["program_id_axis"] != 0:
-        raise TypeError("Only program_id axis 0 is supported for vector-add emission.")
-    if descriptor["compute"] != "fadd":
-        raise TypeError(f"Vector-add descriptor must contain fadd compute, got {descriptor['compute']!r}.")
-    if len(descriptor["loads"]) != 2 or any(load.get("default") != "implicit_zero" for load in descriptor["loads"]):
-        raise TypeError("Vector-add descriptor must contain two masked loads with implicit-zero defaults.")
-    if descriptor["store"].get("dest") != pointers[2]:
-        raise TypeError("Vector-add descriptor store destination does not match output pointer.")
-
-    block_size = descriptor["block_size"]
-    if not isinstance(block_size, int) or block_size <= 0:
-        raise TypeError(f"Vector-add descriptor has invalid block size {block_size!r}.")
-    expected_relation = f"s0 * {block_size} + d0"
-    expected_constraint = f"s0 * {block_size} + d0 < s1"
-    if descriptor["relation"] != expected_relation or descriptor["constraint"] != expected_constraint:
-        raise TypeError("Vector-add descriptor relation/constraint does not match the expected affine lane mapping.")
-
-    return VectorAddKernel(
-        name=name,
-        block_size=block_size,
-        dtype=descriptor["dtype"],
-        element_size=descriptor["element_size"],
-        parameter_order=parameter_order,
-    )
 
 
-def _emit_vector_add_ptx(kernel: VectorAddKernel, opt, capability):
-    ptx_version = get_ptx_version_from_options(opt, capability)
-    ptx_version = f"{ptx_version // 10}.{ptx_version % 10}"
-    target = sm_arch_from_capability(capability)
-    name = kernel.name
-    block_size = kernel.block_size
-    return f""".version {ptx_version}
-.target {target}
-.address_size 64
+def _compile_native_module_to_cubin(src, metadata, opt, capability) -> NativeCudaCompilation:
+    _require_native_ir_module(src)
+    compile_to_cubin = getattr(ir, "compile_to_cubin", None)
+    if not callable(compile_to_cubin):
+        raise RuntimeError(
+            "FlagLang native CUDA compile helper is unavailable; refusing to emit handwritten PTX shortcut."
+        )
 
-.visible .entry {name}(
-    .param .u64 {name}_param_0,
-    .param .u64 {name}_param_1,
-    .param .u64 {name}_param_2,
-    .param .u32 {name}_param_3
-)
-{{
-    .reg .pred %p<3>;
-    .reg .b32 %r<8>;
-    .reg .b64 %rd<9>;
-    .reg .f32 %f<4>;
+    result = compile_to_cubin(src, _native_compile_options(opt, capability))
+    return _normalize_native_cuda_compilation(result)
 
-    ld.param.u64 %rd1, [{name}_param_0];
-    ld.param.u64 %rd2, [{name}_param_1];
-    ld.param.u64 %rd3, [{name}_param_2];
-    ld.param.u32 %r1, [{name}_param_3];
-    mov.u32 %r2, %ctaid.x;
-    mov.u32 %r3, %tid.x;
-    mov.u32 %r4, %ntid.x;
-    mad.lo.u32 %r5, %r2, {block_size}, %r3;
-    add.u32 %r6, %r2, 1;
-    mul.lo.u32 %r6, %r6, {block_size};
 
-L_loop:
-    setp.ge.u32 %p1, %r5, %r1;
-    @%p1 bra L_done;
-    setp.ge.u32 %p2, %r5, %r6;
-    @%p2 bra L_done;
-    mul.wide.u32 %rd4, %r5, 4;
-    add.s64 %rd5, %rd1, %rd4;
-    add.s64 %rd6, %rd2, %rd4;
-    add.s64 %rd7, %rd3, %rd4;
-    ld.global.f32 %f1, [%rd5];
-    ld.global.f32 %f2, [%rd6];
-    add.rn.f32 %f3, %f1, %f2;
-    st.global.f32 [%rd7], %f3;
-    add.u32 %r5, %r5, %r4;
-    bra L_loop;
+def _apply_native_cuda_metadata(metadata, compilation: NativeCudaCompilation, opt):
+    native_metadata = dict(compilation.metadata)
+    name = native_metadata.get("name") or metadata.get("name")
+    if not name:
+        raise KeyError("Native CUDA compile helper metadata must include kernel entry name.")
 
-L_done:
-    ret;
-}}
-"""
+    _initialize_cuda_kernel_metadata(metadata, name, opt)
+    metadata.update(native_metadata)
+    metadata["flaglang_pipeline"] = {
+        "kind": "native_cuda",
+        "artifact": "cubin",
+        "compiler_log": bool(compilation.compiler_log),
+        "stages": sorted(compilation.asm.keys()),
+    }
 
 
 @dataclass(frozen=True)
@@ -436,7 +366,6 @@ class CUDABackend(BaseBackend):
         # passes.common.add_symbol_dce(pm)
         # passes.ttir.add_loop_unroll(pm)
         pm.run(mod)
-        mod._flaglang_validated_vector_add = _inspect_vector_add_native_module(mod)
         return mod
 
     @staticmethod
@@ -620,16 +549,7 @@ class CUDABackend(BaseBackend):
 
     def make_ptx(self, src, metadata, opt, capability):
         if not isinstance(src, str):
-            kernel = _recognize_vector_add_native_module(src)
-            _initialize_cuda_kernel_metadata(metadata, kernel.name, opt)
-            metadata["flaglang_kernel"] = {
-                "kind": "vector_add",
-                "entry_name": kernel.name,
-                "block_size": kernel.block_size,
-                "dtype": kernel.dtype,
-                "parameter_order": kernel.parameter_order,
-            }
-            return _emit_vector_add_ptx(kernel, opt, self.target.arch)
+            return _compile_native_module_to_cubin(src, metadata, opt, self.target.arch)
 
         return src
 
@@ -653,8 +573,12 @@ class CUDABackend(BaseBackend):
         # return ret
 
     def make_cubin(self, src, metadata, opt, capability):
+        if isinstance(src, NativeCudaCompilation):
+            _apply_native_cuda_metadata(metadata, src, opt)
+            return src.cubin
+
         if not isinstance(src, str):
-            raise TypeError(f"make_cubin expected PTX text, got {type(src).__name__}")
+            raise TypeError(f"make_cubin expected PTX text or native CUDA compilation result, got {type(src).__name__}")
 
         ptxas = get_ptxas().path
         with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.ptx') as fsrc, \
