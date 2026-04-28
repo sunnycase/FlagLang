@@ -12,6 +12,7 @@ import triton.language as tl
 from triton.backends import backends
 from triton.backends.compiler import GPUTarget, Language
 from triton.backends.nvidia import compiler as nvidia_compiler
+from triton.backends.nvidia import driver as nvidia_driver
 from triton.compiler import compiler as triton_compiler
 from triton.compiler.compiler import CompiledKernel
 from triton.runtime.jit import MockTensor
@@ -249,6 +250,42 @@ def test_direct_vector_add_ptx_emitter_is_not_available():
     source = Path(nvidia_compiler.__file__).read_text()
     assert "mad.lo.u32" not in source
     assert "flaglang_kernel" not in source
+
+
+def test_make_launcher_uses_regular_launch_for_simple_kernels():
+    source = nvidia_driver.make_launcher({}, {0: "*fp32", 1: "i32"}, None)
+
+    assert "needs_launch_kernel_ex" in source
+    assert "cuLaunchKernel(function" in source
+    assert source.index("cuLaunchKernel(function") < source.index(
+        "static cuLaunchKernelEx_t cuLaunchKernelExHandle")
+
+
+def test_cuda_launcher_accepts_stringified_irsource_argument_order(monkeypatch):
+    captured = {}
+
+    def fake_compile_module_from_src(src, name, library_dirs, include_dirs, libraries):
+        captured["src"] = src
+        return SimpleNamespace(launch=lambda *args: None)
+
+    monkeypatch.setattr(nvidia_driver, "compile_module_from_src", fake_compile_module_from_src)
+    src = SimpleNamespace(constants={}, signature={0: "*fp32", 1: "i32"})
+    metadata = SimpleNamespace(
+        runtime_argument_order=["0", "1"],
+        tensordesc_meta=None,
+        cluster_dims=(1, 1, 1),
+        global_scratch_size=0,
+        global_scratch_align=1,
+        profile_scratch_size=0,
+        profile_scratch_align=1,
+        launch_cooperative_grid=False,
+        launch_pdl=False,
+    )
+
+    nvidia_driver.CudaLauncher(src, metadata)
+
+    assert "CUdeviceptr arg0" in captured["src"]
+    assert "int32_t arg1" in captured["src"]
 
 
 def test_name_only_add_kernel_is_rejected_before_ptxas():

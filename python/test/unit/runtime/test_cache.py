@@ -899,6 +899,21 @@ def test_async_compile_mock(device, fresh_triton_cache):
         pool.run_all()
 
 
+def test_async_compile_mode_resets_after_future_failure():
+    def fail_compile():
+        raise RuntimeError("compile failed")
+
+    with pytest.raises(RuntimeError, match="compile failed"):
+        with ThreadPoolExecutor(1) as pool, triton.AsyncCompileMode(pool) as mode:
+            mode.submit("failing-kernel", fail_compile, lambda kernel: None)
+
+    from triton.runtime import _async_compile
+    assert _async_compile.active_mode.get() is None
+
+    with ThreadPoolExecutor(1) as pool, triton.AsyncCompileMode(pool):
+        pass
+
+
 def test_async_compile(device, fresh_triton_cache):
 
     @triton.jit

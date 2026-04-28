@@ -317,6 +317,14 @@ static cuLaunchKernelEx_t getLaunchKernelExHandle() {{
 static void _launch(int gridX, int gridY, int gridZ, int num_warps, int num_ctas, int launch_cooperative_grid, int launch_pdl, int clusterDimX, int clusterDimY, int clusterDimZ, int shared_memory, CUstream stream, CUfunction function, CUdeviceptr global_scratch, CUdeviceptr profile_scratch{', ' + arg_decls if len(arg_decls) > 0 else ''}) {{
   void *params[] = {{ {', '.join(params)} }};
   if (gridX*gridY*gridZ > 0) {{
+    bool needs_launch_kernel_ex = launch_pdl != 0 || launch_cooperative_grid != 0 || num_ctas != 1;
+    if (!needs_launch_kernel_ex) {{
+      CUDA_CHECK(cuLaunchKernel(function, gridX, gridY, gridZ,
+                                32 * num_warps, 1, 1, shared_memory,
+                                stream, params, 0));
+      return;
+    }}
+
     // 4 attributes that we can currently pass maximum
     CUlaunchAttribute launchAttr[4];
     static cuLaunchKernelEx_t cuLaunchKernelExHandle = NULL;
@@ -670,6 +678,20 @@ def wrap_handle_tensordesc(launcher, signature, tensordesc_meta):
     return inner
 
 
+def _runtime_signature_key(signature, name):
+    if name in signature:
+        return name
+    if isinstance(name, str):
+        try:
+            index = int(name)
+        except ValueError:
+            pass
+        else:
+            if index in signature:
+                return index
+    raise KeyError(name)
+
+
 class CudaLauncher(object):
 
     def __init__(self, src, metadata):
@@ -678,7 +700,10 @@ class CudaLauncher(object):
         constants = {arg_idx(idx): value for idx, value in constants.items()}
         runtime_arg_order = getattr(metadata, "runtime_argument_order", None)
         if runtime_arg_order is not None:
-            signature = {name: src.signature[name] for name in runtime_arg_order}
+            signature = {}
+            for name in runtime_arg_order:
+                key = _runtime_signature_key(src.signature, name)
+                signature[key] = src.signature[key]
         else:
             signature = {idx: value for idx, value in src.signature.items() if arg_idx(idx) not in constants}
         tensordesc_meta = getattr(metadata, "tensordesc_meta", None)
