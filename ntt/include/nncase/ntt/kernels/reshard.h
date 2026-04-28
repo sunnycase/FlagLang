@@ -199,7 +199,7 @@ struct reshard_impl<SrcTensor, DestTensor> {
     template <Shape TShape>
     static constexpr auto get_non_split_tensor_axes_split_counts(
         [[maybe_unused]] const TShape &shape) noexcept {
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(__GNUC__) && !defined(__clang__) && !defined(__CUDACC__)
         // clang doesn't support constexpr math functions
         if constexpr (FixedShape<TShape>) {
             constexpr auto split_counts =
@@ -212,7 +212,7 @@ struct reshard_impl<SrcTensor, DestTensor> {
                 get_non_split_tensor_axes_split_counts_impl(shape);
             return generate_shape<split_counts.size()>(
                 [&](auto axis) { return split_counts.at(axis); });
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(__GNUC__) && !defined(__clang__) && !defined(__CUDACC__)
         }
 #endif
     }

@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Text.Json;
@@ -276,6 +277,7 @@ public sealed class UnitTestTensor
         var scalarOne = Tensor.One(DataTypes.Float8E4M3);
         Assert.Equal(DataTypes.Float8E4M3, scalarOne.ElementType);
         Assert.Equal(Float8E4M3.One, scalarOne.ToScalar<Float8E4M3>());
+        Assert.True(Comparer<Float8E4M3>.Default.Compare(Float8E4M3.Zero, Float8E4M3.One) < 0);
     }
 
     [Fact]

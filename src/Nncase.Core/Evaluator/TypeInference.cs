@@ -386,8 +386,8 @@ public static class TypeInference
 
             var padh = paddings[0].Before + paddings[0].After;
             var padw = paddings[1].Before + paddings[1].After;
-            outShape[2] = GetWindowedOutputSize(inShape[2] + padh, filters[0], filters[0], 1L, false, ceilModeV);
-            outShape[3] = GetWindowedOutputSize(inShape[3] + padw, filters[1], filters[1], 1L, false, ceilModeV);
+            outShape[2] = GetWindowedOutputSize(inShape[2] + padh, filters[0], strides[0], 1L, false, ceilModeV);
+            outShape[3] = GetWindowedOutputSize(inShape[3] + padw, filters[1], strides[1], 1L, false, ceilModeV);
 
             return input with { Shape = new RankedShape(outShape) };
         }

@@ -9,6 +9,7 @@ using Nncase;
 using Nncase.Evaluator;
 using Nncase.IR;
 using Nncase.Schedule;
+using Nncase.Targets;
 using Nncase.TIR;
 using Nncase.TIR.Builders;
 using OrtKISharp;
@@ -121,6 +122,37 @@ public sealed class UnitTestTIR
         Assert.Same(Nncase.TIR.NTT.Qwen3MoE.Output, parameters[11]);
         Assert.Equal("output", parameters[11].Name);
         call.ParametersForeach((_, _) => { });
+    }
+
+    [Fact]
+    public void TestQwen3MoEIsHostOnlyForNTTModuleCompilers()
+    {
+        var type = new TensorType(DataTypes.Float32, new[] { 1 });
+        var args = Enumerable.Range(0, 11).Select(i => (Expr)new Var($"arg{i}", type)).ToArray();
+        var call = Assert.IsType<Call>(IR.F.NN.Qwen3MoE(
+            args[0],
+            args[1],
+            args[2],
+            args[3],
+            args[4],
+            args[5],
+            args[6],
+            args[7],
+            args[8],
+            args[9],
+            args[10],
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1));
+        CompilerServices.InferenceType(call);
+        var options = new CompileOptions();
+
+        Assert.True(new CPUModuleCompiler().IsSupportedCall(call, options));
+        Assert.False(new CUDAModuleCompiler().IsSupportedCall(call, options));
     }
 
     [Fact]

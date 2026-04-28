@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading.Tasks;
 using NetFabric.Hyperlinq;
 using Nncase.IR;
+using Nncase.Targets;
 
 namespace Nncase.Passes;
 
@@ -80,6 +81,8 @@ public static class PassUtility
 
         switch (op)
         {
+            case IR.NN.Qwen3MoE when moduleKind == CUDATarget.Kind:
+                return false;
             case IR.Imaging.ResizeImage:
                 var roi = call[IR.Imaging.ResizeImage.Roi];
                 if (roi is not IR.None && roi.CheckedShape.Rank != 0)

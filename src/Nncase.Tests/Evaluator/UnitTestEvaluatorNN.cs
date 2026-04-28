@@ -791,6 +791,7 @@ public class UnitTestEvaluatorNN : TestClassBase
             false,
             false);
         CompilerServices.InferenceType(expr);
+        Assert.Equal(new long[] { 1, 3, 16, 16 }, expr.CheckedShape.ToValueArray());
         Assert.Equal(expect, expr.Evaluate().AsTensor().ToOrtTensor());
     }
 
@@ -825,6 +826,7 @@ public class UnitTestEvaluatorNN : TestClassBase
             false,
             false);
         CompilerServices.InferenceType(expr);
+        Assert.Equal(new long[] { 1, 3, 16, 16 }, expr.CheckedShape.ToValueArray());
         Assert.Equal(expect, expr.Evaluate().AsTensor().ToOrtTensor());
     }
 

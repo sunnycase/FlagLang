@@ -529,7 +529,7 @@ public struct Float8E4M3 : IEquatable<Float8E4M3>, IComparable<Float8E4M3>, INum
 
     int IComparable.CompareTo(object? obj) => throw new NotImplementedException();
 
-    int IComparable<Float8E4M3>.CompareTo(Float8E4M3 other) => throw new NotImplementedException();
+    int IComparable<Float8E4M3>.CompareTo(Float8E4M3 other) => CompareTo(other);
 
     bool IEquatable<Float8E4M3>.Equals(Float8E4M3 other) => Equals(other);
 
