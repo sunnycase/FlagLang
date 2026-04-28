@@ -71,4 +71,5 @@ PYBIND11_MODULE(libtriton, m) {
     init_triton_ir(m.def_submodule("ir"));
     init_hosting(m.def_submodule("hosting"));
     init_triton_interpreter(m.def_submodule("interpreter"));
+    init_triton_nvidia(m.def_submodule("nvidia"));
 }

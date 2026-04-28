@@ -135,4 +135,34 @@ public sealed class UnitTestBfloat16
         Assert.Equal(0, ((BFloat16)1F).CompareTo((object)(BFloat16)1F));
         Assert.Throws<ArgumentException>(() => ((BFloat16)1F).CompareTo(1F));
     }
+
+    [Fact]
+    public void TestSaturatingConversionClampsFiniteOutOfRangeInputs()
+    {
+        Assert.True(BFloat16.TryConvertFromSaturating(float.MaxValue, out var fromFloatMax));
+        Assert.Equal(BFloat16.MaxValue, fromFloatMax);
+        Assert.False(BFloat16.IsInfinity(fromFloatMax));
+
+        Assert.True(BFloat16.TryConvertFromSaturating(double.MaxValue, out var fromDoubleMax));
+        Assert.Equal(BFloat16.MaxValue, fromDoubleMax);
+        Assert.False(BFloat16.IsInfinity(fromDoubleMax));
+
+        Assert.True(BFloat16.TryConvertFromSaturating(float.MinValue, out var fromFloatMin));
+        Assert.Equal(BFloat16.MinValue, fromFloatMin);
+        Assert.False(BFloat16.IsInfinity(fromFloatMin));
+
+        Assert.True(BFloat16.TryConvertFromSaturating(double.MinValue, out var fromDoubleMin));
+        Assert.Equal(BFloat16.MinValue, fromDoubleMin);
+        Assert.False(BFloat16.IsInfinity(fromDoubleMin));
+    }
+
+    [Fact]
+    public void TestSaturatingConversionPreservesInfinities()
+    {
+        Assert.True(BFloat16.TryConvertFromSaturating(float.PositiveInfinity, out var positiveInfinity));
+        Assert.Equal(BFloat16.Infinity, positiveInfinity);
+
+        Assert.True(BFloat16.TryConvertFromSaturating(float.NegativeInfinity, out var negativeInfinity));
+        Assert.Equal(BFloat16.NegInfinity, negativeInfinity);
+    }
 }

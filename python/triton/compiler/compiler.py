@@ -169,6 +169,14 @@ def _normalize_attrs(fn, attrs):
     return {_normalize_path_key(fn, key): value for key, value in attrs.items()}
 
 
+def _equal_to_1_constant_value(signature, fn, path):
+    if len(path) == 1 and isinstance(path[0], int) and path[0] < len(fn.arg_names):
+        dtype = signature.get(fn.arg_names[path[0]])
+        if dtype == "i1":
+            return True
+    return 1
+
+
 class ASTSource:
 
     def __init__(self, fn, signature, constexprs=None, attrs=None, constants=None) -> None:
@@ -186,6 +194,11 @@ class ASTSource:
         if constexprs is not None:
             for k, v in constexprs.items():
                 self.constants[_normalize_path_key(fn, k)] = v
+        if isinstance(attrs, AttrsDescriptor):
+            for key in attrs.equal_to_1:
+                path = _normalize_path_key(fn, key)
+                self.constants.setdefault(
+                    path, _equal_to_1_constant_value(self.signature, fn, path))
         self.attrs = _normalize_attrs(fn, attrs)
         self._attrs_key = attrs.hash() if isinstance(attrs, AttrsDescriptor) else str(self.attrs)
 

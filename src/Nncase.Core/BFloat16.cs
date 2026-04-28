@@ -236,7 +236,7 @@ public struct BFloat16 : IEquatable<BFloat16>, IComparable<BFloat16>, INumber<BF
 
         try
         {
-            result = (BFloat16)float.CreateSaturating(value);
+            result = SaturateFromDouble(double.CreateSaturating(value));
             return true;
         }
         catch (NotSupportedException)
@@ -452,4 +452,34 @@ public struct BFloat16 : IEquatable<BFloat16>, IComparable<BFloat16>, INumber<BF
     }
 
     public string ToString(string? format, IFormatProvider? formatProvider) => ((float)this).ToString(format, formatProvider);
+
+    private static BFloat16 SaturateFromDouble(double value)
+    {
+        if (double.IsNaN(value))
+        {
+            return NaN;
+        }
+
+        if (double.IsPositiveInfinity(value))
+        {
+            return Infinity;
+        }
+
+        if (double.IsNegativeInfinity(value))
+        {
+            return NegInfinity;
+        }
+
+        if (value >= (double)(float)MaxValue)
+        {
+            return MaxValue;
+        }
+
+        if (value <= (double)(float)MinValue)
+        {
+            return MinValue;
+        }
+
+        return (BFloat16)(float)value;
+    }
 }
