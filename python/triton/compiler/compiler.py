@@ -648,7 +648,8 @@ class CompiledKernel:
         ret = LazyDict({"name": self.name, "function": self.function, "stream": stream})
         if not isinstance(self.src, ASTSource) or self.src.fn.launch_metadata is None:
             return ret
-        arg_dict = {name: arg for name, arg in zip(self.src.fn.arg_names, args)}
+        arg_names = getattr(self.metadata, "runtime_argument_order", None) or self.src.fn.arg_names
+        arg_dict = {name: arg for name, arg in zip(arg_names, args)}
         ret.add(self.src.fn.launch_metadata, (grid, self.metadata, arg_dict))
         return ret
 

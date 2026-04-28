@@ -66,6 +66,37 @@ def test_memory_leak(device) -> None:
         tracemalloc.stop()
 
 
+def test_constexpr_args_are_not_passed_to_launcher(device) -> None:
+    used_hook = False
+
+    def _launch_metadata(grid, kernel, args):
+        assert tuple(args.keys()) == ("x", "out", "y")
+        return {"runtime_arg_names": tuple(args.keys()), "y": args["y"]}
+
+    def hook(launch_metadata):
+        nonlocal used_hook
+        metadata = launch_metadata.get()
+        assert metadata["runtime_arg_names"] == ("x", "out", "y")
+        assert metadata["y"] == 7.0
+        used_hook = True
+
+    @triton.jit(launch_metadata=_launch_metadata)
+    def kernel(x, out, BLOCK: tl.constexpr, y):
+        offsets = tl.arange(0, BLOCK)
+        values = tl.load(x + offsets)
+        tl.store(out + offsets, values)
+
+    x = torch.ones(1, device=device)
+    out = torch.empty_like(x)
+    triton.knobs.runtime.launch_enter_hook.add(hook)
+    try:
+        kernel[(1, )](x, out, BLOCK=1, y=7.0)
+    finally:
+        triton.knobs.runtime.launch_enter_hook.remove(hook)
+    torch.testing.assert_close(out, x)
+    assert used_hook
+
+
 def test_load_hook() -> None:
 
     used_start_hook = False

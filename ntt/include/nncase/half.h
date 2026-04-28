@@ -33,8 +33,10 @@
 namespace nncase {
 #ifdef __CUDA_ARCH__
 using native_half_t = __half;
-#elif defined(__F16C__)
+#elif defined(__FLT16_MANT_DIG__)
 using native_half_t = _Float16;
+#else
+#error "nncase::half requires CUDA __half or compiler _Float16 support"
 #endif
 
 struct fp16_from_raw_t {

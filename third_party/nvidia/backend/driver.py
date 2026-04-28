@@ -676,7 +676,11 @@ class CudaLauncher(object):
         constants = src.constants if hasattr(src, "constants") else dict()
         arg_idx = lambda x: (src.fn.arg_names.index(x), ) if isinstance(x, str) else x
         constants = {arg_idx(idx): value for idx, value in constants.items()}
-        signature = {idx: value for idx, value in src.signature.items()}
+        runtime_arg_order = getattr(metadata, "runtime_argument_order", None)
+        if runtime_arg_order is not None:
+            signature = {name: src.signature[name] for name in runtime_arg_order}
+        else:
+            signature = {idx: value for idx, value in src.signature.items() if arg_idx(idx) not in constants}
         tensordesc_meta = getattr(metadata, "tensordesc_meta", None)
         src = make_launcher(constants, signature, tensordesc_meta)
         mod = compile_module_from_src(
