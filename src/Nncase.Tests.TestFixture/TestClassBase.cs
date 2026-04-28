@@ -43,7 +43,7 @@ public abstract class TestClassBase : IDisposable
     /// <summary>
     /// Gets test output root.
     /// </summary>
-    internal static string TestOutputRoot { get; } = Path.Join(SolutionDirectory, "tests_output");
+    internal static string TestOutputRoot { get; } = Path.Join(SolutionDirectory, "dump", "tests_output");
 
     /// <summary>
     /// Gets nncase solution root directory.

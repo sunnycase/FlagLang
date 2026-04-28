@@ -55,7 +55,7 @@ NTT_DEVICE auto dest_ptr_tensor = nncase::ntt::make_tensor<void *>(nncase::ntt::
 
 template <size_t Level> NTT_DEVICE static std::byte *get_cache_address() {
     return reinterpret_cast<std::byte *>(
-        ntt::distributed::detail::global_thread_local_cache_desc(program_ids())[Level]);
+        ntt::distributed::detail::global_thread_local_cache_ptr(program_ids())(Level));
 }
 }
 

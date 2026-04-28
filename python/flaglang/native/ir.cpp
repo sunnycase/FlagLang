@@ -472,6 +472,8 @@ void nncase::init_triton_ir(py::module &&m) {
              [](clr::ir_module &self, clr::base_function func) {
                  self.add(std::move(func));
              })
+        .def("has_function", &clr::ir_module::has_function)
+        .def("get_function", &clr::ir_module::get_function_by_name)
         .def("__str__", &clr::ir_module::to_text)
         .def("str_nodebug", &clr::ir_module::to_text)
         .def("get_entry_func_name", &clr::ir_module::get_entry_func_name)
@@ -625,6 +627,18 @@ void nncase::init_triton_ir(py::module &&m) {
         .def("get_int64",
              [](triton_op_builder &, long value) {
                  return clr::tensor_const::scalar(value);
+             })
+        .def("get_fp16",
+             [](triton_op_builder &, float value) {
+                 return clr::tensor_const::scalar_float16(value);
+             })
+        .def("get_fp32",
+             [](triton_op_builder &, float value) {
+                 return clr::tensor_const::scalar_float32(value);
+             })
+        .def("get_fp64",
+             [](triton_op_builder &, double value) {
+                 return clr::tensor_const::scalar_float64(value);
              })
 
         // Ops

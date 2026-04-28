@@ -15,6 +15,7 @@ using Nncase.IR.Affine;
 using Nncase.IR.Distributed;
 using Nncase.IR.Logics;
 using Nncase.IR.Math;
+using Nncase.Targets;
 using Nncase.TIR;
 using Nncase.Utilities;
 
@@ -387,6 +388,27 @@ public static unsafe partial class CApi
     }
 
     [UnmanagedCallersOnly]
+    private static IntPtr ScalarFloat16(float value)
+    {
+        var scalar = (TensorConst)Tensor.FromScalar((Half)value);
+        return GCHandle.ToIntPtr(GCHandle.Alloc(scalar));
+    }
+
+    [UnmanagedCallersOnly]
+    private static IntPtr ScalarFloat32(float value)
+    {
+        var scalar = (TensorConst)Tensor.FromScalar(value);
+        return GCHandle.ToIntPtr(GCHandle.Alloc(scalar));
+    }
+
+    [UnmanagedCallersOnly]
+    private static IntPtr ScalarFloat64(double value)
+    {
+        var scalar = (TensorConst)Tensor.FromScalar(value);
+        return GCHandle.ToIntPtr(GCHandle.Alloc(scalar));
+    }
+
+    [UnmanagedCallersOnly]
     private static IntPtr Cast(IntPtr valuePtr, IntPtr targetTypePtr, CastMode mode)
     {
         var value = Get<IR.Expr>(valuePtr);
@@ -450,7 +472,7 @@ public static unsafe partial class CApi
                 CanonicalizeParamType(t)))
             .ToArray();
         var body = new TIR.Sequential([], parameters);
-        var function = new TIR.PrimFunction(name, body);
+        var function = new TIR.PrimFunction(name, CUDATarget.Kind, body);
         return GCHandle.ToIntPtr(GCHandle.Alloc(function));
     }
 

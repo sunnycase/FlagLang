@@ -328,6 +328,9 @@ typedef struct {
     clr_object_handle_t (*program_id)(int axis);
     clr_object_handle_t (*scalar_int32)(int value);
     clr_object_handle_t (*scalar_int64)(long value);
+    clr_object_handle_t (*scalar_float16)(float value);
+    clr_object_handle_t (*scalar_float32)(float value);
+    clr_object_handle_t (*scalar_float64)(double value);
     clr_object_handle_t (*cast)(clr_object_handle_t value,
                                 clr_object_handle_t target_type,
                                 nncase_cast_mode_t mode);
@@ -764,6 +767,18 @@ class tensor_const : public expr {
     static tensor_const scalar(long value) {
         return {std::in_place, nncase_clr_api()->scalar_int64(value)};
     }
+
+    static tensor_const scalar_float16(float value) {
+        return {std::in_place, nncase_clr_api()->scalar_float16(value)};
+    }
+
+    static tensor_const scalar_float32(float value) {
+        return {std::in_place, nncase_clr_api()->scalar_float32(value)};
+    }
+
+    static tensor_const scalar_float64(double value) {
+        return {std::in_place, nncase_clr_api()->scalar_float64(value)};
+    }
 };
 
 struct ir_builder {
@@ -907,6 +922,10 @@ class ir_module : public expr {
     prim_function get_function_by_name(std::string_view name) {
         return {std::in_place, nncase_clr_api()->ir_module_get_function_by_name(
                                    obj_.get(), name.data(), name.length())};
+    }
+
+    bool has_function(std::string_view name) {
+        return !get_function_by_name(name).empty();
     }
 
     std::string get_entry_func_name() const {

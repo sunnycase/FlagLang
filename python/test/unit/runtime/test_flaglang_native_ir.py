@@ -10,6 +10,32 @@ def test_libtriton_exports_interpreter_submodule():
     assert hasattr(interpreter, "atomic_rmw")
 
 
+def test_native_ir_builder_float_constant_surface():
+    builder = ir.builder(ir.context())
+
+    fp16 = builder.get_fp16(1.5)
+    fp32 = builder.get_fp32(2.5)
+    fp64 = builder.get_fp64(3.5)
+
+    assert "1.5" in fp16.to_text()
+    assert "2.5" in fp32.to_text()
+    assert "3.5" in fp64.to_text()
+
+
+def test_native_ir_module_function_lookup_surface():
+    builder = ir.builder(ir.context())
+    module = builder.create_module()
+    fn_type = builder.get_function_ty([], [])
+    fn = builder.get_or_insert_function(module, "helper", fn_type, "private", False)
+
+    assert not module.has_function("helper")
+
+    module.push_back(fn)
+
+    assert module.has_function("helper")
+    assert module.get_function("helper").get_num_args() == 0
+
+
 def _build_vector_add_module():
     session = ir.compile_session(ir.target("cuda"), ir.compile_options())
     builder = ir.builder(session)

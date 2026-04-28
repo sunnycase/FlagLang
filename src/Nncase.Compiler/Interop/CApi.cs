@@ -100,6 +100,9 @@ public unsafe struct CApiMT
     public delegate* unmanaged<int, IntPtr> ProgramIdPtr;
     public delegate* unmanaged<int, IntPtr> ScalarInt32Ptr;
     public delegate* unmanaged<long, IntPtr> ScalarInt64Ptr;
+    public delegate* unmanaged<float, IntPtr> ScalarFloat16Ptr;
+    public delegate* unmanaged<float, IntPtr> ScalarFloat32Ptr;
+    public delegate* unmanaged<double, IntPtr> ScalarFloat64Ptr;
     public delegate* unmanaged<IntPtr, IntPtr, CastMode, IntPtr> CastPtr;
 
     public delegate* unmanaged<BinaryOp, IntPtr, IntPtr, IntPtr> Math_BinaryPtr;
@@ -205,6 +208,9 @@ public static unsafe partial class CApi
         mt->ProgramIdPtr = &ProgramId;
         mt->ScalarInt32Ptr = &ScalarInt32;
         mt->ScalarInt64Ptr = &ScalarInt64;
+        mt->ScalarFloat16Ptr = &ScalarFloat16;
+        mt->ScalarFloat32Ptr = &ScalarFloat32;
+        mt->ScalarFloat64Ptr = &ScalarFloat64;
         mt->CastPtr = &Cast;
 
         mt->Math_BinaryPtr = &Math_Binary;
