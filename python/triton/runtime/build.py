@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import importlib.util
+import json
 import logging
 import os
 import shutil
@@ -67,10 +68,25 @@ def _load_module_from_path(name: str, path: str) -> ModuleType:
     return mod
 
 
+def _compile_module_cache_key(src: str, library_dirs: list[str] | None = None, include_dirs: list[str] | None = None,
+                              libraries: list[str] | None = None, ccflags: list[str] | None = None) -> str:
+    payload = {
+        "src": src,
+        "platform": platform_key(),
+        "library_dirs": [str(item) for item in library_dirs or []],
+        "include_dirs": [str(item) for item in include_dirs or []],
+        "libraries": [str(item) for item in libraries or []],
+        "ccflags": [str(item) for item in ccflags or []],
+        "backend_dirs": sorted(str(item) for item in knobs.build.backend_dirs),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def compile_module_from_src(src: str, name: str, library_dirs: list[str] | None = None,
                             include_dirs: list[str] | None = None, libraries: list[str] | None = None,
                             ccflags: list[str] | None = None) -> ModuleType:
-    key = hashlib.sha256((src + platform_key()).encode("utf-8")).hexdigest()
+    key = _compile_module_cache_key(src, library_dirs, include_dirs, libraries, ccflags)
     cache = get_cache_manager(key)
     suffix = sysconfig.get_config_var("EXT_SUFFIX")
     cache_path = cache.get_file(f"{name}{suffix}")

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import triton
 
+from triton.runtime import build as runtime_build
 from triton.runtime.build import compile_module_from_src
 
 TEST_MODULE_C = """
@@ -63,6 +64,17 @@ def test_compile_module(fresh_triton_cache):
     # Make sure the module is cached
     mod2 = compile_module_from_src(TEST_MODULE_C, "test_module")
     assert mod2.__file__ == mod.__file__
+
+
+def test_compile_module_cache_key_includes_build_options():
+    src = "int value;"
+    base_key = runtime_build._compile_module_cache_key(src)
+
+    assert runtime_build._compile_module_cache_key(src, library_dirs=["/lib/a"]) != base_key
+    assert runtime_build._compile_module_cache_key(src, include_dirs=["/include/a"]) != base_key
+    assert runtime_build._compile_module_cache_key(src, libraries=["cuda"]) != base_key
+    assert runtime_build._compile_module_cache_key(src, ccflags=["-DVALUE=1"]) != base_key
+    assert runtime_build._compile_module_cache_key(src, [], [], [], []) == base_key
 
 
 def test_compile_module_bad_cache(fresh_knobs_except_libraries):

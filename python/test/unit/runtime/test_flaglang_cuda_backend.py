@@ -261,6 +261,17 @@ def test_make_launcher_uses_regular_launch_for_simple_kernels():
         "static cuLaunchKernelEx_t cuLaunchKernelExHandle")
 
 
+def test_cuda_aot_cpp_type_mapping_uses_kernel_abi_widths():
+    driver = object.__new__(nvidia_driver.CudaDriver)
+
+    assert driver.map_python_to_cpp_type("fp16") == "uint16_t"
+    assert driver.map_python_to_cpp_type("bf16") == "uint16_t"
+    assert driver.map_python_to_cpp_type("fp32") == "float"
+    assert driver.map_python_to_cpp_type("f32") == "float"
+    assert driver.map_python_to_cpp_type("fp64") == "double"
+    assert driver.map_python_to_cpp_type("*fp32") == "CUdeviceptr"
+
+
 def test_cuda_launcher_accepts_stringified_irsource_argument_order(monkeypatch):
     captured = {}
 

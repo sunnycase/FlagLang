@@ -106,6 +106,31 @@ def ty_to_cpp(ty):
     }[ty]
 
 
+def ty_to_abi_cpp(ty):
+    if ty[0] == '*':
+        return "CUdeviceptr"
+    if ty.startswith("tensordesc"):
+        return "CUtensorMap"
+    return {
+        "i1": "int8_t",
+        "i8": "int8_t",
+        "i16": "int16_t",
+        "i32": "int32_t",
+        "i64": "int64_t",
+        "u1": "uint8_t",
+        "u8": "uint8_t",
+        "u16": "uint16_t",
+        "u32": "uint32_t",
+        "u64": "uint64_t",
+        "fp16": "uint16_t",
+        "bf16": "uint16_t",
+        "fp32": "float",
+        "f32": "float",
+        "fp64": "double",
+        "nvTmaDesc": "CUtensorMap",
+    }[ty]
+
+
 FLOAT_STORAGE_TYPE = {
     "fp16": "uint16_t",
     "bf16": "uint16_t",
@@ -773,7 +798,7 @@ class CudaDriver(GPUDriver):
             return False
 
     def map_python_to_cpp_type(self, ty: str) -> str:
-        return ty_to_cpp(ty)
+        return ty_to_abi_cpp(ty)
 
     def get_benchmarker(self):
         from triton.testing import do_bench
