@@ -147,7 +147,7 @@ class DependenciesFinder(ast.NodeVisitor):
             return
 
         if var_dict is not None:
-            self.used_global_vals[(name, id(var_dict))] = (copy.deepcopy(val), var_dict)
+            self.used_global_vals[(name, id(var_dict))] = (_snapshot_global_value(val), var_dict)
         return
 
     def visit_Name(self, node):
@@ -265,6 +265,12 @@ class DependenciesFinder(ast.NodeVisitor):
 # -----------------------------------------------------------------------------
 # JITFunction
 # -----------------------------------------------------------------------------
+
+
+def _snapshot_global_value(val):
+    if type(val).__eq__ is object.__eq__:
+        return val
+    return copy.deepcopy(val)
 
 
 def _normalize_ty(ty) -> str:

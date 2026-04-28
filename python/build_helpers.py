@@ -1,5 +1,6 @@
 import os
 import platform
+import shutil
 import sysconfig
 import sys
 from pathlib import Path
@@ -21,6 +22,23 @@ def get_cmake_dir():
     cmake_dir = Path(cmake_dir)
     cmake_dir.mkdir(parents=True, exist_ok=True)
     return cmake_dir
+
+
+def update_symlink(link_path, source_path):
+    source_path = Path(source_path)
+    link_path = Path(link_path)
+
+    if link_path.is_symlink():
+        link_path.unlink()
+    elif link_path.exists():
+        if link_path.is_dir():
+            shutil.rmtree(link_path)
+        else:
+            link_path.unlink()
+
+    print(f"creating symlink: {link_path} -> {source_path}", file=sys.stderr)
+    link_path.absolute().parent.mkdir(parents=True, exist_ok=True)
+    link_path.symlink_to(source_path.absolute(), target_is_directory=True)
 
 
 _CONAN_TOOLCHAIN_ARCHES = {

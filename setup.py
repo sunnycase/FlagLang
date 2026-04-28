@@ -44,7 +44,7 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(__file__))
 from python.setup_tools import setup_helper as helper
 
-from python.build_helpers import get_base_dir, get_cmake_dir, get_host_toolchain_profile
+from python.build_helpers import get_base_dir, get_cmake_dir, get_host_toolchain_profile, update_symlink
 
 
 def is_git_repo():
@@ -297,20 +297,6 @@ def get_triton_cache_path():
     if not user_home:
         raise RuntimeError("Could not find user home directory")
     return os.path.join(user_home, ".triton")
-
-
-def update_symlink(link_path, source_path):
-    source_path = Path(source_path)
-    link_path = Path(link_path)
-
-    if link_path.is_symlink():
-        link_path.unlink()
-    elif link_path.exists():
-        shutil.rmtree(link_path)
-
-    print(f"creating symlink: {link_path} -> {source_path}", file=sys.stderr)
-    link_path.absolute().parent.mkdir(parents=True, exist_ok=True)  # Ensure link's parent directory exists
-    link_path.symlink_to(source_path.absolute(), target_is_directory=True)
 
 
 def get_thirdparty_packages(packages: list):

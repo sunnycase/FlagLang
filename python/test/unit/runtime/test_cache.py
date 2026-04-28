@@ -225,6 +225,16 @@ def test_bound_constexpr_fn_cache_key():
     assert constexpr_method_user.cache_key
 
 
+def test_bound_constexpr_fn_global_owner_tracks_identity():
+    constexpr_method_user.hash = None
+    assert constexpr_method_user.cache_key
+
+    owner_value, globals_dict = next(value for (name, _), value in constexpr_method_user.used_global_vals.items()
+                                     if name == "CONSTEXPR_METHOD_OWNER")
+    assert owner_value is CONSTEXPR_METHOD_OWNER
+    assert globals_dict["CONSTEXPR_METHOD_OWNER"] is owner_value
+
+
 @triton.constexpr_function
 def invalid_constexpr_fn():
     return torch.cuda.get_device_capability()
