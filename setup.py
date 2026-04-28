@@ -129,6 +129,18 @@ def check_env_flag(name: str, default: str = "") -> bool:
     return os.getenv(name, default).upper() in ["ON", "1", "YES", "TRUE", "Y"]
 
 
+def is_proton_build_enabled() -> bool:
+    return check_env_flag("TRITON_BUILD_PROTON", "OFF")
+
+
+def proton_package_dir():
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "third_party", "proton", "proton"))
+
+
+def proton_install_dir():
+    return os.path.join(os.path.dirname(__file__), "python", "triton", "profiler")
+
+
 def get_build_type():
     if check_env_flag("DEBUG"):
         return "Debug"
@@ -413,6 +425,13 @@ class CMakeBuild(build_ext):
         build_ext.finalize_options(self)
 
     def run(self):
+        if is_proton_build_enabled():
+            raise RuntimeError(
+                "TRITON_BUILD_PROTON=ON requested, but the FlagLang native CMake build does not "
+                "build or install triton._C.libproton. Set TRITON_BUILD_PROTON=OFF or add libproton "
+                "build/install support before enabling profiler packaging."
+            )
+
         download_and_copy_dependencies()
 
         try:
@@ -630,7 +649,7 @@ def get_package_dirs():
             for x in os.listdir(backend.tools_dir):
                 yield (f"triton.tools.extra.{x}", os.path.join(backend.tools_dir, x))
 
-    if check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
+    if is_proton_build_enabled():
         yield ("triton.profiler", "third_party/proton/proton")
         yield ("triton.profiler.hooks", "third_party/proton/proton/hooks")
 
@@ -638,7 +657,7 @@ def get_package_dirs():
 
 
 def get_packages():
-    yield from find_packages(where="python")
+    yield from find_packages(where="python", exclude=["triton.profiler", "triton.profiler.*"])
 
     for backend in backends:
         yield f"triton.backends.{backend.name}"
@@ -658,7 +677,7 @@ def get_packages():
     for package, _ in get_flagtree_language_extra_packages():
         yield package
 
-    if check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
+    if is_proton_build_enabled():
         yield "triton.profiler"
         yield "triton.profiler.hooks"
 
@@ -701,15 +720,23 @@ if helper.flagtree_backend == "xpu":
 
 
 def add_link_to_proton():
-    proton_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "third_party", "proton", "proton"))
-    proton_install_dir = os.path.join(os.path.dirname(__file__), "python", "triton", "profiler")
-    update_symlink(proton_install_dir, proton_dir)
+    update_symlink(proton_install_dir(), proton_package_dir())
+
+
+def remove_link_to_proton():
+    install_dir = proton_install_dir()
+    package_dir = proton_package_dir()
+    if os.path.islink(install_dir) and os.path.realpath(install_dir) == package_dir:
+        os.unlink(install_dir)
 
 
 def add_links(external_only):
     add_link_to_backends(external_only=external_only)
-    if not external_only and check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
-        add_link_to_proton()
+    if not external_only:
+        if is_proton_build_enabled():
+            add_link_to_proton()
+        else:
+            remove_link_to_proton()
 
 
 class plugin_bdist_wheel(bdist_wheel):
@@ -761,7 +788,7 @@ class plugin_sdist(sdist):
 
 def get_entry_points():
     entry_points = {}
-    if check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
+    if is_proton_build_enabled():
         entry_points["console_scripts"] = [
             "proton-viewer = triton.profiler.viewer:main",
             "proton = triton.profiler.proton:main",

@@ -282,7 +282,7 @@ float npy_half_to_float(npy_half h) {
 
 template <>
 npy_half atomic_fadd<npy_half>(npy_half *loc, npy_half value,
-                               std::memory_order order) {
+                               [[maybe_unused]] std::memory_order order) {
   npy_half old_value;
 
   const std::lock_guard<std::mutex> lock(atomic_op_guard);

@@ -17,6 +17,8 @@
 
 namespace py = pybind11;
 
+void init_triton_interpreter(py::module &&m);
+
 namespace nncase {
 void init_triton_env_vars(py::module &m);
 void init_triton_ir(py::module &&m);

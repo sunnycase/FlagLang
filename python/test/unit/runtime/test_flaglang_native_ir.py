@@ -1,6 +1,15 @@
 from triton._C.libtriton import ir
 
 
+def test_libtriton_exports_interpreter_submodule():
+    import triton.runtime.interpreter as runtime_interpreter
+    from triton._C.libtriton import interpreter
+
+    assert runtime_interpreter._interpreter is interpreter
+    assert hasattr(interpreter, "load")
+    assert hasattr(interpreter, "atomic_rmw")
+
+
 def _build_vector_add_module():
     session = ir.compile_session(ir.target("cuda"), ir.compile_options())
     builder = ir.builder(session)

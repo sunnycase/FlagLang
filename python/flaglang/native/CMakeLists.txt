@@ -6,7 +6,8 @@ find_package(pybind11 REQUIRED)
 set(SRCS env_vars.cpp
          ffi.cpp
          hosting.cpp
-         ir.cpp)
+         ir.cpp
+         ../../src/interpreter.cc)
 
 pybind11_add_module(triton ${SRCS})
 target_link_libraries(triton PRIVATE nncaseruntime)
