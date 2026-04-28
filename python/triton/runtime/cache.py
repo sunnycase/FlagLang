@@ -267,6 +267,41 @@ def make_so_cache_key(version_hash, signature, constants, ids, **kwargs):
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
+def _hash_file(path):
+    file_hash = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(1024**2)
+            if not chunk:
+                break
+            file_hash.update(chunk)
+    return file_hash.hexdigest()
+
+
+def _hash_path_tree(path, suffixes=None):
+    if not os.path.isdir(path):
+        return "missing"
+
+    tree_hash = hashlib.sha256()
+    for dirpath, dirnames, filenames in os.walk(path):
+        dirnames.sort()
+        for filename in sorted(filenames):
+            if suffixes is not None and not filename.endswith(suffixes):
+                continue
+            full_path = os.path.join(dirpath, filename)
+            relative_path = os.path.relpath(full_path, path).replace(os.sep, "/")
+            tree_hash.update(relative_path.encode("utf-8"))
+            tree_hash.update(b"\0")
+            tree_hash.update(_hash_file(full_path).encode("ascii"))
+            tree_hash.update(b"\0")
+    return tree_hash.hexdigest()
+
+
+def _managed_compiler_payload_hash(triton_path):
+    managed_compiler_path = os.path.join(triton_path, "_C", "nncase")
+    return _hash_path_tree(managed_compiler_path, suffixes=(".dll", ".deps.json", ".runtimeconfig.json"))
+
+
 @functools.lru_cache()
 def triton_key():
     import pkgutil
@@ -295,6 +330,7 @@ def triton_key():
                 break
             libtriton_hash.update(chunk)
     contents.append(libtriton_hash.hexdigest())
+    contents.append(_managed_compiler_payload_hash(TRITON_PATH))
     # language
     language_path = os.path.join(TRITON_PATH, 'language')
     for lib in pkgutil.walk_packages([language_path], prefix="triton.language."):

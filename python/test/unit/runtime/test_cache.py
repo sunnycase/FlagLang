@@ -11,7 +11,8 @@ import torch
 import triton
 import triton.language as tl
 from triton._internal_testing import is_hip
-from triton.runtime.cache import get_cache_manager, make_so_cache_key
+from triton.runtime.cache import get_cache_manager, make_so_cache_key, _managed_compiler_payload_hash
+from triton.backends.compiler import BaseBackend, GPUTarget
 
 
 @triton.jit
@@ -135,6 +136,46 @@ def test_make_so_cache_key_can_create_cache_manager(fresh_triton_cache):
 
     cache_manager = get_cache_manager(key)
     assert cache_manager.cache_dir
+
+
+class MinimalBackend(BaseBackend):
+
+    @staticmethod
+    def supports_target(target):
+        return target.backend == "minimal"
+
+    def hash(self):
+        return "minimal"
+
+    def parse_options(self, options):
+        return options
+
+    def add_stages(self, stages, options):
+        pass
+
+    def load_dialects(self, context):
+        pass
+
+    def get_module_map(self):
+        return {}
+
+
+def test_base_backend_make_context_default_keeps_legacy_backends_concrete():
+    backend = MinimalBackend(GPUTarget("minimal", 0, 32))
+
+    assert backend.target.backend == "minimal"
+
+
+def test_managed_compiler_payload_hash_tracks_assembly_contents(tmp_path: pathlib.Path):
+    managed_dir = tmp_path / "_C" / "nncase"
+    managed_dir.mkdir(parents=True)
+    compiler_dll = managed_dir / "Nncase.Compiler.dll"
+    compiler_dll.write_bytes(b"old compiler")
+
+    original = _managed_compiler_payload_hash(tmp_path)
+    compiler_dll.write_bytes(b"new compiler")
+
+    assert _managed_compiler_payload_hash(tmp_path) != original
 
 
 @triton.constexpr_function
