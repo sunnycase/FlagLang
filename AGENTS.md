@@ -36,6 +36,7 @@ FlagLang is an AI compiler initiative that rewrites Triton's GPU backend on top 
 - Keep comments succinct but clarify tricky math (loop peeling constraints, vector load alignment, etc.).
 - When editing generated or vendored files, document why and how to re-sync upstream.
 - Prefer deterministic tests; when randomness is required, seed it and explain the choice.
+- ** YOU MUST ** Fail fast instead of adding fallback or workaround paths. When a problem appears, identify the root cause and fix it with a generalized, principled approach.
 
 ## Reference Commands
 - Build C#: `dotnet build`.

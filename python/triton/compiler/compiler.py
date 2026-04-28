@@ -140,6 +140,22 @@ def parse(full_name, ext, context):
         return Path(full_name).read_bytes()
 
 
+def _runtime_signature_for_source(src):
+    signature = getattr(src, "signature", {})
+    if not isinstance(signature, dict):
+        return {}
+
+    constexpr_names = set()
+    fn = getattr(src, "fn", None)
+    arg_names = list(getattr(fn, "arg_names", []))
+    constants = getattr(src, "constants", {})
+    for path in constants:
+        if isinstance(path, tuple) and len(path) == 1 and isinstance(path[0], int) and path[0] < len(arg_names):
+            constexpr_names.add(arg_names[path[0]])
+
+    return {str(name): str(dtype) for name, dtype in signature.items() if name not in constexpr_names}
+
+
 def _serialize_ir_for_storage(module, ext):
     if isinstance(module, (str, bytes)):
         return module
@@ -286,6 +302,10 @@ def compile(src, target=None, options=None, _env_vars=None):
         **options.__dict__,
         **env_vars,
     }
+    runtime_signature = _runtime_signature_for_source(src)
+    metadata["runtime_argument_count"] = len(runtime_signature)
+    metadata["runtime_argument_order"] = list(runtime_signature.keys())
+    metadata["runtime_argument_types"] = list(runtime_signature.values())
     metadata["triton_version"] = __version__
     # run compilation pipeline  and populate metadata
     stages = dict()

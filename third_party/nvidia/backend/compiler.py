@@ -173,13 +173,164 @@ def _unwrap_native_cuda_stage(src):
     return src.module if isinstance(src, NativeCudaIRStage) else src
 
 
-def _is_cubin_elf(cubin: bytes) -> bool:
-    return (
-        len(cubin) >= 64 and
-        cubin[0:4] == b"\x7fELF" and
-        cubin[4] == 2 and
-        cubin[5] == 1
-    )
+def _native_stage_text(value):
+    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
+
+
+def _validate_native_cubin(cubin: bytes, entry_name: str):
+    if (
+        len(cubin) < 64 or
+        cubin[0:4] != b"\x7fELF" or
+        cubin[4] != 2 or
+        cubin[5] != 1
+    ):
+        raise ValueError("Native CUDA compile helper returned bytes that are not a CUDA ELF cubin artifact.")
+
+    cuobjdump = knobs.nvidia.cuobjdump.path
+
+    cubin_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".cubin") as fbin:
+            fbin.write(cubin)
+            cubin_path = fbin.name
+        result = subprocess.run(
+            [cuobjdump, "--dump-elf", cubin_path],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    finally:
+        if cubin_path is not None and os.path.exists(cubin_path):
+            os.remove(cubin_path)
+
+    if result.returncode != 0:
+        diagnostics = (result.stderr or result.stdout or "").strip()
+        raise ValueError(f"cuobjdump rejected native CUDA cubin artifact: {diagnostics}")
+
+    output = result.stdout + result.stderr
+    if entry_name not in output:
+        raise ValueError(f"Native CUDA cubin artifact does not contain entry symbol '{entry_name}'.")
+
+
+def _split_top_level_commas(text: str):
+    parts = []
+    start = 0
+    paren_depth = 0
+    bracket_depth = 0
+    angle_depth = 0
+    for idx, char in enumerate(text):
+        if char == "(":
+            paren_depth += 1
+        elif char == ")":
+            paren_depth -= 1
+        elif char == "[":
+            bracket_depth += 1
+        elif char == "]":
+            bracket_depth -= 1
+        elif char == "<":
+            angle_depth += 1
+        elif char == ">":
+            angle_depth -= 1
+        elif char == "," and paren_depth == 0 and bracket_depth == 0 and angle_depth == 0:
+            parts.append(text[start:idx].strip())
+            start = idx + 1
+    tail = text[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _canonical_cpp_type(type_text: str):
+    normalized = re.sub(r"\s+", " ", type_text.strip())
+    normalized = normalized.replace(" *", "*").replace("* ", "*")
+    return normalized
+
+
+def _parse_cuda_entry_parameters(source: str, entry_name: str):
+    pattern = re.compile(r"\bvoid\s+" + re.escape(entry_name) + r"\s*\((.*?)\)\s*\{", re.DOTALL)
+    match = pattern.search(source)
+    if match is None:
+        raise ValueError(f"Native CUDA source does not define entry '{entry_name}'.")
+
+    parameters = match.group(1).strip()
+    if not parameters or parameters == "void":
+        return []
+
+    result = []
+    for parameter in _split_top_level_commas(parameters):
+        parameter = parameter.split("=", 1)[0].strip()
+        name_match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*$", parameter)
+        if name_match is None:
+            raise ValueError(f"Unable to parse native CUDA entry parameter: {parameter!r}.")
+        result.append({
+            "name": name_match.group(1),
+            "type": _canonical_cpp_type(parameter[:name_match.start()].strip()),
+        })
+    return result
+
+
+def _require_string_list(value, field_name: str):
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+        raise ValueError(f"Native CUDA ABI {field_name} must be a list of non-empty strings.")
+    return value
+
+
+def _validate_native_cuda_abi(metadata, native_metadata, compilation: NativeCudaCompilation, name: str):
+    abi = native_metadata.get("flaglang_abi")
+    if not isinstance(abi, dict):
+        raise KeyError("Native CUDA compile helper metadata must include flaglang_abi contract.")
+    if abi.get("entry") != name:
+        raise ValueError("Native CUDA ABI entry must match kernel metadata name.")
+
+    argument_order = _require_string_list(abi.get("argument_order"), "argument_order")
+    if len(argument_order) != len(set(argument_order)):
+        raise ValueError("Native CUDA ABI argument_order must contain unique entries.")
+
+    argument_count = abi.get("argument_count")
+    if not isinstance(argument_count, int) or argument_count != len(argument_order):
+        raise ValueError("Native CUDA ABI argument_count must match argument_order length.")
+
+    argument_types = _require_string_list(abi.get("argument_types"), "argument_types")
+    if len(argument_types) != argument_count:
+        raise ValueError("Native CUDA ABI argument_types must match argument_count.")
+
+    raw_argument_order = _require_string_list(abi.get("raw_argument_order"), "raw_argument_order")
+    if len(raw_argument_order) != argument_count or len(raw_argument_order) != len(set(raw_argument_order)):
+        raise ValueError("Native CUDA ABI raw_argument_order must be unique and match argument_count.")
+
+    raw_argument_types = _require_string_list(abi.get("raw_argument_types"), "raw_argument_types")
+    if len(raw_argument_types) != argument_count:
+        raise ValueError("Native CUDA ABI raw_argument_types must match argument_count.")
+
+    runtime_argument_order = _require_string_list(abi.get("runtime_argument_order"), "runtime_argument_order")
+    runtime_argument_types = _require_string_list(abi.get("runtime_argument_types"), "runtime_argument_types")
+    runtime_argument_count = abi.get("runtime_argument_count")
+    if runtime_argument_count != len(runtime_argument_order) or runtime_argument_count != len(runtime_argument_types):
+        raise ValueError("Native CUDA ABI runtime argument metadata must have matching count, order, and types.")
+    if runtime_argument_count != argument_count:
+        raise ValueError("Native CUDA ABI runtime_argument_count must match argument_count.")
+
+    expected_runtime_count = metadata.get("runtime_argument_count")
+    if expected_runtime_count is not None and runtime_argument_count != expected_runtime_count:
+        raise ValueError("Native CUDA ABI runtime_argument_count does not match Python launcher signature.")
+    expected_runtime_order = metadata.get("runtime_argument_order")
+    if expected_runtime_order is not None and runtime_argument_order != list(expected_runtime_order):
+        raise ValueError("Native CUDA ABI runtime_argument_order does not match Python launcher signature.")
+    expected_runtime_types = metadata.get("runtime_argument_types")
+    if expected_runtime_types is not None and runtime_argument_types != [str(item) for item in expected_runtime_types]:
+        raise ValueError("Native CUDA ABI runtime_argument_types does not match Python launcher signature.")
+
+    source = compilation.asm.get("ntt_cu") or compilation.asm.get("cuda_source")
+    if source is None:
+        raise KeyError("Native CUDA compile helper asm must include ntt_cu source for ABI validation.")
+    source_parameters = _parse_cuda_entry_parameters(_native_stage_text(source), name)
+    source_order = [parameter["name"] for parameter in source_parameters]
+    source_types = [parameter["type"] for parameter in source_parameters]
+    if source_order != raw_argument_order:
+        raise ValueError("Native CUDA ABI raw_argument_order does not match generated CUDA entry signature.")
+    if source_types != [_canonical_cpp_type(item) for item in raw_argument_types]:
+        raise ValueError("Native CUDA ABI raw_argument_types does not match generated CUDA entry signature.")
 
 
 def _normalize_native_cuda_compilation(result) -> NativeCudaCompilation:
@@ -195,12 +346,14 @@ def _normalize_native_cuda_compilation(result) -> NativeCudaCompilation:
         cubin = bytes(cubin)
     if not isinstance(cubin, bytes) or not cubin:
         raise TypeError("Native CUDA compile helper must return non-empty cubin bytes.")
-    if not _is_cubin_elf(cubin):
-        raise ValueError("Native CUDA compile helper returned bytes that are not a CUDA ELF cubin artifact.")
 
     metadata = result.get("metadata", {})
     if not isinstance(metadata, dict):
         raise TypeError("Native CUDA compile helper metadata must be a dict.")
+    entry_name = metadata.get("name")
+    if not isinstance(entry_name, str) or not entry_name:
+        raise KeyError("Native CUDA compile helper metadata must include kernel entry name.")
+    _validate_native_cubin(cubin, entry_name)
 
     asm = result.get("asm", result.get("stages", {}))
     if not isinstance(asm, dict):
@@ -215,7 +368,7 @@ def _normalize_native_cuda_compilation(result) -> NativeCudaCompilation:
     return NativeCudaCompilation(cubin=cubin, metadata=metadata, asm=asm, compiler_log=compiler_log)
 
 
-def _native_compile_options(src, opt, capability):
+def _native_compile_options(src, metadata, opt, capability):
     src = _unwrap_native_cuda_stage(src)
     cluster_dims = tuple(opt.cluster_dims or (1, 1, 1))
     return {
@@ -244,6 +397,9 @@ def _native_compile_options(src, opt, capability):
         "stage_names": ["triton_tir", "nncase_ir", "after_compile", "tir", "ntt_cu", "compiler_log", "cubin"],
         "dump_dir": os.environ.get("TRITON_DUMP_DIR"),
         "enable_auto_dist": False,
+        "runtime_argument_count": metadata.get("runtime_argument_count", 0),
+        "runtime_argument_order": list(metadata.get("runtime_argument_order", [])),
+        "runtime_argument_types": [str(item) for item in metadata.get("runtime_argument_types", [])],
     }
 
 
@@ -256,7 +412,7 @@ def _compile_native_module_to_cubin(src, metadata, opt, capability) -> NativeCud
             "FlagLang native CUDA compile helper is unavailable; refusing to emit handwritten PTX shortcut."
         )
 
-    result = compile_to_cubin(src, _native_compile_options(src, opt, capability))
+    result = compile_to_cubin(src, _native_compile_options(src, metadata, opt, capability))
     return _normalize_native_cuda_compilation(result)
 
 
@@ -265,14 +421,7 @@ def _apply_native_cuda_metadata(metadata, compilation: NativeCudaCompilation, op
     name = native_metadata.get("name") or metadata.get("name")
     if not name:
         raise KeyError("Native CUDA compile helper metadata must include kernel entry name.")
-    abi = native_metadata.get("flaglang_abi")
-    if not isinstance(abi, dict):
-        raise KeyError("Native CUDA compile helper metadata must include flaglang_abi contract.")
-    if abi.get("entry") != name:
-        raise ValueError("Native CUDA ABI entry must match kernel metadata name.")
-    argument_order = abi.get("argument_order")
-    if not isinstance(argument_order, list) or len(argument_order) != len(set(argument_order)):
-        raise ValueError("Native CUDA ABI argument_order must be a list with unique entries.")
+    _validate_native_cuda_abi(metadata, native_metadata, compilation, name)
 
     _initialize_cuda_kernel_metadata(metadata, name, opt)
     metadata.update(native_metadata)
@@ -645,6 +794,7 @@ class CUDABackend(BaseBackend):
     def make_cubin(self, src, metadata, opt, capability):
         if isinstance(src, NativeCudaCompilation):
             _apply_native_cuda_metadata(metadata, src, opt)
+            _validate_native_cubin(src.cubin, metadata["name"])
             return src.cubin
 
         if not isinstance(src, str):

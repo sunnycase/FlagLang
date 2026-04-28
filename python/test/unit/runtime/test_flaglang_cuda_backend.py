@@ -1,4 +1,7 @@
 import json
+import shutil
+import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -8,6 +11,7 @@ import triton.language as tl
 from triton.backends import backends
 from triton.backends.compiler import GPUTarget, Language
 from triton.backends.nvidia import compiler as nvidia_compiler
+from triton.compiler import compiler as triton_compiler
 from triton.compiler.compiler import CompiledKernel
 from triton.runtime.jit import MockTensor
 
@@ -81,9 +85,27 @@ def _fake_cubin_with_symbol(symbol=b"native_entry"):
     return bytes(header) + b"\0.symtab\0" + symbol + b"\0"
 
 
-def _native_metadata(name="native_entry", argument_order=None):
+def _runtime_argument_order():
+    return ["x_ptr", "y_ptr", "output_ptr", "n_elements"]
+
+
+def _runtime_argument_types():
+    return ["*fp32", "*fp32", "*fp32", "i32"]
+
+
+def _native_arg_type(arg):
+    return "i32" if arg.endswith("_3") else "*f32"
+
+
+def _raw_arg_type(arg):
+    return "int32_t" if arg.endswith("_3") else "float*"
+
+
+def _native_metadata(name="native_entry", argument_order=None, raw_argument_order=None):
     if argument_order is None:
         argument_order = ["param_0", "param_1", "param_2", "param_3"]
+    if raw_argument_order is None:
+        raw_argument_order = [f"id_{arg}" for arg in argument_order]
     return {
         "name": name,
         "cuda_compiler": "nvcc",
@@ -91,10 +113,59 @@ def _native_metadata(name="native_entry", argument_order=None):
         "flaglang_abi": {
             "entry": name,
             "wrapped_entry": "primfunc_0",
+            "argument_count": len(argument_order),
             "argument_order": argument_order,
+            "argument_types": [_native_arg_type(arg) for arg in argument_order],
+            "raw_argument_order": raw_argument_order,
+            "raw_argument_types": [_raw_arg_type(arg) for arg in argument_order],
+            "runtime_argument_count": len(_runtime_argument_order()),
+            "runtime_argument_order": _runtime_argument_order(),
+            "runtime_argument_types": _runtime_argument_types(),
             "wrapper": "triton_raw_args_to_thread_main",
         },
     }
+
+
+def _runtime_metadata():
+    return {
+        "runtime_argument_count": len(_runtime_argument_order()),
+        "runtime_argument_order": _runtime_argument_order(),
+        "runtime_argument_types": _runtime_argument_types(),
+    }
+
+
+def _native_entry_source(name="native_entry", raw_argument_order=None, raw_argument_types=None):
+    if raw_argument_order is None:
+        raw_argument_order = ["id_param_0", "id_param_1", "id_param_2", "id_param_3"]
+    if raw_argument_types is None:
+        raw_argument_types = ["float*", "float*", "float*", "int32_t"]
+    params = ",\n".join(f"{ty} {arg}" for ty, arg in zip(raw_argument_types, raw_argument_order))
+    return f'extern "C" __global__ __attribute__((used)) void {name}({params}) {{}}\n'
+
+
+def _compile_real_cubin(tmp_path, symbol="native_entry"):
+    nvcc = shutil.which("nvcc")
+    if nvcc is None:
+        pytest.skip("nvcc is required to generate real cubin fixtures")
+    source = tmp_path / f"{symbol}.cu"
+    cubin = tmp_path / f"{symbol}.cubin"
+    source.write_text(f'extern "C" __global__ void {symbol}() {{}}\n')
+    result = subprocess.run(
+        [nvcc, "--cubin", "-arch=sm_80", str(source), "-o", str(cubin)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"nvcc could not generate cubin fixture: {result.stderr or result.stdout}")
+    return cubin.read_bytes()
+
+
+def _require_cuobjdump():
+    try:
+        nvidia_compiler.knobs.nvidia.cuobjdump.path
+    except RuntimeError as exc:
+        pytest.skip(f"cuobjdump is required for native cubin validation tests: {exc}")
 
 
 def test_make_cubin_rejects_non_ptx_artifact():
@@ -173,6 +244,7 @@ def test_native_compile_helper_receives_parsed_capability_and_options(monkeypatc
     backend = _cuda_backend()
     options = backend.parse_options({})
     captured = {}
+    monkeypatch.setattr(nvidia_compiler, "_validate_native_cubin", lambda cubin, entry_name: None)
 
     class FakeNativeModule:
         def get_entry_func_name(self):
@@ -182,9 +254,9 @@ def test_native_compile_helper_receives_parsed_capability_and_options(monkeypatc
         captured["src"] = src
         captured["options"] = helper_options
         return {
-            "cubin": _fake_cubin_with_symbol(b"block_entry"),
+            "cubin": b"validated-cubin",
             "metadata": _native_metadata("block_entry"),
-            "asm": {"ntt_cu": "__global__ void block_entry() {}"},
+            "asm": {"ntt_cu": _native_entry_source("block_entry")},
             "compiler_log": "nvcc --gpu-architecture=sm_90a",
         }
 
@@ -207,7 +279,7 @@ def test_native_compile_helper_receives_parsed_capability_and_options(monkeypatc
 
 def test_native_compile_result_cache_artifacts_uses_truthful_stage_names():
     result = nvidia_compiler.NativeCudaCompilation(
-        cubin=_fake_cubin_with_symbol(b"block_entry"),
+        cubin=b"validated-cubin",
         metadata=_native_metadata("block_entry"),
         asm={
             "triton_tir": "triton module text",
@@ -229,7 +301,9 @@ def test_native_compile_result_cache_artifacts_uses_truthful_stage_names():
 def test_native_compile_result_supplies_cubin_and_metadata(monkeypatch):
     backend = _cuda_backend()
     options = backend.parse_options({})
-    metadata = {"name": "placeholder"}
+    metadata = {"name": "placeholder", **_runtime_metadata()}
+    cubin = b"validated-cubin"
+    monkeypatch.setattr(nvidia_compiler, "_validate_native_cubin", lambda cubin, entry_name: None)
 
     class FakeNativeModule:
         pass
@@ -238,9 +312,9 @@ def test_native_compile_result_supplies_cubin_and_metadata(monkeypatch):
         assert isinstance(src, FakeNativeModule)
         assert capability == 80
         return nvidia_compiler.NativeCudaCompilation(
-            cubin=_fake_cubin_with_symbol(),
+            cubin=cubin,
             metadata=_native_metadata(),
-            asm={"ntt_cu": "__global__ void native_entry() {}"},
+            asm={"ntt_cu": _native_entry_source()},
             compiler_log="nvcc --gpu-architecture=sm_80",
         )
 
@@ -250,7 +324,7 @@ def test_native_compile_result_supplies_cubin_and_metadata(monkeypatch):
     assert isinstance(result, nvidia_compiler.NativeCudaCompilation)
 
     cubin = backend.make_cubin(result, metadata, options, 80)
-    assert cubin == _fake_cubin_with_symbol()
+    assert cubin == b"validated-cubin"
     assert metadata["name"] == "native_entry"
     assert metadata["shared"] == 0
     assert metadata["num_warps"] == 4
@@ -269,12 +343,60 @@ def test_native_compile_result_rejects_malformed_cubin():
         })
 
 
+def test_native_compile_result_rejects_elf_like_non_cubin():
+    _require_cuobjdump()
+
+    with pytest.raises(ValueError, match="cuobjdump rejected"):
+        nvidia_compiler._normalize_native_cuda_compilation({
+            "cubin": _fake_cubin_with_symbol(),
+            "metadata": _native_metadata(),
+            "asm": {},
+        })
+
+
+def test_native_compile_result_accepts_real_cubin_with_entry(tmp_path):
+    _require_cuobjdump()
+    cubin = _compile_real_cubin(tmp_path, "native_entry")
+
+    result = nvidia_compiler._normalize_native_cuda_compilation({
+        "cubin": cubin,
+        "metadata": _native_metadata(),
+        "asm": {"ntt_cu": _native_entry_source()},
+    })
+
+    assert result.cubin == cubin
+
+
+def test_native_compile_result_rejects_real_cubin_missing_entry(tmp_path):
+    _require_cuobjdump()
+    cubin = _compile_real_cubin(tmp_path, "other_entry")
+
+    with pytest.raises(ValueError, match="does not contain entry symbol"):
+        nvidia_compiler._normalize_native_cuda_compilation({
+            "cubin": cubin,
+            "metadata": _native_metadata("native_entry"),
+            "asm": {"ntt_cu": _native_entry_source()},
+        })
+
+
+def test_native_compile_result_rejects_corrupted_real_cubin(tmp_path):
+    _require_cuobjdump()
+    cubin = _compile_real_cubin(tmp_path, "native_entry")
+
+    with pytest.raises(ValueError, match="cuobjdump rejected"):
+        nvidia_compiler._normalize_native_cuda_compilation({
+            "cubin": cubin[:80],
+            "metadata": _native_metadata(),
+            "asm": {"ntt_cu": _native_entry_source()},
+        })
+
+
 def test_native_compile_metadata_requires_abi_contract():
     metadata = {}
     result = nvidia_compiler.NativeCudaCompilation(
-        cubin=_fake_cubin_with_symbol(),
+        cubin=b"validated-cubin",
         metadata={"name": "native_entry"},
-        asm={},
+        asm={"ntt_cu": _native_entry_source()},
     )
 
     with pytest.raises(KeyError, match="flaglang_abi"):
@@ -282,16 +404,51 @@ def test_native_compile_metadata_requires_abi_contract():
 
 
 def test_native_compile_metadata_rejects_abi_entry_mismatch():
-    metadata = {}
+    metadata = _runtime_metadata()
     bad_metadata = _native_metadata("native_entry")
     bad_metadata["flaglang_abi"]["entry"] = "other_entry"
     result = nvidia_compiler.NativeCudaCompilation(
-        cubin=_fake_cubin_with_symbol(),
+        cubin=b"validated-cubin",
         metadata=bad_metadata,
-        asm={},
+        asm={"ntt_cu": _native_entry_source()},
     )
 
     with pytest.raises(ValueError, match="ABI entry"):
+        nvidia_compiler._apply_native_cuda_metadata(metadata, result, _cuda_backend().parse_options({}))
+
+
+def test_native_compile_metadata_accepts_matching_runtime_abi(monkeypatch):
+    metadata = _runtime_metadata()
+    result = nvidia_compiler.NativeCudaCompilation(
+        cubin=b"validated-cubin",
+        metadata=_native_metadata(),
+        asm={"ntt_cu": _native_entry_source()},
+    )
+
+    monkeypatch.setattr(nvidia_compiler, "_validate_native_cubin", lambda cubin, entry_name: None)
+    cubin = _cuda_backend().make_cubin(result, metadata, _cuda_backend().parse_options({}), 80)
+
+    assert cubin == b"validated-cubin"
+    assert metadata["flaglang_abi"]["argument_order"] == ["param_0", "param_1", "param_2", "param_3"]
+
+
+@pytest.mark.parametrize(
+    ("argument_order", "match"),
+    [
+        (["param_3", "param_2", "param_1", "param_0"], "raw_argument_order"),
+        (["param_0", "param_1", "param_2"], "runtime_argument_count"),
+        (["param_0", "param_1", "param_2", "param_3", "param_4"], "runtime_argument_count"),
+    ],
+)
+def test_native_compile_metadata_rejects_abi_argument_order_mismatch(argument_order, match):
+    metadata = _runtime_metadata()
+    result = nvidia_compiler.NativeCudaCompilation(
+        cubin=b"validated-cubin",
+        metadata=_native_metadata(argument_order=argument_order),
+        asm={"ntt_cu": _native_entry_source()},
+    )
+
+    with pytest.raises(ValueError, match=match):
         nvidia_compiler._apply_native_cuda_metadata(metadata, result, _cuda_backend().parse_options({}))
 
 
@@ -316,13 +473,14 @@ def test_add_stages_routes_parsed_capability_to_native_compile(monkeypatch):
     def fake_compile(src, metadata, opt, capability):
         captured["ptx_capability"] = capability
         return nvidia_compiler.NativeCudaCompilation(
-            cubin=_fake_cubin_with_symbol(),
+            cubin=b"validated-cubin",
             metadata=_native_metadata(),
-            asm={},
+            asm={"ntt_cu": _native_entry_source()},
         )
 
     monkeypatch.setattr(backend, "make_ttir", fake_make_ttir)
     monkeypatch.setattr(nvidia_compiler, "_compile_native_module_to_cubin", fake_compile)
+    monkeypatch.setattr(nvidia_compiler, "_validate_native_cubin", lambda cubin, entry_name: None)
 
     backend.add_stages(stages, options, Language.TRITON)
     stage = stages["ttir"](native_module, {})
@@ -398,6 +556,48 @@ def test_compiled_kernel_rejects_malformed_target_metadata(tmp_path):
         CompiledKernel(object(), {"kernel.json": metadata_path, "kernel.cubin": cubin_path}, "hash")
 
 
+def test_compiled_kernel_surfaces_cuda_driver_load_binary_failure(tmp_path, monkeypatch):
+    metadata_path = tmp_path / "kernel.json"
+    cubin_path = tmp_path / "kernel.cubin"
+    metadata = {
+        "target": {"backend": "cuda", "arch": 80, "warp_size": 32},
+        "name": "kernel",
+        "shared": 0,
+        "num_warps": 4,
+        "num_ctas": 1,
+        "cluster_dims": [1, 1, 1],
+        "tmem_size": 0,
+        "global_scratch_size": 0,
+        "global_scratch_align": 1,
+        "profile_scratch_size": 0,
+        "profile_scratch_align": 1,
+    }
+    metadata_path.write_text(json.dumps(metadata))
+    cubin_path.write_bytes(b"malformed-cubin")
+
+    class FailingUtils:
+        def get_device_properties(self, device):
+            return {"max_shared_mem": 1 << 20}
+
+        def load_binary(self, name, kernel, shared, device):
+            raise RuntimeError("driver rejected cubin")
+
+    class FailingDriver:
+        utils = FailingUtils()
+
+        def get_current_device(self):
+            return 0
+
+        def launcher_cls(self, src, metadata):
+            return lambda *args, **kwargs: None
+
+    monkeypatch.setattr(triton_compiler.driver, "_active", FailingDriver())
+    kernel = CompiledKernel(object(), {"kernel.json": metadata_path, "kernel.cubin": cubin_path}, "hash")
+
+    with pytest.raises(RuntimeError, match="driver rejected cubin"):
+        kernel._init_handles()
+
+
 def test_vector_add_cannot_fallback_to_direct_ptx_when_helper_is_missing(monkeypatch):
     torch = _torch_cuda()
     monkeypatch.setenv("TRITON_ALWAYS_COMPILE", "1")
@@ -430,3 +630,86 @@ def test_non_vector_add_named_add_kernel_is_rejected(monkeypatch):
             grid=(1, ),
             num_warps=4,
         )
+
+
+def _dump_file(dump_dir, suffix):
+    matches = sorted(Path(dump_dir).rglob(f"*.{suffix}"))
+    assert matches, f"missing dump artifact '*.{suffix}' under {dump_dir}"
+    return matches[-1]
+
+
+def _dump_text(dump_dir, suffix):
+    return _dump_file(dump_dir, suffix).read_text()
+
+
+def test_native_cuda_vector_add_forced_compile_dump_regression(tmp_path, monkeypatch):
+    torch = _torch_cuda()
+    dump_dir = tmp_path / "native-dump"
+    monkeypatch.setenv("TRITON_ALWAYS_COMPILE", "1")
+    monkeypatch.setenv("TRITON_KERNEL_DUMP", "1")
+    monkeypatch.setenv("TRITON_DUMP_DIR", str(dump_dir))
+
+    n_elements = 4096
+    block_size = 256
+    grid = (triton.cdiv(n_elements, block_size), )
+
+    def run_once():
+        _vector_add_kernel.device_caches.clear()
+        x = torch.arange(n_elements, device="cuda", dtype=torch.float32)
+        y = torch.arange(n_elements, device="cuda", dtype=torch.float32) * 2
+        output = torch.empty_like(x)
+        _vector_add_kernel[grid](x, y, output, n_elements, BLOCK_SIZE=block_size, num_warps=4)
+        torch.cuda.synchronize()
+        assert torch.max(torch.abs(output - (x + y))).item() == 0.0
+
+    run_once()
+    first_cubin = _dump_file(dump_dir, "cubin")
+    first_cubin_mtime = first_cubin.stat().st_mtime_ns
+
+    required_passes = [
+        "NativeCudaImportPass",
+        "TargetIndependentPass",
+        "TargetIndependentQuantPass",
+        "TargetDependentPass",
+        "QuantizePass",
+        "AutoVectorizePass",
+        "AutoPackingPass",
+        "AutoDistributedPass",
+        "TIRPass",
+        "TargetDependentBeforeCodeGen",
+    ]
+    pass_dump_text = _dump_text(dump_dir, "pass_dumps")
+    for pass_name in required_passes:
+        assert pass_name in pass_dump_text
+
+    native_stage_files = [
+        path for path in Path(dump_dir).rglob("*")
+        if path.is_file() and "CodeGen" not in path.parts
+    ]
+    for forbidden_suffix in (".ttir", ".ttgir", ".llir", ".ptx"):
+        assert not [path for path in native_stage_files if path.name.endswith(forbidden_suffix)]
+
+    triton_tir = _dump_text(dump_dir, "triton_tir")
+    nncase_ir = _dump_text(dump_dir, "nncase_ir")
+    after_compile = _dump_text(dump_dir, "after_compile")
+    tir = _dump_text(dump_dir, "tir")
+    ntt_cu = _dump_text(dump_dir, "ntt_cu")
+    compiler_cmd = _dump_text(dump_dir, "compiler_cmd")
+    cubin = _dump_file(dump_dir, "cubin").read_bytes()
+
+    for lowered_stage in (nncase_ir, after_compile, tir):
+        assert "Triton.Load" not in lowered_stage
+        assert "Triton.Store" not in lowered_stage
+        assert "IR.Triton.Load" not in lowered_stage
+        assert "IR.Triton.Store" not in lowered_stage
+
+    assert triton_tir != nncase_ir
+    assert "__global__" in ntt_cu
+    assert "flaglang_native_entry" in ntt_cu
+    assert "nvcc" in compiler_cmd or "clang" in compiler_cmd
+    assert cubin.startswith(b"\x7fELF")
+
+    time.sleep(0.1)
+    run_once()
+    second_cubin_mtime = _dump_file(dump_dir, "cubin").stat().st_mtime_ns
+    assert second_cubin_mtime > first_cubin_mtime

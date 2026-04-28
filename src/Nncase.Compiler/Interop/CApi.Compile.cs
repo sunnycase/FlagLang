@@ -13,6 +13,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Nncase.CodeGen.NTT;
 using Nncase.Diagnostics;
 using Nncase.Passes;
 using Nncase.Passes.Rules.Lower;
@@ -143,7 +144,7 @@ public static unsafe partial class CApi
         {
             ["name"] = "flaglang_native_entry",
             ["original_entry_name"] = request.EntryName,
-            ["flaglang_abi"] = DescribeNativeCudaAbi(nncaseModule, "flaglang_native_entry", request.EntryName),
+            ["flaglang_abi"] = DescribeNativeCudaAbi(compiledModule, "flaglang_native_entry", request),
             ["shared"] = 0,
             ["num_warps"] = request.NumWarps,
             ["num_ctas"] = request.NumCtas,
@@ -283,17 +284,56 @@ public static unsafe partial class CApi
         }
     }
 
-    private static Dictionary<string, object?> DescribeNativeCudaAbi(IR.IRModule module, string entryName, string originalEntryName)
+    private static Dictionary<string, object?> DescribeNativeCudaAbi(IR.IRModule module, string entryName, NativeCudaCompileRequest request)
     {
-        var entry = SelectEntryBaseFunction(module);
+        var entry = SelectNativeCudaEntryPrimFunction(module);
         var parameterOrder = GetFunctionParameterNames(entry);
+        var parameterTypes = GetFunctionParameterTypes(entry);
+        var rawParameterOrder = parameterOrder.Select(IR.IRHelpers.GetIdentityName).ToArray();
+        var rawParameterTypes = GetRawEntryParameterTypes(entry);
+        if (request.RuntimeArgumentOrder.Length != parameterOrder.Length ||
+            request.RuntimeArgumentTypes.Length != parameterOrder.Length)
+        {
+            throw new InvalidOperationException(
+                $"Native CUDA runtime ABI metadata has {request.RuntimeArgumentOrder.Length} names and {request.RuntimeArgumentTypes.Length} types, but compiled entry has {parameterOrder.Length} parameters.");
+        }
+
         return new Dictionary<string, object?>
         {
             ["entry"] = entryName,
-            ["wrapped_entry"] = originalEntryName,
+            ["wrapped_entry"] = request.EntryName,
+            ["argument_count"] = parameterOrder.Length,
             ["argument_order"] = parameterOrder,
+            ["argument_types"] = parameterTypes,
+            ["raw_argument_order"] = rawParameterOrder,
+            ["raw_argument_types"] = rawParameterTypes,
+            ["runtime_argument_count"] = request.RuntimeArgumentOrder.Length,
+            ["runtime_argument_order"] = request.RuntimeArgumentOrder,
+            ["runtime_argument_types"] = request.RuntimeArgumentTypes,
             ["wrapper"] = "triton_raw_args_to_thread_main",
         };
+    }
+
+    private static Nncase.TIR.PrimFunction SelectNativeCudaEntryPrimFunction(IR.IRModule module)
+    {
+        var entry = SelectEntryBaseFunction(module);
+        if (entry is Nncase.TIR.PrimFunction primFunction)
+        {
+            return primFunction;
+        }
+
+        if (entry is IR.PrimFunctionWrapper wrapper)
+        {
+            return wrapper.Target;
+        }
+
+        var primFunctions = module.Functions.ToArray()
+            .OfType<Nncase.TIR.PrimFunction>()
+            .Where(function => !function.Name.Contains("device_func", StringComparison.Ordinal))
+            .ToArray();
+        return primFunctions.Length == 1
+            ? primFunctions[0]
+            : throw new InvalidOperationException($"Native CUDA compilation expected one compiled entry PrimFunction, got {primFunctions.Length}.");
     }
 
     private static string[] GetFunctionParameterNames(IR.BaseFunction? function)
@@ -308,6 +348,27 @@ public static unsafe partial class CApi
         };
     }
 
+    private static string[] GetFunctionParameterTypes(Nncase.TIR.PrimFunction function) =>
+        function.Parameters.ToArray().Select(p => p.CheckedDataType.ToString()).ToArray();
+
+    private static string[] GetRawEntryParameterTypes(Nncase.TIR.PrimFunction function) =>
+        function.Parameters.ToArray().Select(RawEntryParamType).ToArray();
+
+    private static string RawEntryParamType(IR.IVar input)
+    {
+        if (input.CheckedDataType is PointerType pointerType)
+        {
+            return $"{pointerType.ElemType.ToC()} *";
+        }
+
+        if (input.CheckedDataType is PrimType)
+        {
+            return input.CheckedDataType.ToC();
+        }
+
+        return "std::byte *";
+    }
+
     private static void ValidateGeneratedCubin(string cubinPath, byte[] cubin, string entryName)
     {
         if (cubin.Length < 64 ||
@@ -319,21 +380,16 @@ public static unsafe partial class CApi
             throw new InvalidDataException($"CUDA codegen produced a non-ELF cubin artifact: {cubinPath}");
         }
 
-        if (!CubinContainsEntrySymbol(cubinPath, cubin, entryName))
+        if (!CubinContainsEntrySymbol(cubinPath, entryName))
         {
             throw new InvalidDataException($"Generated cubin does not contain entry symbol '{entryName}': {cubinPath}");
         }
     }
 
-    private static bool CubinContainsEntrySymbol(string cubinPath, byte[] cubin, string entryName)
+    private static bool CubinContainsEntrySymbol(string cubinPath, string entryName)
     {
         var cuobjdump = TryRunProcess("cuobjdump", "--dump-elf", cubinPath);
-        if (!string.IsNullOrWhiteSpace(cuobjdump))
-        {
-            return cuobjdump.Contains(entryName, StringComparison.Ordinal);
-        }
-
-        return Encoding.UTF8.GetString(cubin).Contains(entryName, StringComparison.Ordinal);
+        return !string.IsNullOrWhiteSpace(cuobjdump) && cuobjdump.Contains(entryName, StringComparison.Ordinal);
     }
 
     private static IReadOnlyList<string> CollectPassDumpNames(string dumpDir)
@@ -449,6 +505,8 @@ public static unsafe partial class CApi
         int ThreadsPerCta,
         string DumpDir,
         string CudaCompiler,
+        string[] RuntimeArgumentOrder,
+        string[] RuntimeArgumentTypes,
         bool EnableAutoDist)
     {
         public static NativeCudaCompileRequest Parse(string json)
@@ -475,6 +533,8 @@ public static unsafe partial class CApi
                 ThreadsPerCta: threadsPerCta,
                 DumpDir: dumpDir,
                 CudaCompiler: GetString(root, "cuda_compiler", Environment.GetEnvironmentVariable("NNCASE_CUDA_COMPILER") ?? "nvcc"),
+                RuntimeArgumentOrder: GetStringArray(root, "runtime_argument_order", Array.Empty<string>()),
+                RuntimeArgumentTypes: GetStringArray(root, "runtime_argument_types", Array.Empty<string>()),
                 EnableAutoDist: GetBool(root, "enable_auto_dist", false));
         }
 
@@ -495,6 +555,20 @@ public static unsafe partial class CApi
             }
 
             return value.EnumerateArray().Where(item => item.TryGetInt32(out _)).Select(item => item.GetInt32()).ToArray();
+        }
+
+        private static string[] GetStringArray(JsonElement root, string name, string[] fallback)
+        {
+            if (!root.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
+            {
+                return fallback;
+            }
+
+            return value.EnumerateArray()
+                .Where(item => item.ValueKind == JsonValueKind.String)
+                .Select(item => item.GetString() ?? string.Empty)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToArray();
         }
     }
 }
