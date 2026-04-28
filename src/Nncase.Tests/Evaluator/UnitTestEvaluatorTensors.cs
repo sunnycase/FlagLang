@@ -714,6 +714,18 @@ public class UnitTestEvaluatorTensors : TestClassBase
     }
 
     [Fact]
+    public void TestUnpackPreservesRemainingVectorLanes()
+    {
+        var inputType = new VectorType(DataTypes.Float32, [2, 3, 4]);
+
+        var partial = Assert.IsType<VectorType>(UnpackEvaluator.GetPostUnpackElementType(inputType, 1));
+        Assert.Equal(DataTypes.Float32, partial.ElemType);
+        Assert.Equal(new[] { 3, 4 }, partial.Lanes.ToArray());
+
+        Assert.Equal(DataTypes.Float32, UnpackEvaluator.GetPostUnpackElementType(inputType, 3));
+    }
+
+    [Fact]
     public void TestReverseSequence()
     {
         var shape = new long[] { 4, 4 };

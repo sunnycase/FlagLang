@@ -24,22 +24,15 @@ public sealed class UnpackEvaluator : ITypeInferencer<Unpack>, ICostEvaluator<Un
             return input;
         }
 
-        var (oldLanesCount, basicElemType) = input.ElementType switch
+        var oldLanesCount = input.ElementType switch
         {
-            VectorType vt2 => (vt2.Lanes.Count, vt2.ElemType),
-            MaskVectorType => (1, DataTypes.Boolean),
+            VectorType vt2 => vt2.Lanes.Count,
+            MaskVectorType => 1,
             _ => throw new InvalidOperationException($"Unsupported input type: {input.ElementType}"),
         };
 
-        var remainLanes = oldLanesCount - axes.Count;
-
         var preType = input.ElementType.Legalize((DataTypes.Float8E4M3, DataTypes.UInt8), (DataTypes.Float8E5M2, DataTypes.UInt8));
-        var postType = remainLanes switch
-        {
-            0 => basicElemType,
-            > 0 when input.ElementType is VectorType vt => new VectorType(basicElemType, vt.Lanes.Skip(remainLanes).ToArray()),
-            _ => throw new InvalidOperationException($"Unsupported remain lanes: {remainLanes}"),
-        };
+        var postType = GetPostUnpackElementType(input.ElementType, axes.Count);
 
         return input.ToOrtTensor(preType).Unpack(oldLanesCount, axes).ToTensor(postType);
     }
@@ -84,6 +77,24 @@ public sealed class UnpackEvaluator : ITypeInferencer<Unpack>, ICostEvaluator<Un
         return new()
         {
             [MetricFactorNames.OffChipMemoryTraffic] = CostUtility.GetMemoryAccess(returnType) * 2,
+        };
+    }
+
+    internal static DataType GetPostUnpackElementType(DataType inputElementType, int consumedLanes)
+    {
+        var (oldLanesCount, basicElemType) = inputElementType switch
+        {
+            VectorType vt2 => (vt2.Lanes.Count, vt2.ElemType),
+            MaskVectorType => (1, DataTypes.Boolean),
+            _ => throw new InvalidOperationException($"Unsupported input type: {inputElementType}"),
+        };
+
+        var remainLanes = oldLanesCount - consumedLanes;
+        return remainLanes switch
+        {
+            0 => basicElemType,
+            > 0 when inputElementType is VectorType vt => new VectorType(basicElemType, vt.Lanes.Skip(consumedLanes).ToArray()),
+            _ => throw new InvalidOperationException($"Unsupported remain lanes: {remainLanes}"),
         };
     }
 
