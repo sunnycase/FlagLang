@@ -479,12 +479,15 @@ def _raise_error(err, *args, **kwargs):
     raise copy.deepcopy(err)
 
 
-_REQUIRED_KERNEL_METADATA_FIELDS = (
+_COMMON_REQUIRED_KERNEL_METADATA_FIELDS = (
     "name",
     "shared",
     "num_warps",
     "num_ctas",
     "cluster_dims",
+)
+
+_CUDA_REQUIRED_KERNEL_METADATA_FIELDS = (
     "tmem_size",
     "global_scratch_size",
     "global_scratch_align",
@@ -495,7 +498,17 @@ _REQUIRED_KERNEL_METADATA_FIELDS = (
 
 def _load_kernel_metadata(metadata_path):
     metadata = json.loads(metadata_path.read_text())
-    missing = [field for field in _REQUIRED_KERNEL_METADATA_FIELDS if field not in metadata]
+
+    target = metadata.get("target")
+    if not isinstance(target, dict) or not {"backend", "arch", "warp_size"}.issubset(target):
+        raise KeyError("Compiled kernel metadata missing target backend/arch/warp_size fields")
+    target = GPUTarget(target["backend"], target["arch"], target["warp_size"])
+
+    required_fields = list(_COMMON_REQUIRED_KERNEL_METADATA_FIELDS)
+    if target.backend == "cuda":
+        required_fields.extend(_CUDA_REQUIRED_KERNEL_METADATA_FIELDS)
+
+    missing = [field for field in required_fields if field not in metadata]
     if missing:
         raise KeyError(f"Compiled kernel metadata missing required fields: {', '.join(missing)}")
 
@@ -504,10 +517,7 @@ def _load_kernel_metadata(metadata_path):
         raise ValueError("Compiled kernel metadata field 'cluster_dims' must contain three dimensions")
     metadata["cluster_dims"] = tuple(cluster_dims)
 
-    target = metadata.get("target")
-    if not isinstance(target, dict) or not {"backend", "arch", "warp_size"}.issubset(target):
-        raise KeyError("Compiled kernel metadata missing target backend/arch/warp_size fields")
-    metadata["target"] = GPUTarget(target["backend"], target["arch"], target["warp_size"])
+    metadata["target"] = target
     return metadata
 
 

@@ -625,6 +625,36 @@ def test_compiled_kernel_rejects_malformed_target_metadata(tmp_path):
         CompiledKernel(object(), {"kernel.json": metadata_path, "kernel.cubin": cubin_path}, "hash")
 
 
+def test_compiled_kernel_does_not_require_cuda_metadata_for_other_backends(tmp_path, monkeypatch):
+    metadata_path = tmp_path / "kernel.json"
+    hsaco_path = tmp_path / "kernel.hsaco"
+    metadata = {
+        "target": {"backend": "hip", "arch": "gfx90a", "warp_size": 64},
+        "name": "kernel",
+        "shared": 0,
+        "num_warps": 4,
+        "num_ctas": 1,
+        "cluster_dims": [1, 1, 1],
+    }
+    metadata_path.write_text(json.dumps(metadata))
+    hsaco_path.write_bytes(b"not-a-real-hsaco")
+
+    class FakeBackend:
+        binary_ext = "hsaco"
+
+        def pack_metadata(self, metadata):
+            assert metadata.target.backend == "hip"
+            assert not hasattr(metadata, "tmem_size")
+            assert not hasattr(metadata, "global_scratch_size")
+            return ("packed", )
+
+    monkeypatch.setattr(triton_compiler, "make_backend", lambda target: FakeBackend())
+    kernel = CompiledKernel(object(), {"kernel.json": metadata_path, "kernel.hsaco": hsaco_path}, "hash")
+
+    assert kernel.metadata.target.backend == "hip"
+    assert kernel.packed_metadata == ("packed", )
+
+
 def test_compiled_kernel_surfaces_cuda_driver_load_binary_failure(tmp_path, monkeypatch):
     metadata_path = tmp_path / "kernel.json"
     cubin_path = tmp_path / "kernel.cubin"
