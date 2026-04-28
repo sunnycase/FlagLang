@@ -434,8 +434,11 @@ class CompiledKernel:
         if self.metadata.shared > max_shared:
             raise OutOfResources(self.metadata.shared, max_shared, "shared memory")
         # TODO: n_regs, n_spills should be metadata generated when calling `ptxas`
-        self.module, self.function, self.n_regs, self.n_spills = driver.active.utils.load_binary(
+        self.module, self.function, self.n_regs, self.n_spills, self.n_max_threads = driver.active.utils.load_binary(
             self.name, self.kernel, self.metadata.shared, device)
+        warp_size = driver.active.get_current_target().warp_size
+        if self.metadata.num_warps * warp_size > self.n_max_threads:
+            raise OutOfResources(self.metadata.num_warps * warp_size, self.n_max_threads, "threads")
 
         self.cu_function = self.function
 

@@ -420,12 +420,18 @@ class CompiledKernel:
         # TODO: n_regs, n_spills should be metadata generated when calling `ptxas`
         # ===-------------------- For Triton XPU -----------------------===
         if (self.metadata.backend_name == 'xpu'):
-            self.module, self.function, self.n_regs, self.n_spills = driver.active.utils.load_binary(
+            self.module, self.function, self.n_regs, self.n_spills, self.n_max_threads = driver.active.utils.load_binary(
                 self.name, self.kernel, self.metadata.printf_buf_offset)
+            warp_size = driver.active.get_current_target().warp_size
+            if self.metadata.num_warps * warp_size > self.n_max_threads:
+                raise OutOfResources(self.metadata.num_warps * warp_size, self.n_max_threads, "threads")
             return
         # ===-----------------------------------------------------------===
-        self.module, self.function, self.n_regs, self.n_spills = driver.active.utils.load_binary(
+        self.module, self.function, self.n_regs, self.n_spills, self.n_max_threads = driver.active.utils.load_binary(
             self.name, self.kernel, self.metadata.shared, device)
+        warp_size = driver.active.get_current_target().warp_size
+        if self.metadata.num_warps * warp_size > self.n_max_threads:
+            raise OutOfResources(self.metadata.num_warps * warp_size, self.n_max_threads, "threads")
 
     def __getattribute__(self, name):
         if name == 'run':

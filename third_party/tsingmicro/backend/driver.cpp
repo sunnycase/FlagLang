@@ -18,18 +18,22 @@
 #include <stdlib.h>
 #include <string.h>
 
+static const int32_t TX81_MAX_THREADS_PER_BLOCK = 256;
+
 static PyObject *getDeviceProperties(PyObject *self, PyObject *args) {
   // Extract device properties
   // Note: We're mapping Tx81 properties to fields expected by Triton
   int max_shared_mem = 1024 * 1024 * 3; // Default 3MB
+  int max_threads_per_block = TX81_MAX_THREADS_PER_BLOCK;
   // int multiprocessor_count = device->tile_num;
   int multiprocessor_count = 1;
   int sm_clock_rate = 1000;  // Placeholder
   int mem_clock_rate = 2000; // Placeholder
   int mem_bus_width = 256;   // Placeholder
 
-  return Py_BuildValue("{s:i, s:i, s:i, s:i, s:i}", "max_shared_mem",
-                       max_shared_mem, "multiprocessor_count",
+  return Py_BuildValue("{s:i, s:i, s:i, s:i, s:i, s:i}", "max_shared_mem",
+                       max_shared_mem, "max_threads_per_block",
+                       max_threads_per_block, "multiprocessor_count",
                        multiprocessor_count, "sm_clock_rate", sm_clock_rate,
                        "mem_clock_rate", mem_clock_rate, "mem_bus_width",
                        mem_bus_width);
@@ -44,9 +48,10 @@ static PyObject *loadBinary(PyObject *self, PyObject *args) {
 
   int32_t n_regs = 256;
   int32_t n_spills = 0;
-  // Return values to Python including module, function, n_regs, n_spills
-  return Py_BuildValue("(KKii)", "module {}", "void @add_kernel() {}", n_regs,
-                       n_spills);
+  int32_t n_max_threads = TX81_MAX_THREADS_PER_BLOCK;
+  return Py_BuildValue("(KKiii)", (uint64_t)"module {}",
+                       (uint64_t)"void @add_kernel() {}", n_regs, n_spills,
+                       n_max_threads);
 }
 
 static PyMethodDef ModuleMethods[] = {

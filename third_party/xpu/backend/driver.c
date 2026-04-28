@@ -7,6 +7,8 @@
 #define PY_SSIZE_T_CLEAN // control type size
 #include <Python.h>
 
+static const int32_t XPU_MAX_THREADS_PER_BLOCK = 64;
+
 static inline void xpuAssert(int code, const char *file, int line,
                              const char *call) {
   if (code != XPU_SUCCESS) {
@@ -136,8 +138,9 @@ static PyObject *loadBinary(PyObject *self, PyObject *args) {
   const void *mod = static_cast<const void *>(data);
   int32_t n_regs = 0;
   int32_t n_spills = 0;
-  return Py_BuildValue("(KKii)", (uint64_t)mod, (uint64_t)pfunc, n_regs,
-                       n_spills);
+  int32_t n_max_threads = XPU_MAX_THREADS_PER_BLOCK;
+  return Py_BuildValue("(KKiii)", (uint64_t)mod, (uint64_t)pfunc, n_regs,
+                       n_spills, n_max_threads);
 }
 
 static PyObject *getDeviceProperties(PyObject *self, PyObject *args) {
@@ -148,6 +151,7 @@ static PyObject *getDeviceProperties(PyObject *self, PyObject *args) {
   // create a struct to hold device properties
   int max_shared_mem = 256 * 1024; // 256K for XPU2
   int max_num_regs = 0;
+  int max_threads_per_block = XPU_MAX_THREADS_PER_BLOCK;
   int warp_size = 1;
   int sm_clock_rate = 0;
   int mem_clock_rate = 0;
@@ -158,12 +162,13 @@ static PyObject *getDeviceProperties(PyObject *self, PyObject *args) {
   XPU_CHECK(xpu_device_get_attr(&num_cluster, XPUATTR_NUM_CLUSTER, device_id));
   multiprocessor_count = num_cluster;
 
-  return Py_BuildValue("{s:i, s:i, s:i, s:i, s:i, s:i, s:i}", "max_shared_mem",
-                       max_shared_mem, "max_num_regs", max_num_regs,
-                       "multiprocessor_count", multiprocessor_count, "warpSize",
-                       warp_size, "sm_clock_rate", sm_clock_rate,
-                       "mem_clock_rate", mem_clock_rate, "mem_bus_width",
-                       mem_bus_width);
+  return Py_BuildValue("{s:i, s:i, s:i, s:i, s:i, s:i, s:i, s:i}",
+                       "max_shared_mem", max_shared_mem, "max_num_regs",
+                       max_num_regs, "max_threads_per_block",
+                       max_threads_per_block, "multiprocessor_count",
+                       multiprocessor_count, "warpSize", warp_size,
+                       "sm_clock_rate", sm_clock_rate, "mem_clock_rate",
+                       mem_clock_rate, "mem_bus_width", mem_bus_width);
 }
 
 static PyMethodDef ModuleMethods[] = {

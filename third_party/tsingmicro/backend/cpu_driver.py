@@ -347,7 +347,8 @@ class CPUUtils(object):
         return (None,  # module
                 kernel_asm,  # function
                 None,  # n_regs
-                None  # n_spills
+                None,  # n_spills
+                0  # n_max_threads
                 )
 
 

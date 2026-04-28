@@ -103,6 +103,7 @@ static PyObject *loadBinary(PyObject *self, PyObject *args) {
   MUmodule mod;
   int32_t n_regs = 0;
   int32_t n_spills = 0;
+  int32_t n_max_threads = 0;
   // create driver handles
   MUcontext pctx = 0;
 
@@ -124,6 +125,8 @@ static PyObject *loadBinary(PyObject *self, PyObject *args) {
   MUSA_CHECK_AND_RETURN_NULL_ALLOW_THREADS(
       muFuncGetAttribute(&n_spills, MU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES, fun));
   n_spills /= 4;
+  MUSA_CHECK_AND_RETURN_NULL_ALLOW_THREADS(muDeviceGetAttribute(
+      &n_max_threads, MU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, device));
   // set dynamic shared memory if necessary
   int shared_optin;
   MUSA_CHECK_AND_RETURN_NULL_ALLOW_THREADS(muDeviceGetAttribute(
@@ -148,8 +151,8 @@ static PyObject *loadBinary(PyObject *self, PyObject *args) {
   if (PyErr_Occurred()) {
     return NULL;
   }
-  return Py_BuildValue("(KKii)", (uint64_t)mod, (uint64_t)fun, n_regs,
-                       n_spills);
+  return Py_BuildValue("(KKiii)", (uint64_t)mod, (uint64_t)fun, n_regs,
+                       n_spills, n_max_threads);
 }
 
 static PyMethodDef ModuleMethods[] = {

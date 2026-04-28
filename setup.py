@@ -591,6 +591,23 @@ else:
 # backends = [*BackendInstaller.copy(["nvidia", "amd"]), *BackendInstaller.copy_externals()]
 
 
+def get_flagtree_language_extra_packages():
+    extra_name_by_backend = {
+        "mthreads": "musa",
+        "xpu": "xpu",
+    }
+    extra_name = extra_name_by_backend.get(helper.flagtree_backend)
+    if extra_name is None:
+        return
+
+    package = f"triton.language.extra.{extra_name}"
+    package_dir = os.path.join(
+        "third_party", helper.flagtree_backend, "python", "triton", "language", "extra", extra_name)
+    if not os.path.isdir(package_dir):
+        raise RuntimeError(f"{package} package directory does not exist: {package_dir}")
+    yield package, package_dir
+
+
 def get_package_dirs():
     yield ("", "python")
 
@@ -617,6 +634,8 @@ def get_package_dirs():
         yield ("triton.profiler", "third_party/proton/proton")
         yield ("triton.profiler.hooks", "third_party/proton/proton/hooks")
 
+    yield from get_flagtree_language_extra_packages()
+
 
 def get_packages():
     yield from find_packages(where="python")
@@ -636,10 +655,8 @@ def get_packages():
             for x in os.listdir(backend.tools_dir):
                 yield f"triton.tools.extra.{x}"
 
-    if helper.flagtree_backend == "xpu":
-        yield f"triton.language.extra.xpu"
-    elif helper.flagtree_backend == "mthreads":
-        yield f"triton/language/extra/musa"
+    for package, _ in get_flagtree_language_extra_packages():
+        yield package
 
     if check_env_flag("TRITON_BUILD_PROTON", "ON"):  # Default ON
         yield "triton.profiler"

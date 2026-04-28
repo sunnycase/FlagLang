@@ -13,10 +13,11 @@ static PyObject *loadBinary(PyObject *self, PyObject *args) {
   // get allocated registers and spilled registers from the function
   int n_regs = 0;
   int n_spills = 0;
+  int n_max_threads = 1024;
   int mod = 0;
   int fun = 0;
-  return Py_BuildValue("(KKii)", (uint64_t)mod, (uint64_t)fun, n_regs,
-                       n_spills);
+  return Py_BuildValue("(KKiii)", (uint64_t)mod, (uint64_t)fun, n_regs,
+                       n_spills, n_max_threads);
 }
 
 static PyMethodDef ModuleMethods[] = {
