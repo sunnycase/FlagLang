@@ -45,6 +45,7 @@ runs:
         CURRENT_WORKFLOW=$(echo "$WORKFLOW_REF" | sed 's/.*\/\(\.github\/workflows\/[^@]*\)@.*/\1/')
         echo "Current workflow file: $CURRENT_WORKFLOW"
 
+        FORCE_BUILD=false
         if [ "${{ github.event_name }}" == "pull_request" ]; then
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
           HEAD_SHA="${{ github.sha }}"
@@ -55,7 +56,11 @@ runs:
           BEFORE_SHA="${{ github.event.before }}"
           HEAD_SHA="${{ github.sha }}"
           ensure_commit "$HEAD_SHA"
-          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+          if [ -z "$BEFORE_SHA" ]; then
+            echo "No before SHA for ${{ github.event_name }} event, need to run build/test"
+            FORCE_BUILD=true
+            FILES=""
+          elif [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
             FILES=$(git diff-tree --no-commit-id --name-only -r "$HEAD_SHA")
           else
             ensure_commit "$BEFORE_SHA"
@@ -64,7 +69,9 @@ runs:
         fi
 
         ONLY_DOCS_CHANGED=true
-        if [ -z "$FILES" ]; then
+        if [ "$FORCE_BUILD" == "true" ]; then
+          ONLY_DOCS_CHANGED=false
+        elif [ -z "$FILES" ]; then
           echo "No files changed"
           ONLY_DOCS_CHANGED=false
         else

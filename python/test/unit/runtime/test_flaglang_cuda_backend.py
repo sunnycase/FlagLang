@@ -41,6 +41,12 @@ def add_kernel(x_ptr, y_ptr, output_ptr, n_elements, BLOCK_SIZE: tl.constexpr):
     tl.store(output_ptr + offsets, output, mask=mask)
 
 
+@triton.jit
+def _unmasked_store_kernel(output_ptr, BLOCK_SIZE: tl.constexpr):
+    offsets = tl.arange(0, BLOCK_SIZE)
+    tl.store(output_ptr + offsets, offsets)
+
+
 def _cuda_backend():
     return backends["nvidia"].compiler(GPUTarget("cuda", 80, 32))
 
@@ -741,6 +747,20 @@ def test_non_vector_add_named_add_kernel_is_rejected(monkeypatch):
             MockTensor(torch.float32),
             MockTensor(torch.float32),
             128,
+            BLOCK_SIZE=128,
+            grid=(1, ),
+            num_warps=4,
+        )
+
+
+def test_unmasked_store_frontend_reaches_native_compile_helper(monkeypatch):
+    torch = _torch_cuda()
+    monkeypatch.setenv("TRITON_ALWAYS_COMPILE", "1")
+    monkeypatch.setattr(nvidia_compiler.ir, "compile_to_cubin", None, raising=False)
+
+    with pytest.raises(RuntimeError, match="native CUDA compile helper is unavailable"):
+        _unmasked_store_kernel.warmup(
+            MockTensor(torch.int32),
             BLOCK_SIZE=128,
             grid=(1, ),
             num_warps=4,

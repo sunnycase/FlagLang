@@ -894,6 +894,14 @@ void nncase::init_triton_ir(py::module &&m) {
                  return self.insert_expr(clr::ir_builder::triton::load(
                      ptr, mask, other, cache_modifier, eviction_policy));
              })
+        .def("create_store",
+             [](triton_op_builder &self, clr::expr ptr, clr::expr value,
+                nncase_cache_modifier_t cache_modifier,
+                nncase_eviction_policy_t eviction_policy) {
+                 return self.insert_expr(clr::ir_builder::triton::store(
+                     ptr, value, std::nullopt, cache_modifier,
+                     eviction_policy));
+             })
         .def("create_masked_store",
              [](triton_op_builder &self, clr::expr ptr, clr::expr value,
                 clr::expr mask, nncase_cache_modifier_t cache_modifier,

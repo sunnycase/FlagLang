@@ -103,3 +103,36 @@ def test_native_ir_builder_vector_add_surface():
     _, module = _build_vector_add_module()
 
     assert module.verify_with_diagnostics()
+
+
+def test_native_ir_builder_unmasked_store_surface():
+    session = ir.compile_session(ir.target("cuda"), ir.compile_options())
+    builder = ir.builder(session)
+
+    module = builder.create_module()
+    f32 = builder.get_float_ty()
+    i32 = builder.get_int32_ty()
+    ptr_f32 = builder.get_ptr_ty(f32)
+    block_i32 = builder.get_block_ty(i32, [8])
+    block_f32 = builder.get_block_ty(f32, [8])
+    fn_ty = builder.get_function_ty([ptr_f32], [])
+    fn = builder.get_or_insert_function(module, "store_kernel", fn_ty, "public", False)
+
+    entry = fn.add_entry_block()
+    builder.set_insertion_point_to_end(entry)
+    output_arg = fn.args(0)
+    offsets = builder.create_make_range(block_i32, 0, 8)
+    output_ptrs = builder.create_addptr(output_arg, offsets)
+    value = builder.create_splat(block_f32, builder.get_fp32(1.0))
+    builder.create_store(
+        output_ptrs,
+        value,
+        ir.CACHE_MODIFIER.NONE,
+        ir.EVICTION_POLICY.NORMAL,
+    )
+    builder.ret([])
+
+    fn.finalize()
+    module.push_back(fn)
+
+    assert module.verify_with_diagnostics()
