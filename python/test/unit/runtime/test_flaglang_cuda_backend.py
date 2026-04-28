@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -178,6 +179,54 @@ def test_make_cubin_rejects_non_ptx_artifact():
 
     with pytest.raises(TypeError, match="expected PTX text or native CUDA compilation result"):
         backend.make_cubin(object(), {}, options, 80)
+
+
+def test_make_cubin_populates_metadata_for_ptx_text(monkeypatch):
+    backend = _cuda_backend()
+    options = backend.parse_options({})
+    metadata = {"name": "stale_entry", **_runtime_metadata()}
+    cubin = _fake_cubin_with_symbol(b"ptx_entry")
+    ptx = """
+.version 8.0
+.target sm_80
+.address_size 64
+
+.visible .entry ptx_entry(
+    .param .u64 ptx_entry_param_0
+)
+{
+    ret;
+}
+"""
+
+    def fake_run(cmd, check, close_fds, stderr):
+        assert check is True
+        assert close_fds is False
+        Path(cmd[cmd.index("-o") + 1]).write_bytes(cubin)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(nvidia_compiler, "get_ptxas", lambda: SimpleNamespace(path="ptxas"))
+    monkeypatch.setattr(nvidia_compiler.subprocess, "run", fake_run)
+
+    assert backend.make_cubin(ptx, metadata, options, 80) == cubin
+    assert metadata["name"] == "ptx_entry"
+    assert metadata["shared"] == 0
+    assert metadata["tmem_size"] == 0
+    assert metadata["global_scratch_size"] == 0
+    assert metadata["global_scratch_align"] == 1
+    assert metadata["profile_scratch_size"] == 0
+    assert metadata["profile_scratch_align"] == 1
+    assert metadata["num_warps"] == options.num_warps
+    assert metadata["num_ctas"] == options.num_ctas
+    assert metadata["cluster_dims"] == (1, 1, 1)
+
+
+def test_make_cubin_rejects_ptx_text_without_single_entry():
+    backend = _cuda_backend()
+    options = backend.parse_options({})
+
+    with pytest.raises(ValueError, match="exactly one launchable \\.entry symbol"):
+        backend.make_cubin(".visible .func helper() { ret; }", {}, options, 80)
 
 
 def test_direct_vector_add_ptx_emitter_is_not_available():

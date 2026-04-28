@@ -127,7 +127,7 @@ internal sealed class LinkableModule : ILinkableModule
         {
             using (var writer = new StreamWriter(fs))
             {
-                writer.Write(CSourceBuiltn.TopoAwareRuntimeDef(_targetOptions, alignment, collectivePoolSize));
+                writer.Write(CSourceBuiltn.TopoAwareRuntimeDef(_targetOptions, alignment, collectivePoolSize, isCUDA: _moduleKind == CUDATarget.Kind));
             }
         }
     }

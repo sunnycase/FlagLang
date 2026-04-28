@@ -125,6 +125,14 @@ def _initialize_cuda_kernel_metadata(metadata, name, opt):
     metadata["profile_scratch_align"] = 1
 
 
+def _extract_ptx_entry_name(src):
+    names = re.findall(r"^\s*\.(?:visible|extern)\s+\.entry\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", src,
+                       flags=re.MULTILINE)
+    if len(names) != 1:
+        raise ValueError(f"PTX text must contain exactly one launchable .entry symbol, found {len(names)}.")
+    return names[0]
+
+
 @dataclass(frozen=True)
 class NativeCudaIRStage:
     module: Any
@@ -818,6 +826,8 @@ class CUDABackend(BaseBackend):
 
         if not isinstance(src, str):
             raise TypeError(f"make_cubin expected PTX text or native CUDA compilation result, got {type(src).__name__}")
+
+        _initialize_cuda_kernel_metadata(metadata, _extract_ptx_entry_name(src), opt)
 
         ptxas = get_ptxas().path
         with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.ptx') as fsrc, \

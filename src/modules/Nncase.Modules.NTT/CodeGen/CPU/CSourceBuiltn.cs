@@ -32,7 +32,7 @@ public record KernelMainModel(TIR.PrimFunction PrimFunction, NTTTargetOptions Op
     }
 }
 
-public record NTTTargetOptionsModel(NTTTargetOptions Options, ulong Alignment, ulong CollectivePoolSize)
+public record NTTTargetOptionsModel(NTTTargetOptions Options, ulong Alignment, ulong CollectivePoolSize, bool IsCUDA)
 {
 }
 
@@ -75,9 +75,9 @@ using namespace nncase::ntt::distributed::shard_policy;
 
 ";
 
-    public static string TopoAwareRuntimeDef(NTTTargetOptions options, ulong dataAlign, ulong collective_pool_size)
+    public static string TopoAwareRuntimeDef(NTTTargetOptions options, ulong dataAlign, ulong collective_pool_size, bool isCUDA)
     {
-        var content = RazorTemplateEngine.RenderAsync("~/CodeGen/CPU/Templates/topo_aware_runtime.cshtml", new NTTTargetOptionsModel(options, dataAlign, collective_pool_size)).Result;
+        var content = RazorTemplateEngine.RenderAsync("~/CodeGen/CPU/Templates/topo_aware_runtime.cshtml", new NTTTargetOptionsModel(options, dataAlign, collective_pool_size, isCUDA)).Result;
         return content;
     }
 

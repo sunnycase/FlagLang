@@ -165,8 +165,29 @@ std::string convert_mlir_type(std::string type_text) {
     return type_text;
 }
 
+bool has_enabled_tma_descriptor_attr(const std::string &arg_text) {
+    std::smatch match;
+    static const std::regex attr_pattern(
+        R"(tt\.nv_tma_desc\s*=\s*([^,:}]+))");
+    if (!std::regex_search(arg_text, match, attr_pattern)) {
+        return false;
+    }
+
+    const auto value = trim(match[1].str());
+    if (value == "1" || value == "true") {
+        return true;
+    }
+
+    if (value == "0" || value == "false") {
+        return false;
+    }
+
+    throw std::runtime_error("Unsupported tt.nv_tma_desc attribute value: " +
+                             value);
+}
+
 std::string convert_mlir_argument_type(const std::string &arg_text) {
-    if (arg_text.find("tt.nv_tma_desc") != std::string::npos) {
+    if (has_enabled_tma_descriptor_attr(arg_text)) {
         return "nvTmaDesc";
     }
 
