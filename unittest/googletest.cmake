@@ -15,8 +15,8 @@ FetchContent_Declare(
 FetchContent_GetProperties(googletest)
 
 if(NOT googletest_POPULATED)
-  FetchContent_MakeAvailable(googletest)
   if (MSVC)
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   endif()
+  FetchContent_MakeAvailable(googletest)
 endif()

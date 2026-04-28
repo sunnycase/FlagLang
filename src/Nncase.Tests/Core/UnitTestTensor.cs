@@ -221,6 +221,11 @@ public sealed class UnitTestTensor
         Assert.Equal(new long[] { 2, 2 }, genericHalfOnes.Dimensions.ToArray());
         Assert.Equal(new Half[] { Half.One, Half.One, Half.One, Half.One }, genericHalfOnes.ToArray<Half>());
 
+        var genericFloat8Ones = Tensor.Ones<Float8E4M3>([2, 2]);
+        Assert.Equal(DataTypes.Float8E4M3, genericFloat8Ones.ElementType);
+        Assert.Equal(new long[] { 2, 2 }, genericFloat8Ones.Dimensions.ToArray());
+        Assert.Equal(new[] { Float8E4M3.One, Float8E4M3.One, Float8E4M3.One, Float8E4M3.One }, genericFloat8Ones.ToArray<Float8E4M3>());
+
         // Test with vector type
         var vectorOnes = Tensor.Ones<Vector4<float>>([2]);
         Assert.Equal(new VectorType(DataTypes.Float32, 4), vectorOnes.ElementType);
@@ -250,6 +255,27 @@ public sealed class UnitTestTensor
                 }
             }
         }
+    }
+
+    [Fact]
+    public void TestFloat8E4M3IdentityValues()
+    {
+        Assert.Equal((byte)0x00, Float8E4M3.Zero.ToRaw());
+        Assert.Equal((byte)0x38, Float8E4M3.One.ToRaw());
+        Assert.Equal(2, Float8E4M3.Radix);
+        Assert.Equal(Float8E4M3.Zero, Float8E4M3.AdditiveIdentity);
+        Assert.Equal(Float8E4M3.One, Float8E4M3.MultiplicativeIdentity);
+
+        var identities = GetNumberIdentities<Float8E4M3>();
+        Assert.Equal(Float8E4M3.Zero, identities.Zero);
+        Assert.Equal(Float8E4M3.One, identities.One);
+        Assert.Equal(Float8E4M3.Zero, identities.AdditiveIdentity);
+        Assert.Equal(Float8E4M3.One, identities.MultiplicativeIdentity);
+        Assert.Equal(2, identities.Radix);
+
+        var scalarOne = Tensor.One(DataTypes.Float8E4M3);
+        Assert.Equal(DataTypes.Float8E4M3, scalarOne.ElementType);
+        Assert.Equal(Float8E4M3.One, scalarOne.ToScalar<Float8E4M3>());
     }
 
     [Fact]
@@ -471,5 +497,11 @@ public sealed class UnitTestTensor
                 Assert.Equal(original, deserialized);
             }
         }
+    }
+
+    private static (T Zero, T One, T AdditiveIdentity, T MultiplicativeIdentity, int Radix) GetNumberIdentities<T>()
+        where T : unmanaged, IEquatable<T>, System.Numerics.INumber<T>
+    {
+        return (T.Zero, T.One, T.AdditiveIdentity, T.MultiplicativeIdentity, T.Radix);
     }
 }

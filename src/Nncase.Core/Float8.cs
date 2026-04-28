@@ -39,23 +39,23 @@ public struct Float8E4M3 : IEquatable<Float8E4M3>, IComparable<Float8E4M3>, INum
 
     public static Float8E4M3 MinSubnormal => FromRaw(0b0000001);
 
-    public static Float8E4M3 One => throw new NotImplementedException();
+    public static Float8E4M3 One => FromRaw(0x38);
 
-    public static int Radix => throw new NotImplementedException();
+    public static int Radix => 2;
 
-    public static Float8E4M3 AdditiveIdentity => throw new NotImplementedException();
+    public static Float8E4M3 AdditiveIdentity => Zero;
 
-    public static Float8E4M3 MultiplicativeIdentity => throw new NotImplementedException();
+    public static Float8E4M3 MultiplicativeIdentity => One;
 
-    static Float8E4M3 INumberBase<Float8E4M3>.One => throw new NotImplementedException();
+    static Float8E4M3 INumberBase<Float8E4M3>.One => One;
 
-    static int INumberBase<Float8E4M3>.Radix => throw new NotImplementedException();
+    static int INumberBase<Float8E4M3>.Radix => Radix;
 
-    static Float8E4M3 INumberBase<Float8E4M3>.Zero => throw new NotImplementedException();
+    static Float8E4M3 INumberBase<Float8E4M3>.Zero => Zero;
 
-    static Float8E4M3 IAdditiveIdentity<Float8E4M3, Float8E4M3>.AdditiveIdentity => throw new NotImplementedException();
+    static Float8E4M3 IAdditiveIdentity<Float8E4M3, Float8E4M3>.AdditiveIdentity => AdditiveIdentity;
 
-    static Float8E4M3 IMultiplicativeIdentity<Float8E4M3, Float8E4M3>.MultiplicativeIdentity => throw new NotImplementedException();
+    static Float8E4M3 IMultiplicativeIdentity<Float8E4M3, Float8E4M3>.MultiplicativeIdentity => MultiplicativeIdentity;
 
     /// <summary>
     /// Implicit conversion from Float8E4M3 to float.

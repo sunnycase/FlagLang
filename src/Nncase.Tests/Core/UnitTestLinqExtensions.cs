@@ -36,5 +36,7 @@ public sealed class UnitTestLinqExtensions
         expected = new[] { 0, 0, 0 };
         result = items.TakeOrDefault(3, 0);
         Assert.Equal(expected, result);
+
+        Assert.Equal(Float8E4M3.One, Array.Empty<Float8E4M3>().Product());
     }
 }
