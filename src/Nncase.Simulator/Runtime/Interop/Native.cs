@@ -3,7 +3,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -13,6 +15,18 @@ namespace Nncase.Runtime.Interop;
 internal static class Native
 {
     public const string LibraryName = "nncaseruntime";
+
+    private static readonly string NativeLibraryFileName =
+        RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? "nncaseruntime.dll"
+            : RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+                ? "libnncaseruntime.dylib"
+                : "libnncaseruntime.so";
+
+    static Native()
+    {
+        NativeLibrary.SetDllImportResolver(typeof(Native).Assembly, ResolveDllImport);
+    }
 
     [DllImport(LibraryName, EntryPoint = "nncase_object_add_ref")]
     public static extern ErrorCode ObjectAddRef(IntPtr obj);
@@ -271,4 +285,184 @@ internal static class Native
 
     [DllImport(LibraryName, EntryPoint = "nncase_continue_execution")]
     public static extern int NncaseContinueExecution();
+
+    private static IntPtr ResolveDllImport(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+    {
+        if (!string.Equals(libraryName, LibraryName, StringComparison.Ordinal))
+        {
+            return IntPtr.Zero;
+        }
+
+        foreach (var candidate in EnumerateNativeLibraryCandidates(assembly))
+        {
+            if (NativeLibrary.TryLoad(candidate, out var handle))
+            {
+                return handle;
+            }
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private static IEnumerable<string> EnumerateNativeLibraryCandidates(Assembly assembly)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var directory in EnumerateNativeLibraryDirectories(assembly))
+        {
+            var candidate = Path.Combine(directory, NativeLibraryFileName);
+            if (visited.Add(candidate) && File.Exists(candidate))
+            {
+                yield return candidate;
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateNativeLibraryDirectories(Assembly assembly)
+    {
+        foreach (var directory in EnumerateEnvironmentPath("NNCASE_NATIVE_LIBRARY_DIR"))
+        {
+            yield return directory;
+        }
+
+        foreach (var directory in EnumerateEnvironmentPath("LD_LIBRARY_PATH"))
+        {
+            yield return directory;
+        }
+
+        foreach (var directory in EnumerateEnvironmentPath("DYLD_LIBRARY_PATH"))
+        {
+            yield return directory;
+        }
+
+        foreach (var directory in EnumerateBaseDirectories(assembly))
+        {
+            yield return directory;
+        }
+
+        foreach (var root in EnumerateRepositoryRoots(assembly))
+        {
+            yield return Path.Combine(root, "python", "triton", "_C");
+            foreach (var buildLibDirectory in EnumerateBuildLibDirectories(
+                Path.Combine(root, "build"),
+                GetBuildConfiguration(assembly)))
+            {
+                yield return buildLibDirectory;
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateEnvironmentPath(string variable)
+    {
+        var value = Environment.GetEnvironmentVariable(variable);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            yield break;
+        }
+
+        foreach (var directory in value.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            yield return directory;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateBaseDirectories(Assembly assembly)
+    {
+        yield return AppContext.BaseDirectory;
+        if (!string.IsNullOrWhiteSpace(assembly.Location))
+        {
+            var assemblyDirectory = Path.GetDirectoryName(assembly.Location);
+            if (!string.IsNullOrWhiteSpace(assemblyDirectory))
+            {
+                yield return assemblyDirectory;
+            }
+        }
+
+        yield return Directory.GetCurrentDirectory();
+    }
+
+    private static IEnumerable<string> EnumerateRepositoryRoots(Assembly assembly)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var baseDirectory in EnumerateBaseDirectories(assembly))
+        {
+            foreach (var directory in EnumerateAncestors(baseDirectory))
+            {
+                if (visited.Add(directory) &&
+                    File.Exists(Path.Combine(directory, "test.runsettings")) &&
+                    Directory.Exists(Path.Combine(directory, "src")))
+                {
+                    yield return directory;
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateAncestors(string directory)
+    {
+        var current = Path.GetFullPath(directory);
+        while (!string.IsNullOrEmpty(current))
+        {
+            yield return current;
+            var parent = Directory.GetParent(current)?.FullName;
+            if (string.Equals(parent, current, StringComparison.Ordinal))
+            {
+                yield break;
+            }
+
+            current = parent ?? string.Empty;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateBuildLibDirectories(string buildRoot, string? buildConfiguration)
+    {
+        if (!Directory.Exists(buildRoot))
+        {
+            yield break;
+        }
+
+        var directories = Directory.EnumerateDirectories(buildRoot, "lib", SearchOption.AllDirectories)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        foreach (var directory in directories.Where(directory => HasPathSegment(directory, buildConfiguration)))
+        {
+            yield return directory;
+        }
+
+        foreach (var directory in directories.Where(directory => !HasPathSegment(directory, buildConfiguration)))
+        {
+            yield return directory;
+        }
+    }
+
+    private static string? GetBuildConfiguration(Assembly assembly)
+    {
+        foreach (var baseDirectory in EnumerateBaseDirectories(assembly))
+        {
+            foreach (var segment in EnumeratePathSegments(baseDirectory))
+            {
+                if (string.Equals(segment, "Debug", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(segment, "Release", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(segment, "RelWithDebInfo", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(segment, "MinSizeRel", StringComparison.OrdinalIgnoreCase))
+                {
+                    return segment;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasPathSegment(string path, string? segment)
+    {
+        return !string.IsNullOrWhiteSpace(segment) &&
+               EnumeratePathSegments(path).Any(pathSegment => string.Equals(pathSegment, segment, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IEnumerable<string> EnumeratePathSegments(string path)
+    {
+        return Path.GetFullPath(path).Split(
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+            StringSplitOptions.RemoveEmptyEntries);
+    }
 }
