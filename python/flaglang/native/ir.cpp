@@ -13,10 +13,15 @@
  * limitations under the License.
  */
 #include "ffi_modules.h"
+#include <cctype>
+#include <fstream>
 #include <nncase/compiler.h>
 #include <optional>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <regex>
+#include <sstream>
+#include <stdexcept>
 
 using namespace nncase;
 
@@ -24,6 +29,258 @@ namespace {
 struct inserion_point {
     clr::sequential block;
     size_t index;
+};
+
+struct mlir_source_function {
+    std::string name;
+    std::vector<std::string> signature;
+};
+
+std::string trim(std::string_view text) {
+    auto first = text.begin();
+    auto last = text.end();
+    while (first != last &&
+           std::isspace(static_cast<unsigned char>(*first)) != 0) {
+        ++first;
+    }
+
+    while (first != last &&
+           std::isspace(static_cast<unsigned char>(*(last - 1))) != 0) {
+        --last;
+    }
+
+    return std::string(first, last);
+}
+
+std::string read_text_file(const std::string &path) {
+    std::ifstream stream(path);
+    if (!stream) {
+        throw std::runtime_error("Failed to open MLIR source file: " + path);
+    }
+
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    return buffer.str();
+}
+
+size_t find_matching_paren(const std::string &text, size_t open_pos) {
+    size_t depth = 0;
+    for (size_t i = open_pos; i < text.size(); i++) {
+        if (text[i] == '(') {
+            depth++;
+        } else if (text[i] == ')') {
+            if (depth == 0) {
+                break;
+            }
+            depth--;
+            if (depth == 0) {
+                return i;
+            }
+        }
+    }
+
+    throw std::runtime_error("Malformed MLIR function signature: unmatched '('");
+}
+
+std::vector<std::string> split_top_level_commas(const std::string &text) {
+    std::vector<std::string> parts;
+    size_t start = 0;
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    int brace_depth = 0;
+    int angle_depth = 0;
+    for (size_t i = 0; i < text.size(); i++) {
+        const auto ch = text[i];
+        switch (ch) {
+        case '(':
+            paren_depth++;
+            break;
+        case ')':
+            paren_depth--;
+            break;
+        case '[':
+            bracket_depth++;
+            break;
+        case ']':
+            bracket_depth--;
+            break;
+        case '{':
+            brace_depth++;
+            break;
+        case '}':
+            brace_depth--;
+            break;
+        case '<':
+            angle_depth++;
+            break;
+        case '>':
+            angle_depth--;
+            break;
+        case ',':
+            if (paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 &&
+                angle_depth == 0) {
+                auto part = trim(std::string_view(text).substr(start, i - start));
+                if (!part.empty()) {
+                    parts.push_back(std::move(part));
+                }
+                start = i + 1;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+
+    auto tail = trim(std::string_view(text).substr(start));
+    if (!tail.empty()) {
+        parts.push_back(std::move(tail));
+    }
+    return parts;
+}
+
+std::string strip_top_level_attrs(const std::string &text) {
+    int angle_depth = 0;
+    for (size_t i = 0; i < text.size(); i++) {
+        if (text[i] == '<') {
+            angle_depth++;
+        } else if (text[i] == '>') {
+            angle_depth--;
+        } else if (text[i] == '{' && angle_depth == 0) {
+            return trim(std::string_view(text).substr(0, i));
+        }
+    }
+
+    return trim(text);
+}
+
+std::string convert_mlir_type(std::string type_text) {
+    type_text = strip_top_level_attrs(type_text);
+
+    std::smatch ptr_match;
+    static const std::regex ptr_pattern(R"(!tt\.ptr<\s*([^,>]+))");
+    if (std::regex_search(type_text, ptr_match, ptr_pattern)) {
+        return "*" + convert_mlir_type(trim(ptr_match[1].str()));
+    }
+
+    return type_text;
+}
+
+std::string convert_mlir_argument_type(const std::string &arg_text) {
+    if (arg_text.find("tt.nv_tma_desc") != std::string::npos) {
+        return "nvTmaDesc";
+    }
+
+    auto colon = arg_text.find(':');
+    if (colon == std::string::npos) {
+        throw std::runtime_error("Malformed MLIR function argument: " + arg_text);
+    }
+
+    return convert_mlir_type(arg_text.substr(colon + 1));
+}
+
+std::string normalize_symbol_name(std::string_view name) {
+    auto text = trim(name);
+    if (!text.empty() && text[0] == '@') {
+        text.erase(text.begin());
+    }
+    return text;
+}
+
+std::string escape_regex(std::string_view text) {
+    std::string escaped;
+    escaped.reserve(text.size() * 2);
+    for (auto ch : text) {
+        if (std::string_view(R"(\.^$|()[]{}*+?)").find(ch) !=
+            std::string_view::npos) {
+            escaped.push_back('\\');
+        }
+        escaped.push_back(ch);
+    }
+    return escaped;
+}
+
+class mlir_source_module {
+  public:
+    mlir_source_module(std::string path, std::string source)
+        : path_(std::move(path)), source_(std::move(source)) {
+        parse_functions();
+    }
+
+    const std::string &get_entry_func_name() const {
+        if (functions_.empty()) {
+            throw std::runtime_error("MLIR source does not contain a tt.func.");
+        }
+        return functions_.front().name;
+    }
+
+    mlir_source_function get_function(std::string_view name) const {
+        const auto normalized = normalize_symbol_name(name);
+        for (const auto &function : functions_) {
+            if (function.name == normalized) {
+                return function;
+            }
+        }
+
+        throw std::runtime_error("MLIR source does not contain function: " +
+                                 normalized);
+    }
+
+    std::vector<std::string>
+    get_function_signature(const mlir_source_function &function) const {
+        return function.signature;
+    }
+
+    std::optional<int64_t> get_int_attr(std::string_view name) const {
+        const auto escaped_name = escape_regex(name);
+        const std::regex attr_pattern("\"?" + escaped_name +
+                                      "\"?\\s*=\\s*(-?\\d+)\\s*:\\s*i\\d+");
+        std::smatch match;
+        if (!std::regex_search(source_, match, attr_pattern)) {
+            return std::nullopt;
+        }
+
+        return std::stoll(match[1].str());
+    }
+
+    const std::string &to_text() const { return source_; }
+    const std::string &str_nodebug() const { return source_; }
+    bool verify() const { return !functions_.empty(); }
+    void create_location_snapshot([[maybe_unused]] std::string_view path) const {}
+
+  private:
+    void parse_functions() {
+        static const std::regex function_pattern(
+            R"(\b(?:tt|func)\.func\s+(?:public\s+)?@([A-Za-z_.$][A-Za-z0-9_.$]*)\s*\()");
+        auto begin =
+            std::sregex_iterator(source_.begin(), source_.end(), function_pattern);
+        auto end = std::sregex_iterator();
+        for (auto it = begin; it != end; ++it) {
+            const auto &match = *it;
+            const auto open_pos =
+                static_cast<size_t>(match.position(0) + match.length(0) - 1);
+            const auto close_pos = find_matching_paren(source_, open_pos);
+            const auto args_text =
+                source_.substr(open_pos + 1, close_pos - open_pos - 1);
+
+            std::vector<std::string> signature;
+            for (const auto &arg : split_top_level_commas(args_text)) {
+                signature.push_back(convert_mlir_argument_type(arg));
+            }
+
+            mlir_source_function function;
+            function.name = match[1].str();
+            function.signature = std::move(signature);
+            functions_.push_back(std::move(function));
+        }
+
+        if (functions_.empty()) {
+            throw std::runtime_error("MLIR source does not contain a tt.func.");
+        }
+    }
+
+    std::string path_;
+    std::string source_;
+    std::vector<mlir_source_function> functions_;
 };
 
 class triton_op_builder {
@@ -134,7 +391,37 @@ void nncase::init_triton_ir(py::module &&m) {
     py::class_<clr::target>(m, "target").def(py::init<std::string_view>());
     py::class_<clr::compile_options>(m, "compile_options").def(py::init<>());
     py::class_<clr::compile_session>(m, "compile_session")
-        .def(py::init<const clr::target &, const clr::compile_options &>());
+        .def(py::init<const clr::target &, const clr::compile_options &>())
+        .def("disable_multithreading", [](clr::compile_session &) {});
+
+    py::class_<mlir_source_function>(m, "mlir_source_function");
+    py::class_<mlir_source_module>(m, "mlir_source_module", py::dynamic_attr())
+        .def("get_entry_func_name",
+             &mlir_source_module::get_entry_func_name, ret::reference_internal)
+        .def("get_function", &mlir_source_module::get_function)
+        .def("get_function_signature",
+             &mlir_source_module::get_function_signature)
+        .def("get_int_attr", &mlir_source_module::get_int_attr)
+        .def("to_text", &mlir_source_module::to_text, ret::reference_internal)
+        .def("str_nodebug", &mlir_source_module::str_nodebug,
+             ret::reference_internal)
+        .def("verify", &mlir_source_module::verify)
+        .def("create_location_snapshot",
+             &mlir_source_module::create_location_snapshot)
+        .def("__str__", &mlir_source_module::to_text, ret::reference_internal);
+
+    m.def("context", []() {
+        auto target = clr::target("cuda");
+        auto options = clr::compile_options();
+        return clr::compile_session(target, options);
+    });
+    m.def("load_dialects", [](clr::compile_session &) {});
+    m.def(
+        "parse_mlir_module",
+        [](const std::string &path, py::object) {
+            return mlir_source_module(path, read_text_file(path));
+        },
+        "path"_a, "context"_a = py::none());
 
     // Diagnostics
     py::class_<clr::location>(m, "location");
@@ -177,8 +464,12 @@ void nncase::init_triton_ir(py::module &&m) {
                  self.add(std::move(func));
              })
         .def("__str__", &clr::ir_module::to_text)
+        .def("str_nodebug", &clr::ir_module::to_text)
         .def("get_entry_func_name", &clr::ir_module::get_entry_func_name)
         .def("describe_vector_add", &clr::ir_module::describe_vector_add)
+        .def("verify", [](clr::ir_module &self) {
+            return clr::compiler_services::inference_type(self);
+        })
         .def("verify_with_diagnostics", [](clr::ir_module &self) {
             return clr::compiler_services::inference_type(self);
         });

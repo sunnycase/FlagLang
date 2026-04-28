@@ -159,7 +159,7 @@ mask = offset < n_elements
 不要让 cache 中的旧 cubin 掩盖问题。所有端到端测试必须设置：
 
 ```bash
-TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=/tmp/flaglang-vector-add-dump
+TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=dump/flaglang-vector-add-dump
 ```
 
 ### P3: 端到端验收
@@ -172,7 +172,7 @@ python -m pip install -r python/requirements.txt
 TRITON_BUILD_PROTON=OFF python -m pip install -e . --no-build-isolation -v
 dotnet build
 dotnet test src/Nncase.Tests/Nncase.Tests.csproj -s test.runsettings --filter "FullyQualifiedName~UnitTestTensorizeIO"
-TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=/tmp/flaglang-vector-add-dump \
+TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=dump/flaglang-vector-add-dump \
   python python/tutorials/01-vector-add.py --only_unit_test
 ```
 
@@ -183,4 +183,3 @@ TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=/tmp/flaglang-vecto
 - dump 目录能看到本次生成的中间产物，而不是复用旧 cache。
 - C# targeted affine tests 通过。
 - 再运行完整 `python python/tutorials/01-vector-add.py`，benchmark 能正常结束并打印数据。
-

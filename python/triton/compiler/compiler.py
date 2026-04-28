@@ -86,7 +86,15 @@ class ASTSource:
 
 class IRSource:
 
-    def __init__(self, path, backend):
+    def __init__(self, path, *args):
+        if len(args) == 1:
+            context = None
+            backend = args[0]
+        elif len(args) == 2:
+            context, backend = args
+        else:
+            raise TypeError("IRSource expects (path, backend) or (path, context, backend)")
+
         self.path = path
         path = Path(path)
         self.ext = path.suffix[1:]
@@ -102,7 +110,7 @@ class IRSource:
             types = re.findall(arg_type_pattern[self.ext], signature)
             self.signature = {k: convert_type_repr(ty) for k, ty in enumerate(types)}
         else:
-            self.module = ir.parse_mlir_module(self.path)
+            self.module = ir.parse_mlir_module(self.path, context)
             fn_name = self.module.get_entry_func_name()
             self.name = "@" + fn_name
             funcOp = self.module.get_function(fn_name)

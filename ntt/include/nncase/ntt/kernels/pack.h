@@ -110,7 +110,7 @@ template <Tensor TIn, Tensor TOut> class pack_impl<TIn, TOut, 1> {
             constexpr auto rest_rank = TIn::rank() - axis_v - 1;
             const auto conti_dims = ntt::min(
                 rest_rank, contiguous_dims(input.shape(), input.strides()),
-                contiguous_dims(input.shape(), input.strides()));
+                contiguous_dims(output.shape(), output.strides()));
             const auto m_strides = input.strides()[axis_v];
 
             for (size_t i = 0; i < input.shape()[axis_v] / VecLen; i++) {
@@ -143,7 +143,7 @@ template <Tensor TIn, Tensor TOut> class pack_impl<TIn, TOut, 1> {
                 output.shape().template slice<TOut::rank() - rest_rank>();
             const auto N = rest_dims.length();
             ntt::u_pack(in_p, M, N, m_strides, out_p);
-        } else if constexpr (Axis + 1 < TOut::rank()) {
+        } else if constexpr (Axis < TOut::rank()) {
             for (size_t i = 0; i < output.shape()[axis_v]; i++) {
                 apply_transpose<Axis + 1>(input, conti_dims, M, m_strides,
                                           output, in_p, out_p);

@@ -7,7 +7,7 @@ enable_testing()
 # 2. Execute the corresponding test in the generated test directory (use the same <BuildType>):
 # ctest -C <BuildType> --test-dir build/<BuildType>/ntt/test/ctest -R test_ntt_pack_generated_Uint32
 # -C specifies the build configuration, and -R filters the test by regex.
-find_package(ortki)
+find_package(ortki REQUIRED)
 find_package(GTest REQUIRED)
 find_package(Python3 REQUIRED)
 
@@ -105,6 +105,7 @@ file(GLOB HANDWRITTEN_TESTS CONFIGURE_DEPENDS
     test_ntt_gather.cpp
     test_ntt_layer_norm.cpp
     test_ntt_matmul.cpp
+    test_ntt_pack.cpp
     test_ntt_reduce.cpp
     test_ntt_reshard.cpp
     test_ntt_rms_norm.cpp

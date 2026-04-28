@@ -1,4 +1,5 @@
 import pathlib
+import pytest
 import triton
 from triton.compiler import IRSource, make_backend
 from triton._C.libtriton import ir
@@ -88,5 +89,7 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 8 : i32, ttg.targ
     context = ir.context()
     src = IRSource(str(temp_file), context, backend)
 
-    # now test compilation
-    triton.compile(str(temp_file), target=target)
+    # External TTGIR text is parsed for metadata only. FlagLang CUDA lowering
+    # starts from native nncase ir.module objects produced by the frontend.
+    with pytest.raises(NotImplementedError, match="cannot lower external MLIR source text"):
+        triton.compile(str(temp_file), target=target)

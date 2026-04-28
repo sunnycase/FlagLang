@@ -44,7 +44,7 @@ FlagLang is an AI compiler initiative that rewrites Triton's GPU backend on top 
 - Build native/Python stack: `TRITON_BUILD_PROTON=OFF python -m pip install -e . --no-build-isolation -v` from repo root; rerun after touching C++ or Python bindings.
 - Python tutorial dependency: install CUDA-enabled `torch` in `flaglang` before running `python/tutorials/*.py`; the repository build requirements do not install it.
 - Triton tutorial sanity check: verify `import triton` resolves to this repo, e.g. `python -c "import triton, triton._C.libtriton as lt; print(triton.__file__); print(lt.__file__)"`.
-- Force fresh Triton tutorial builds with `TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=/tmp/flaglang-vector-add-dump` so old cache artifacts do not hide backend issues.
+- Force fresh Triton tutorial builds with `TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=dump/flaglang-vector-add-dump` so old cache artifacts do not hide backend issues and dumps stay inspectable under the repository `dump/` directory.
 - NTT benchmark harness: use the generated benchmark binaries with `python ntt/test/benchmark_test/benchmark_ntt.py` after building the relevant NTT benchmark targets.
 
 ## Development Guide (Current Understanding)

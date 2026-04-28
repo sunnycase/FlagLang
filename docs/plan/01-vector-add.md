@@ -79,14 +79,14 @@
   - 正向测试（预期通过）:
     - 强制重新编译运行：
       ```bash
-      TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=/tmp/flaglang-vector-add-dump \
+      TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=dump/flaglang-vector-add-dump \
         conda run -n flaglang python python/tutorials/01-vector-add.py --only_unit_test
       ```
       `output_torch` 和 `output_triton` 最大误差为 `0.0`。
     - dump 目录包含本次生成的中间产物，不能只命中旧 cache。
     - 完整运行：
       ```bash
-      TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=/tmp/flaglang-vector-add-dump \
+      TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=dump/flaglang-vector-add-dump \
         conda run -n flaglang python python/tutorials/01-vector-add.py
       ```
       benchmark 正常结束并打印数据。
@@ -248,5 +248,5 @@ for d0 in 0..BLOCK_SIZE-1:
   ```
 - 端到端 tutorial 验收必须设置：
   ```bash
-  TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=/tmp/flaglang-vector-add-dump
+  TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=dump/flaglang-vector-add-dump
   ```

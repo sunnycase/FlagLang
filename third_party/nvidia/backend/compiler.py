@@ -160,6 +160,14 @@ class NativeCudaCompilation:
 
 def _require_native_ir_module(src):
     src = _unwrap_native_cuda_stage(src)
+    mlir_source_type = getattr(ir, "mlir_source_module", None)
+    if mlir_source_type is not None and isinstance(src, mlir_source_type):
+        raise NotImplementedError(
+            "FlagLang native CUDA backend can parse .ttir/.ttgir MLIR files for metadata, "
+            "but it cannot lower external MLIR source text to a native nncase ir.module. "
+            "Compile Triton AST kernels through the native frontend so lowering starts from ir.module."
+        )
+
     module_type = getattr(ir, "module", None)
     if module_type is None or not isinstance(src, module_type):
         entry = _module_entry_name(src)
@@ -565,8 +573,10 @@ class CUDABackend(BaseBackend):
         return {"triton.language.extra.libdevice": libdevice}
 
     def load_dialects(self, context):
-        context.add_plugin_by_name("FlagLang.Modules.Nvidia.dll")
-        # nvidia.load_dialects(context)
+        if not isinstance(context, ir.compile_session):
+            raise TypeError(f"CUDA backend requires a native compile_session context, got {type(context).__name__}")
+        # Native FlagLang contexts are backed by the managed compiler host; its
+        # application parts are loaded when the host is initialized.
         # if CUDABackend.instrumentation:
         #     CUDABackend.instrumentation.load_dialects(context)
 

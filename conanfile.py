@@ -47,6 +47,7 @@ class flaglangConan(ConanFile):
     def requirements(self):
         if self.options.tests:
             self.requires('gtest/1.16.0')
+            self.requires('ortki/0.0.4')
 
         if self.options.python:
             self.requires('pybind11/2.11.1')
