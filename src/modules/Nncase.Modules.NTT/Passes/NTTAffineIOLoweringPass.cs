@@ -68,7 +68,13 @@ namespace Nncase.Passes
 
                 var extents = output.Dimensions.ToArray();
                 var symbolMap = BuildSymbolMap(gather.Relation, gather.Symbols);
-                return BuildLoopNest(extents, loopVars =>
+                Expr? defaultSetup = null;
+                if (gather.Relation.Constraint != LogicalExpr.True)
+                {
+                    (defaultValue, defaultSetup) = PrepareGatherDefault(defaultValue);
+                }
+
+                var loopNest = BuildLoopNest(extents, loopVars =>
                 {
                     var address = EvaluateAddress(gather.Relation, loopVars, extents, symbolMap);
                     var loaded = T.Load(source, address);
@@ -83,6 +89,7 @@ namespace Nncase.Passes
                     var storeFallback = T.BufferStore(output, indices, fallback);
                     return T.If(EvaluateConstraint(gather.Relation.Constraint, loopVars)).Then(storeLoaded).Else(storeFallback).Build();
                 });
+                return defaultSetup is null ? loopNest : T.Sequential(defaultSetup, loopNest);
             }
 
             private Expr LowerScatter(Call call, TIR.NTT.AffineScatter scatter, Unit context)
@@ -159,6 +166,17 @@ namespace Nncase.Passes
                     Expr expr when expr.CheckedType is TensorType { Shape.IsScalar: true } => expr,
                     _ => throw new NotSupportedException($"Unsupported affine gather default value {defaultValue.GetType().Name}."),
                 };
+            }
+
+            private (Expr DefaultValue, Expr? Setup) PrepareGatherDefault(Expr defaultValue)
+            {
+                if (defaultValue is None or TIR.Buffer || defaultValue.CheckedType is TensorType { Shape.IsScalar: true })
+                {
+                    return (defaultValue, null);
+                }
+
+                var (buffer, setup) = RequireReadableBuffer(defaultValue, "affine gather default value", "affine_gather_default");
+                return (buffer, setup);
             }
 
             private LogicalExpr EvaluateConstraint(LogicalExpr constraint, DimVar[] loopVars)
@@ -279,6 +297,11 @@ namespace Nncase.Passes
 
             private (TIR.Buffer Buffer, Expr? Setup) RequireReadableBuffer(BaseExpr expr)
             {
+                return RequireReadableBuffer(expr, "affine scatter source", "affine_scatter_source");
+            }
+
+            private (TIR.Buffer Buffer, Expr? Setup) RequireReadableBuffer(BaseExpr expr, string role, string bufferNamePrefix)
+            {
                 if (expr is TIR.Buffer buffer)
                 {
                     return (buffer, null);
@@ -290,13 +313,13 @@ namespace Nncase.Passes
                     {
                         TensorType { Shape: RankedShape } tt => (tt, null),
                         DistributedType { TensorType: TensorType { Shape: RankedShape } tt } dt => (tt, dt),
-                        _ => throw new NotSupportedException("Affine scatter source must be a ranked tensor or buffer."),
+                        _ => throw new NotSupportedException($"{role} must be a ranked tensor or buffer."),
                     };
-                    var sourceBuffer = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, $"affine_scatter_source_{_bufferIndex++}", distributedType);
+                    var sourceBuffer = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, $"{bufferNamePrefix}_{_bufferIndex++}", distributedType);
                     return (sourceBuffer, T.Memcopy(sourceBuffer, sourceExpr));
                 }
 
-                throw new NotSupportedException("Affine scatter source must be an expression.");
+                throw new NotSupportedException($"{role} must be an expression.");
             }
         }
     }

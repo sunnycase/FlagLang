@@ -63,6 +63,28 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
     }
 
     [Fact]
+    public async Task MaskedSymbolicGatherWithTensorDefaultMaterializesReadableBuffer()
+    {
+        var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
+        var output = CreateVectorBuffer("output");
+        var defaultValue = new Var("default_value", new TensorType(DataTypes.Float32, new RankedShape(4)));
+        var (relation, symbols) = CreateVectorAddRelation(symbolCount: 2);
+        var call = Nncase.TIR.F.NTT.AffineGather(source, defaultValue, output, relation, symbols, new RankedShape(4));
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(call));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var fields = FlattenSequential(lowered.Body).ToArray();
+
+        var setup = Assert.IsType<Call>(fields[0]);
+        Assert.IsType<Memcopy>(setup.Target);
+        var loop = Assert.IsType<Nncase.TIR.For>(fields[1]);
+        var guard = Assert.IsType<IfThenElse>(Assert.Single(loop.Body.Fields.ToArray()));
+        var elseStore = AssertSingleCall<BufferStore>(guard.Else);
+        Assert.IsType<BufferLoad>(Assert.IsType<Call>(elseStore[BufferStore.Value]).Target);
+        Assert.True(CompilerServices.InferenceType(lowered));
+    }
+
+    [Fact]
     public async Task MaskedSymbolicGatherEvaluatesFullBlockAndTailBlockSemantics()
     {
         var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
