@@ -1,4 +1,6 @@
-from triton._C.libtriton import ir
+import numpy as np
+
+from triton._C.libtriton import RuntimeTensor, ir
 
 
 def test_libtriton_exports_interpreter_submodule():
@@ -20,6 +22,16 @@ def test_native_ir_builder_float_constant_surface():
     assert "1.5" in fp16.to_text()
     assert "2.5" in fp32.to_text()
     assert "3.5" in fp64.to_text()
+
+
+def test_runtime_tensor_to_numpy_returns_owned_array():
+    source = np.arange(8, dtype=np.float32).reshape(2, 4)
+    tensor = RuntimeTensor.from_numpy(source)
+
+    result = tensor.to_numpy()
+
+    assert result.flags.owndata
+    np.testing.assert_array_equal(result, source)
 
 
 def test_native_ir_module_function_lookup_surface():

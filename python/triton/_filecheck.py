@@ -7,7 +7,6 @@ import tempfile
 import triton
 from triton.compiler import ASTSource, make_backend
 from triton.backends.compiler import GPUTarget
-from triton.experimental.gluon._runtime import GluonASTSource
 from triton.runtime.jit import create_function_from_signature
 from triton._C.libtriton import ir
 
@@ -64,8 +63,12 @@ def run_parser(kernel_fn, args=(), kwargs={}, target=stub_target):
 
     bound_args, specialization, options = binder(*args, **kwargs)
     options, signature, constexprs, attrs = kernel_fn._pack_args(backend, kwargs, bound_args, specialization, options)
-    source_cls = GluonASTSource if kernel_fn.is_gluon() else ASTSource
-    src = source_cls(kernel_fn, signature, constexprs, attrs)
+    if kernel_fn.is_gluon():
+        from triton.experimental.gluon._runtime import GluonASTSource
+
+        src = GluonASTSource(kernel_fn, signature, constexprs, attrs)
+    else:
+        src = ASTSource(kernel_fn, signature, constexprs, attrs)
 
     context = ir.context()
     ir.load_dialects(context)

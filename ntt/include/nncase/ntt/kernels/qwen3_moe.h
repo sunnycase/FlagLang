@@ -181,9 +181,10 @@ void qwen3_moe_impl(const TQ &q, const TGateW &moeGateW,
             }
             
             // Check if gate input scale exists (not empty)
+            constexpr bool gate_input_scale_is_empty = moeExpertGateInputScale.rank() == 0;
             constexpr bool gate_input_scale_is_2d = moeExpertGateInputScale.rank() == 2;
             float gate_input_scale_val = 1.f;
-            if constexpr(gate_input_scale_is_2d)
+            if constexpr(!gate_input_scale_is_empty && gate_input_scale_is_2d)
             {
                 gate_input_scale_val = (float)moeExpertGateInputScale(expert, 0);
             }
@@ -194,10 +195,12 @@ void qwen3_moe_impl(const TQ &q, const TGateW &moeGateW,
                     auto input_val = (float)q(i, h);
                     // Apply input scaling if available
 
-                    if constexpr(gate_input_scale_is_2d) {
-                        input_val /= gate_input_scale_val;
-                    } else {
-                        input_val /= (float)moeExpertGateInputScale(expert, h, 0);
+                    if constexpr(!gate_input_scale_is_empty) {
+                        if constexpr(gate_input_scale_is_2d) {
+                            input_val /= gate_input_scale_val;
+                        } else {
+                            input_val /= (float)moeExpertGateInputScale(expert, h, 0);
+                        }
                     }
 
                     acc += input_val * (float)moeExpertGateProjW(expert, d, h);
@@ -226,9 +229,10 @@ void qwen3_moe_impl(const TQ &q, const TGateW &moeGateW,
                 up_scale_val = (float)moeExpertUpProjScale(expert, 0);
             }
 
+            constexpr bool up_input_scale_is_empty = moeExpertUpProjInputScale.rank() == 0;
             constexpr bool up_input_scale_is_2d = moeExpertUpProjInputScale.rank() == 2;
             float up_input_scale_val = 1.f;
-            if constexpr(up_input_scale_is_2d)
+            if constexpr(!up_input_scale_is_empty && up_input_scale_is_2d)
             {
                 up_input_scale_val = (float)moeExpertUpProjInputScale(expert, 0);
             }
@@ -237,10 +241,12 @@ void qwen3_moe_impl(const TQ &q, const TGateW &moeGateW,
                 float acc = 0.f;
                 for (size_t h = 0; h < hidden_size; h++) {
                     float input_val = (float)q(i, h);
-                    if constexpr(up_input_scale_is_2d) {
-                        input_val /= up_input_scale_val;
-                    } else {
-                        input_val /= (float)moeExpertUpProjInputScale(expert, h, 0);
+                    if constexpr(!up_input_scale_is_empty) {
+                        if constexpr(up_input_scale_is_2d) {
+                            input_val /= up_input_scale_val;
+                        } else {
+                            input_val /= (float)moeExpertUpProjInputScale(expert, h, 0);
+                        }
                     }
 
                     acc += input_val * (float)moeExpertUpProjW(expert, d, h);
@@ -266,9 +272,10 @@ void qwen3_moe_impl(const TQ &q, const TGateW &moeGateW,
                 down_scale_val = (float)moeExpertDownProjScale(expert, 0);
             }
             // Check if down input scale exists (not empty)
+            constexpr bool down_input_scale_is_empty = moeExpertDownProjInputScale.rank() == 0;
             constexpr bool down_input_scale_is_2d = moeExpertDownProjInputScale.rank() == 2;
             float down_input_scale_val = 1.f;
-            if constexpr(down_input_scale_is_2d)
+            if constexpr(!down_input_scale_is_empty && down_input_scale_is_2d)
             {
                 down_input_scale_val = (float)moeExpertDownProjInputScale(expert, 0);
             }
@@ -278,10 +285,12 @@ void qwen3_moe_impl(const TQ &q, const TGateW &moeGateW,
                 for (size_t d = 0; d < moe_intermediate_size; d++) {
                     float down_in = gate[d] * up[d];
                     // Apply input scaling if available
-                    if constexpr(down_input_scale_is_2d) {
-                        down_in /= down_input_scale_val;
-                    } else {
-                        down_in /= (float)moeExpertDownProjInputScale(expert, d, 0);
+                    if constexpr(!down_input_scale_is_empty) {
+                        if constexpr(down_input_scale_is_2d) {
+                            down_in /= down_input_scale_val;
+                        } else {
+                            down_in /= (float)moeExpertDownProjInputScale(expert, d, 0);
+                        }
                     }
 
                     acc += down_in * (float)moeExpertDownProjW(expert, h, d);

@@ -18,6 +18,7 @@
 #include "nncase/runtime/util.h"
 #include "pytype_utils.h"
 #include "type_casters.h"
+#include <cstring>
 #include <nncase/llm/paged_attention_kv_cache.h>
 #include <nncase/runtime/interpreter.h>
 #include <nncase/runtime/runtime_op_utility.h>
@@ -30,6 +31,19 @@ using namespace nncase::runtime;
 namespace py = pybind11;
 
 namespace nncase {
+inline py::array runtime_tensor_to_numpy_copy(runtime_tensor tensor) {
+    auto host = tensor.to_host().unwrap_or_throw();
+    auto src_map =
+        std::move(hrt::map(host, runtime::map_read).unwrap_or_throw());
+    auto src_buffer = src_map.buffer();
+    auto array = py::array(
+        to_dtype(host.impl()->dtype()),
+        to_py_shape(host.impl()->dtype(), host.impl()->shape()),
+        to_py_strides(host.impl()->dtype(), host.impl()->strides()));
+    std::memcpy(array.mutable_data(), src_buffer.data(), src_buffer.size());
+    return array;
+}
+
 inline py::class_<runtime_tensor> register_runtime_tensor(py::module &m) {
     py::class_<tensor_desc>(m, "TensorDesc")
         .def_property(
@@ -106,38 +120,14 @@ inline py::class_<runtime_tensor> register_runtime_tensor(py::module &m) {
             .def("to_numpy",
                  [](runtime_tensor &tensor) {
                      if (tensor.is_host()) {
-                         auto host = tensor.to_host().unwrap_or_throw();
-                         auto src_map =
-                             std::move(hrt::map(host, runtime::map_read)
-                                           .unwrap_or_throw());
-                         auto src_buffer = src_map.buffer();
-                         return py::array(
-                             to_dtype(tensor.impl()->dtype()),
-                             to_py_shape(tensor.impl()->dtype(),
-                                         tensor.impl()->shape()),
-                             to_py_strides(tensor.impl()->dtype(),
-                                           tensor.impl()->strides()),
-                             src_buffer.data());
+                         return runtime_tensor_to_numpy_copy(tensor);
                      } else if (tensor.is_device()) {
                          auto new_tensor =
                              host_runtime_tensor::create(tensor.impl()->dtype(),
                                                          tensor.impl()->shape())
                                  .unwrap_or_throw();
                          tensor.copy_to(new_tensor).unwrap_or_throw();
-
-                         auto host = new_tensor.to_host().unwrap_or_throw();
-                         auto src_map =
-                             std::move(hrt::map(host, runtime::map_read)
-                                           .unwrap_or_throw());
-                         auto src_buffer = src_map.buffer();
-
-                         return py::array(
-                             to_dtype(tensor.impl()->dtype()),
-                             to_py_shape(tensor.impl()->dtype(),
-                                         tensor.impl()->shape()),
-                             to_py_strides(tensor.impl()->dtype(),
-                                           tensor.impl()->strides()),
-                             src_buffer.data());
+                         return runtime_tensor_to_numpy_copy(new_tensor);
                      } else {
                          throw std::runtime_error("Unknown tensor type!");
                      }
