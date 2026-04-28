@@ -43,6 +43,9 @@ public static class RTExtensions
     {
         switch (rtDtype.TypeCode)
         {
+            case TypeCode.Pointer:
+                var rtPointerType = (RTPointerType)RTDataType.FromRTDataType(rtDtype);
+                return new PointerType(rtPointerType.ElemType.ToDataType());
             case TypeCode.VectorType:
                 var rtVectorType = (RTVectorType)RTDataType.FromRTDataType(rtDtype);
                 return new VectorType(rtVectorType.ElementType.ToDataType(), rtVectorType.Lanes);

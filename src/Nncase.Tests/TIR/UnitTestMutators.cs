@@ -361,6 +361,25 @@ public sealed class UnitTestMutators : TestClassBase
     }
 
     [Fact]
+    public async Task TestFlattenSequentialPreservesPrimFunctionParameters()
+    {
+        var input = new Var("input", TensorType.Scalar(DataTypes.Int32));
+        var main = T.PrimFunc("main", BaseFunction.CPUModuleKind, input).Body(
+            T.Sequential(
+                T.Sequential(new Call(new ExtraW(), input))))
+            .Build();
+
+        CompilerServices.InferenceType(main);
+
+        var pass = new PrimFuncPass { Name = "FlattenSequential" };
+        pass.Add<FlattenSequential>();
+        var newFunc = await pass.RunAsync(main, new());
+
+        Assert.Same(input, Assert.Single(newFunc.Parameters.ToArray()));
+        Assert.IsType<Call>(Assert.Single(newFunc.Body.Fields.ToArray()));
+    }
+
+    [Fact]
     public async Task TestFoldLet2()
     {
         var main = T.PrimFunc("main", BaseFunction.CPUModuleKind).Body(// (*i8) -> ()

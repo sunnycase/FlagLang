@@ -46,6 +46,8 @@ namespace Nncase.Passes
 
         private sealed class AffineIOLoweringRewriter : ExprRewriter<Unit>
         {
+            private int _bufferIndex;
+
             protected override BaseExpr RewriteLeafCall(Call expr, Unit context)
             {
                 return expr.Target switch
@@ -85,14 +87,15 @@ namespace Nncase.Passes
 
             private Expr LowerScatter(Call call, TIR.NTT.AffineScatter scatter, Unit context)
             {
-                var source = RequireBuffer(Visit(call[TIR.NTT.AffineScatter.Source], context));
+                var sourceExpr = Visit(call[TIR.NTT.AffineScatter.Source], context);
+                var (source, sourceSetup) = RequireReadableBuffer(sourceExpr);
                 var dest = (Expr)Visit(call[TIR.NTT.AffineScatter.Dest], context);
 
                 ValidateRelation(scatter.Relation, source.Dimensions.Length);
 
                 var extents = source.Dimensions.ToArray();
                 var symbolMap = BuildSymbolMap(scatter.Relation, scatter.Symbols);
-                return BuildLoopNest(extents, loopVars =>
+                var loopNest = BuildLoopNest(extents, loopVars =>
                 {
                     var value = T.BufferLoad(source, loopVars.AsExprs());
                     var address = EvaluateAddress(scatter.Relation, loopVars, extents, symbolMap);
@@ -101,6 +104,7 @@ namespace Nncase.Passes
                         ? store
                         : T.If(EvaluateConstraint(scatter.Relation.Constraint, loopVars)).Then(store).Build();
                 });
+                return sourceSetup is null ? loopNest : T.Sequential(sourceSetup, loopNest);
             }
 
             private Expr BuildLoopNest(Dimension[] extents, Func<DimVar[], Expr> bodyFactory)
@@ -271,6 +275,28 @@ namespace Nncase.Passes
                 }
 
                 return buffer;
+            }
+
+            private (TIR.Buffer Buffer, Expr? Setup) RequireReadableBuffer(BaseExpr expr)
+            {
+                if (expr is TIR.Buffer buffer)
+                {
+                    return (buffer, null);
+                }
+
+                if (expr is Expr sourceExpr)
+                {
+                    var (tensorType, distributedType) = sourceExpr.CheckedType switch
+                    {
+                        TensorType { Shape: RankedShape } tt => (tt, null),
+                        DistributedType { TensorType: TensorType { Shape: RankedShape } tt } dt => (tt, dt),
+                        _ => throw new NotSupportedException("Affine scatter source must be a ranked tensor or buffer."),
+                    };
+                    var sourceBuffer = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, $"affine_scatter_source_{_bufferIndex++}", distributedType);
+                    return (sourceBuffer, T.Memcopy(sourceBuffer, sourceExpr));
+                }
+
+                throw new NotSupportedException("Affine scatter source must be an expression.");
             }
         }
     }

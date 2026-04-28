@@ -322,21 +322,36 @@ public partial class BinaryEvaluator : IEvaluator<Binary>, ITypeInferencer<Binar
             throw new InvalidOperationException("Pointer binary expects a pointer return type");
         }
 
-        var lhsUInt = ConvertPointerOperandToUInt64Tensor(lhs);
-        var rhsUInt = ConvertPointerOperandToUInt64Tensor(rhs);
-        var lhsShape = lhsUInt.Shape.ToValueArray();
-        var rhsShape = rhsUInt.Shape.ToValueArray();
-        var lhsStrides = lhsUInt.Strides.ToArray();
-        var rhsStrides = rhsUInt.Strides.ToArray();
+        var lhsIsPointer = lhs.ElementType is PointerType;
+        var rhsIsPointer = rhs.ElementType is PointerType;
+        if (lhsIsPointer == rhsIsPointer)
+        {
+            throw new InvalidOperationException("Pointer arithmetic requires exactly one pointer operand.");
+        }
+
+        if (binary.BinaryOp is not BinaryOp.Add && !(binary.BinaryOp is BinaryOp.Sub && lhsIsPointer))
+        {
+            throw new InvalidOperationException("Pointer arithmetic only supports pointer + integral, integral + pointer, and pointer - integral.");
+        }
+
+        var pointer = lhsIsPointer ? lhs : rhs;
+        var offset = lhsIsPointer ? rhs : lhs;
+        var pointerUInt = ConvertPointerOperandToUInt64Tensor(pointer);
+        var offsetInt = ConvertIntegralOperandToInt64Tensor(offset);
+        var pointerShape = pointerUInt.Shape.ToValueArray();
+        var offsetShape = offsetInt.Shape.ToValueArray();
+        var pointerStrides = pointerUInt.Strides.ToArray();
+        var offsetStrides = offsetInt.Strides.ToArray();
         var resultShape = resultType.Shape.ToValueArray();
         var resultTensor = resultShape.Length == 0 ? new Tensor<ulong>(Array.Empty<long>()) : new Tensor<ulong>(resultShape);
         var resultSpan = resultTensor.Buffer.Span;
-        var lhsSpan = lhsUInt.Buffer.Span;
-        var rhsSpan = rhsUInt.Buffer.Span;
+        var pointerSpan = pointerUInt.Buffer.Span;
+        var offsetSpan = offsetInt.Buffer.Span;
         var totalElements = resultShape.Length == 0 ? 1 : TensorUtilities.GetProduct(resultShape);
         var outIndices = resultShape.Length == 0 ? Array.Empty<long>() : new long[resultShape.Length];
-        var lhsIndices = lhsShape.Length == 0 ? Array.Empty<long>() : new long[lhsShape.Length];
-        var rhsIndices = rhsShape.Length == 0 ? Array.Empty<long>() : new long[rhsShape.Length];
+        var pointerIndices = pointerShape.Length == 0 ? Array.Empty<long>() : new long[pointerShape.Length];
+        var offsetIndices = offsetShape.Length == 0 ? Array.Empty<long>() : new long[offsetShape.Length];
+        var elemSize = pointerType.ElemType.SizeInBytes;
         for (long linear = 0; linear < totalElements; linear++)
         {
             if (outIndices.Length > 0)
@@ -344,11 +359,15 @@ public partial class BinaryEvaluator : IEvaluator<Binary>, ITypeInferencer<Binar
                 TensorUtilities.UnravelIndex(linear, resultShape, outIndices);
             }
 
-            var lhsOffset = GetBroadcastOffset(outIndices, lhsShape, lhsStrides, lhsIndices);
-            var rhsOffset = GetBroadcastOffset(outIndices, rhsShape, rhsStrides, rhsIndices);
-            var lhsValue = lhsSpan[(int)lhsOffset];
-            var rhsValue = rhsSpan[(int)rhsOffset];
-            resultSpan[(int)linear] = Compute(binary.BinaryOp, lhsValue, rhsValue);
+            var pointerOffset = GetBroadcastOffset(outIndices, pointerShape, pointerStrides, pointerIndices);
+            var indexOffset = GetBroadcastOffset(outIndices, offsetShape, offsetStrides, offsetIndices);
+            var byteOffset = checked(offsetSpan[(int)indexOffset] * elemSize);
+            if (binary.BinaryOp == BinaryOp.Sub)
+            {
+                byteOffset = checked(-byteOffset);
+            }
+
+            resultSpan[(int)linear] = AddSignedByteOffset(pointerSpan[(int)pointerOffset], byteOffset);
         }
 
         return resultTensor.CastElementTo(pointerType, CastMode.Reinterpret);
@@ -359,11 +378,31 @@ public partial class BinaryEvaluator : IEvaluator<Binary>, ITypeInferencer<Binar
         Tensor converted = operand.ElementType switch
         {
             PointerType => operand.CastElementTo(DataTypes.UInt64, CastMode.Reinterpret),
-            _ when operand.ElementType.IsIntegral() => operand.CastElementTo(DataTypes.UInt64),
-            _ => throw new InvalidOperationException("Pointer arithmetic only supports pointer or integral operands"),
+            _ => throw new InvalidOperationException("Pointer arithmetic requires a pointer operand."),
         };
 
         return (Tensor<ulong>)converted;
+    }
+
+    private Tensor<long> ConvertIntegralOperandToInt64Tensor(Tensor operand)
+    {
+        Tensor converted = operand.ElementType switch
+        {
+            _ when operand.ElementType.IsIntegral() => operand.CastElementTo(DataTypes.Int64),
+            _ => throw new InvalidOperationException("Pointer arithmetic requires an integral offset operand."),
+        };
+
+        return (Tensor<long>)converted;
+    }
+
+    private ulong AddSignedByteOffset(ulong pointer, long byteOffset)
+    {
+        checked
+        {
+            return byteOffset >= 0
+                ? pointer + (ulong)byteOffset
+                : pointer - (ulong)-byteOffset;
+        }
     }
 
     private long GetBroadcastOffset(long[] outIndices, long[] operandShape, long[] operandStrides, long[] scratch)
@@ -445,9 +484,9 @@ public partial class BinaryEvaluator : IEvaluator<Binary>, ITypeInferencer<Binar
             return new InvalidType("The Binary Logical Only Accept The Boolean Datatype.");
         }
 
-        if (lhs is { DType: PointerType { ElemType: var letype } })
+        if (lhs is { DType: PointerType })
         {
-            if ((rhs is { DType: PointerType { ElemType: var other } } && letype == other) || rhs.DType.IsIntegral())
+            if (rhs.DType.IsIntegral() && target.BinaryOp is BinaryOp.Add or BinaryOp.Sub)
             {
                 return TypeInference.BroadcastType(lhs.DType, lhs, rhs);
             }
@@ -455,9 +494,9 @@ public partial class BinaryEvaluator : IEvaluator<Binary>, ITypeInferencer<Binar
             return new InvalidType($"The Binary Lhs {CompilerServices.Print(lhs)} != Rhs {CompilerServices.Print(rhs)}");
         }
 
-        if (rhs is { DType: PointerType { ElemType: var retype } })
+        if (rhs is { DType: PointerType })
         {
-            if ((lhs is { DType: PointerType { ElemType: var other } } && retype == other) || lhs.DType.IsIntegral())
+            if (lhs.DType.IsIntegral() && target.BinaryOp == BinaryOp.Add)
             {
                 return TypeInference.BroadcastType(rhs.DType, lhs, rhs);
             }

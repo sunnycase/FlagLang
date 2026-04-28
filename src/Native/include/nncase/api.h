@@ -30,6 +30,7 @@ class type_node;
 class datatype_node;
 class prim_type_node;
 class vector_type_node;
+class pointer_type_node;
 class value_type_node;
 class reference_type_node;
 namespace llm {
@@ -107,6 +108,9 @@ NNCASE_API int nncase_dtype_create_vector(nncase::datatype_node *elem_type,
                                           int32_t *lanes, int32_t length,
                                           nncase::vector_type_node **dtype);
 
+NNCASE_API int nncase_dtype_create_pointer(nncase::datatype_node *elem_type,
+                                           nncase::pointer_type_node **dtype);
+
 NNCASE_API int nncase_dtype_get_typecode(nncase::datatype_node *dtype);
 
 NNCASE_API int
@@ -119,6 +123,10 @@ nncase_vector_dtype_get_lanes_length(nncase::vector_type_node *handle,
 
 NNCASE_API int nncase_vector_dtype_get_lanes(nncase::vector_type_node *handle,
                                              int32_t *lanes);
+
+NNCASE_API int
+nncase_pointer_dtype_get_elem_type(nncase::pointer_type_node *handle,
+                                   nncase::datatype_node **elemType);
 
 NNCASE_API int
 nncase_dtype_create_reference(nncase::datatype_node *elem_type,

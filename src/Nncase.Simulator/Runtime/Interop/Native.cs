@@ -65,6 +65,9 @@ internal static class Native
     [DllImport(LibraryName, EntryPoint = "nncase_dtype_create_vector")]
     public static extern unsafe ErrorCode DTypeCreateVector(RTDataType elemType, int[] lanes, int length, out RTVectorType dtype);
 
+    [DllImport(LibraryName, EntryPoint = "nncase_dtype_create_pointer")]
+    public static extern unsafe ErrorCode DTypeCreatePointer(RTDataType elemType, out RTPointerType dtype);
+
     [DllImport(LibraryName, EntryPoint = "nncase_dtype_get_typecode")]
     public static extern unsafe TypeCode DTypeGetTypeCode(RTDataType handle);
 
@@ -76,6 +79,9 @@ internal static class Native
 
     [DllImport(LibraryName, EntryPoint = "nncase_vector_dtype_get_lanes")]
     public static extern unsafe ErrorCode VectorDTypeGetLanes(RTVectorType handle, [Out] int[] lanes);
+
+    [DllImport(LibraryName, EntryPoint = "nncase_pointer_dtype_get_elem_type")]
+    public static extern unsafe ErrorCode PointerDTypeGetElemType(RTPointerType handle, out RTDataType elemType);
 
     [DllImport(LibraryName, EntryPoint = "nncase_dtype_create_reference")]
     public static extern unsafe ErrorCode DTypeCreateReference(RTDataType elemType, out RTReferenceType dtype);

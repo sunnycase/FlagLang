@@ -102,6 +102,32 @@ public class UnitTestEvaluatorMath : TestClassBase
     }
 
     [Fact]
+    public void TestPointerBinaryScalesIntegralOffsets()
+    {
+        const ulong BaseAddress = 0x1000UL;
+        var pointer = Const.FromTensor(Tensor.FromPointer(BaseAddress, DataTypes.Float32));
+        var offsets = Const.FromTensor(Tensor.From<int>(new[] { 0, 1, -1 }, new long[] { 3 }));
+
+        var add = IR.F.Math.Binary(BinaryOp.Add, pointer, offsets);
+        Assert.True(CompilerServices.InferenceType(add), CompilerServices.Print(add));
+        Assert.Equal(
+            new[] { BaseAddress, BaseAddress + 4, BaseAddress - 4 },
+            add.Evaluate().AsTensor().CastElementTo(DataTypes.UInt64, CastMode.Reinterpret).ToArray<ulong>());
+
+        var commutedAdd = IR.F.Math.Binary(BinaryOp.Add, offsets, pointer);
+        Assert.True(CompilerServices.InferenceType(commutedAdd), CompilerServices.Print(commutedAdd));
+        Assert.Equal(
+            new[] { BaseAddress, BaseAddress + 4, BaseAddress - 4 },
+            commutedAdd.Evaluate().AsTensor().CastElementTo(DataTypes.UInt64, CastMode.Reinterpret).ToArray<ulong>());
+
+        var sub = IR.F.Math.Binary(BinaryOp.Sub, pointer, offsets);
+        Assert.True(CompilerServices.InferenceType(sub), CompilerServices.Print(sub));
+        Assert.Equal(
+            new[] { BaseAddress, BaseAddress - 4, BaseAddress + 4 },
+            sub.Evaluate().AsTensor().CastElementTo(DataTypes.UInt64, CastMode.Reinterpret).ToArray<ulong>());
+    }
+
+    [Fact]
     public void TestBinaryScalarTensor()
     {
         var ops = new BinaryOp[]

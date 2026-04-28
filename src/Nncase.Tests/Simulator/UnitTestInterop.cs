@@ -190,6 +190,13 @@ public class UnitTestInterop
             var rvvt = rvt as RTValueType;
             Assert.Equal(dtt.Uuid, rvvt!.Uuid);
         }
+
+        {
+            var dt = new PointerType(DataTypes.Float32);
+            var rdt = RTDataType.From(dt);
+            Assert.IsType<RTPointerType>(rdt);
+            Assert.Equal(dt, rdt.ToDataType());
+        }
     }
 
     [Fact]
@@ -208,6 +215,15 @@ public class UnitTestInterop
         Assert.Equal(DataTypes.Float32, RTExtensions.ToPrimType(RTDataType.FromTypeCode(Runtime.TypeCode.Float32)));
         Assert.Equal(DataTypes.Float64, RTExtensions.ToPrimType(RTDataType.FromTypeCode(Runtime.TypeCode.Float64)));
         Assert.Equal(DataTypes.BFloat16, RTExtensions.ToPrimType(RTDataType.FromTypeCode(Runtime.TypeCode.BFloat16)));
+    }
+
+    [Fact]
+    public void TestRTPointerTensor()
+    {
+        var tensor = Tensor.FromPointer(0x12345678UL, DataTypes.Float32);
+        var rtTensor = RTTensor.FromTensor(tensor);
+        Assert.Equal(new PointerType(DataTypes.Float32), rtTensor.ElementType.ToDataType());
+        Assert.Equal(tensor.BytesBuffer.ToArray(), rtTensor.ToTensor().BytesBuffer.ToArray());
     }
 
     [Fact]

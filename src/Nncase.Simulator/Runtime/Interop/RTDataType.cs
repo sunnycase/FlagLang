@@ -61,6 +61,10 @@ public class RTDataType : RTObject
                 var lanes = vectorType.Lanes.ToArray();
                 Native.DTypeCreateVector(elemType, lanes, lanes.Length, out var rtDtype).ThrowIfFailed();
                 return rtDtype;
+            case PointerType pointerType:
+                var pointerElemType = From(pointerType.ElemType);
+                Native.DTypeCreatePointer(pointerElemType, out var rtPointerType).ThrowIfFailed();
+                return rtPointerType;
             default:
                 throw new ArgumentOutOfRangeException(nameof(dataType));
         }
@@ -73,7 +77,7 @@ public class RTDataType : RTObject
         Native.ObjectAddRef(handle);
         return typecode switch
         {
-            TypeCode.Pointer => throw new NotSupportedException(),
+            TypeCode.Pointer => new RTPointerType(handle),
             TypeCode.ValueType => new RTValueType(handle),
             TypeCode.VectorType => new RTVectorType(handle),
             TypeCode.ReferenceType => new RTReferenceType(handle),
@@ -92,6 +96,28 @@ public sealed class RTPrimType : RTDataType
     internal RTPrimType(IntPtr handle)
         : base(handle)
     {
+    }
+}
+
+public sealed class RTPointerType : RTDataType
+{
+    internal RTPointerType()
+       : base(IntPtr.Zero)
+    {
+    }
+
+    internal RTPointerType(IntPtr handle)
+        : base(handle)
+    {
+    }
+
+    public RTDataType ElemType
+    {
+        get
+        {
+            Native.PointerDTypeGetElemType(this, out var elemType).ThrowIfFailed();
+            return FromRTDataType(elemType);
+        }
     }
 }
 

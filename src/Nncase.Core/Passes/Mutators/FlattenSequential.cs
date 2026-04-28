@@ -9,6 +9,7 @@ using System.Reactive;
 using NetFabric.Hyperlinq;
 using Nncase.IR;
 using Nncase.TIR;
+using Nncase.Utilities;
 
 namespace Nncase.Passes.Mutators;
 
@@ -22,7 +23,7 @@ public sealed class FlattenSequential : ExprRewriter
     {
         if (expr.Fields.AsValueEnumerable().Any(x => x is Sequential))
         {
-            return Sequential.Flatten(expr.Fields);
+            return Sequential.Flatten(SpanUtility.UnsafeCast<Expr, object>(expr.Fields), expr.Parameters);
         }
 
         return expr;

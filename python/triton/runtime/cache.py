@@ -264,8 +264,7 @@ def make_so_cache_key(version_hash, signature, constants, ids, **kwargs):
     key = f"{version_hash}-{''.join(signature.values())}-{constants}-{ids}"
     for kw in kwargs:
         key = f"{key}-{kwargs.get(kw)}"
-    key = hashlib.sha256(key.encode("utf-8")).hexdigest()
-    return _base32(key)
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 @functools.lru_cache()

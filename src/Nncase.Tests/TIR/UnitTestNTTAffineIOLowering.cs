@@ -2,6 +2,7 @@
 // Licensed under the Apache license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Nncase.Diagnostics;
@@ -105,6 +106,24 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
     }
 
     [Fact]
+    public async Task ScatterWithTensorSourceParameterMaterializesReadableBuffer()
+    {
+        var source = new Var("source", new TensorType(DataTypes.Float32, new RankedShape(4)));
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var (relation, symbols) = CreateVectorAddRelation(symbolCount: 2);
+        var call = Nncase.TIR.F.NTT.AffineScatter(source, dest, relation, symbols);
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(call));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var fields = FlattenSequential(lowered.Body).ToArray();
+
+        var setup = Assert.IsType<Call>(fields[0]);
+        Assert.IsType<Memcopy>(setup.Target);
+        Assert.IsType<Nncase.TIR.For>(fields[1]);
+        Assert.True(CompilerServices.InferenceType(lowered));
+    }
+
+    [Fact]
     public async Task MaskedSymbolicScatterEvaluatesFullBlockAndTailBlockSemantics()
     {
         var source = CreateVectorBuffer("source");
@@ -178,6 +197,24 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         var call = Assert.IsType<Call>(Assert.Single(body.Fields.ToArray()));
         Assert.IsType<TOp>(call.Target);
         return call;
+    }
+
+    private static IEnumerable<Expr> FlattenSequential(Sequential body)
+    {
+        foreach (var field in body.Fields.ToArray())
+        {
+            if (field is Sequential nested)
+            {
+                foreach (var nestedField in FlattenSequential(nested))
+                {
+                    yield return nestedField;
+                }
+            }
+            else
+            {
+                yield return field;
+            }
+        }
     }
 
     private static void AssertGuardEvaluates(IfThenElse guard, Nncase.TIR.For loop, long programId, long nElements, bool[] expected)

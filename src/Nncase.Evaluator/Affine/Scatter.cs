@@ -11,9 +11,15 @@ namespace Nncase.Evaluator.Affine;
 /// <summary>
 /// Evaluator for <see cref="Scatter"/>.
 /// </summary>
-[TypeInferGenerator]
 public partial class ScatterEvaluator : ITypeInferencer<Scatter>, IOpPrinter<Scatter>, ICostEvaluator<Scatter>
 {
+    public IRType Visit(ITypeInferenceContext context, Scatter target)
+    {
+        var source = context.CheckArgumentType<IRType>(target, Scatter.Source);
+        var dest = context.CheckArgumentType<TensorType>(target, Scatter.Dest);
+        return Visit(target, source, dest);
+    }
+
     public string Visit(IPrintOpContext context, Scatter target)
     {
         if (context.Flags.HasFlag(PrinterFlags.Inline) || context.Flags.HasFlag(PrinterFlags.Script))
@@ -26,7 +32,7 @@ public partial class ScatterEvaluator : ITypeInferencer<Scatter>, IOpPrinter<Sca
 
     public Cost Visit(ICostEvaluateContext context, Scatter target)
     {
-        var sourceType = context.GetArgumentType<TensorType>(target, Scatter.Source);
+        var sourceType = context.GetArgumentType<IRType>(target, Scatter.Source);
         var bytes = CostUtility.GetMemoryAccess(sourceType);
         return new()
         {
@@ -37,6 +43,24 @@ public partial class ScatterEvaluator : ITypeInferencer<Scatter>, IOpPrinter<Sca
     }
 
     private IRType Visit(Scatter target, TensorType source, TensorType dest)
+    {
+        if (dest.DType is not PointerType)
+        {
+            return new InvalidType("dest is not pointer type!");
+        }
+
+        return TupleType.Void;
+    }
+
+    private IRType Visit(Scatter target, IRType source, TensorType dest) => source switch
+    {
+        TensorType tensorType => Visit(target, tensorType, dest),
+        DistributedType distributedType => Visit(target, distributedType, dest),
+        AnyType => AnyType.Default,
+        _ => new InvalidType($"source is not tensor type: {CompilerServices.Print(source)}"),
+    };
+
+    private IRType Visit(Scatter target, DistributedType source, TensorType dest)
     {
         if (dest.DType is not PointerType)
         {

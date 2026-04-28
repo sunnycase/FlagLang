@@ -11,6 +11,7 @@ import torch
 import triton
 import triton.language as tl
 from triton._internal_testing import is_hip
+from triton.runtime.cache import get_cache_manager, make_so_cache_key
 
 
 @triton.jit
@@ -125,6 +126,15 @@ def test_combine_fn_change():
 
         assert key not in seen_keys
         seen_keys.add(key)
+
+
+def test_make_so_cache_key_can_create_cache_manager(fresh_triton_cache):
+    key = make_so_cache_key("version", {0: "*fp32", 1: "i32"}, {1: 16}, ("kernel_id", ))
+    assert len(key) == 64
+    int(key, 16)
+
+    cache_manager = get_cache_manager(key)
+    assert cache_manager.cache_dir
 
 
 @triton.constexpr_function

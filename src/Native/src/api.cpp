@@ -256,6 +256,15 @@ int nncase_dtype_create_vector(nncase::datatype_node *elem_type, int32_t *lanes,
     return -EINVAL;
 }
 
+int nncase_dtype_create_pointer(nncase::datatype_node *elem_type,
+                                nncase::pointer_type_node **dtype) {
+    if (elem_type && dtype) {
+        *dtype = pointer_type_t(std::in_place, elem_type).detach();
+        return 0;
+    }
+    return -EINVAL;
+}
+
 int nncase_dtype_get_typecode(nncase::datatype_node *dtype) {
     return dtype->typecode();
 }
@@ -288,6 +297,16 @@ int nncase_vector_dtype_get_lanes(nncase::vector_type_node *handle,
         }
         return 0;
     }
+    return -EINVAL;
+}
+
+int nncase_pointer_dtype_get_elem_type(nncase::pointer_type_node *handle,
+                                       nncase::datatype_node **elemType) {
+    if (handle && elemType) {
+        *elemType = datatype_t(handle->elemtype()).detach();
+        return 0;
+    }
+
     return -EINVAL;
 }
 

@@ -347,7 +347,7 @@ internal sealed class AutoDistributedRewriter : ExprVisitor<Unit, Unit>
             isSupported = expr.Target is AsTensor or IR.Tensors.Range ? false : true;
             foreach (var param in op.Parameters)
             {
-                argClusters[param.Index] = VisitLeafArgument(param.ParameterKind, expr.Arguments[param.Index], isSupported);
+                argClusters[param.Index] = VisitLeafArgument(param.ParameterKind, expr.Arguments[param.Index], isSupported && !IsRawAffinePointerArgument(expr.Target, param));
             }
         }
 
@@ -608,6 +608,13 @@ internal sealed class AutoDistributedRewriter : ExprVisitor<Unit, Unit>
     {
         DistributedType => true,
         TupleType t => t.All(IsDistributed),
+        _ => false,
+    };
+
+    private bool IsRawAffinePointerArgument(Expr target, ParameterInfo param) => target switch
+    {
+        IR.Affine.Gather => param.Index == IR.Affine.Gather.Source.Index,
+        IR.Affine.Scatter => param.Index == IR.Affine.Scatter.Dest.Index,
         _ => false,
     };
 

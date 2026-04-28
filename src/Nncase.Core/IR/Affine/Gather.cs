@@ -16,7 +16,7 @@ public sealed partial class Gather : Op
 {
     public static readonly ParameterInfo Source = new(typeof(Gather), 0, "source", IsPointer());
 
-    public static readonly ParameterInfo DefaultValue = new(typeof(Gather), 1, "defaultValue", IsScalar());
+    public static readonly ParameterInfo DefaultValue = new(typeof(Gather), 1, "defaultValue");
 
     public AffineRelation Relation { get; }
 
