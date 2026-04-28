@@ -23,19 +23,10 @@ from conan.tools.files import apply_conandata_patches, copy, export_conandata_pa
 class flaglangConan(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
     options = {
-        "shared": [True, False],
-        "fPIC": [True, False],
-        "tests": [True, False],
-        "python": [True, False],
-        "python_root": ["ANY"]
+        "shared": [True, False], "fPIC": [True, False], "tests": [True, False], "python": [True, False], "python_root":
+        ["ANY"]
     }
-    default_options = {
-        "shared": False,
-        "fPIC": True,
-        "tests": False,
-        "python": True,
-        "python_root": ""
-    }
+    default_options = {"shared": False, "fPIC": True, "tests": False, "python": True, "python_root": ""}
 
     @property
     def _min_cppstd(self):
@@ -62,7 +53,7 @@ class flaglangConan(ConanFile):
     def configure(self):
         if self.settings.os == 'Windows' and self.settings.build_type == 'Debug':
             self.options["nethost"].shared = True
-        
+
     def validate(self):
         if self.settings.compiler.get_safe("cppstd"):
             check_min_cppstd(self, self._min_cppstd)

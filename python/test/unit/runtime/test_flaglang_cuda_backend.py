@@ -52,6 +52,14 @@ def _torch_cuda():
     return torch
 
 
+def _repo_dump_dir(*parts):
+    dump_dir = Path(__file__).resolve().parents[4] / "dump" / "pytest" / Path(*parts)
+    if dump_dir.exists():
+        shutil.rmtree(dump_dir)
+    dump_dir.mkdir(parents=True)
+    return dump_dir
+
+
 def _valid_vector_add_descriptor():
     return {
         "kind": "flaglang.vector_add",
@@ -156,7 +164,8 @@ def _compile_real_cubin(tmp_path, symbol="native_entry"):
     cubin = tmp_path / f"{symbol}.cubin"
     source.write_text(f'extern "C" __global__ void {symbol}() {{}}\n')
     result = subprocess.run(
-        [nvcc, "--cubin", "-arch=sm_80", str(source), "-o", str(cubin)],
+        [nvcc, "--cubin", "-arch=sm_80", str(source), "-o",
+         str(cubin)],
         check=False,
         capture_output=True,
         text=True,
@@ -241,6 +250,7 @@ def test_name_only_add_kernel_is_rejected_before_ptxas():
     options = backend.parse_options({})
 
     class NamedOnlyModule:
+
         def get_entry_func_name(self):
             return "add_kernel"
 
@@ -268,6 +278,7 @@ def test_forged_describe_vector_add_json_is_rejected_before_ptxas():
     options = backend.parse_options({})
 
     class ForgedDescribeModule:
+
         def get_entry_func_name(self):
             return "primfunc_0"
 
@@ -283,6 +294,7 @@ def test_native_module_without_compile_helper_fails_closed(monkeypatch):
     options = backend.parse_options({})
 
     class FakeNativeModule:
+
         def get_entry_func_name(self):
             return "primfunc_0"
 
@@ -300,6 +312,7 @@ def test_native_compile_helper_receives_parsed_capability_and_options(monkeypatc
     monkeypatch.setattr(nvidia_compiler, "_validate_native_cubin", lambda cubin, entry_name: None)
 
     class FakeNativeModule:
+
         def get_entry_func_name(self):
             return "primfunc_0"
 
@@ -514,7 +527,9 @@ def test_native_compile_metadata_rejects_self_consistent_reordered_wrapper_abi()
     result = nvidia_compiler.NativeCudaCompilation(
         cubin=b"validated-cubin",
         metadata=_native_metadata(argument_order=argument_order, raw_argument_order=raw_argument_order),
-        asm={"ntt_cu": _native_entry_source(raw_argument_order=raw_argument_order, raw_argument_types=raw_argument_types)},
+        asm={
+            "ntt_cu": _native_entry_source(raw_argument_order=raw_argument_order, raw_argument_types=raw_argument_types)
+        },
     )
 
     with pytest.raises(ValueError, match="imported_argument_order"):
@@ -675,6 +690,7 @@ def test_compiled_kernel_surfaces_cuda_driver_load_binary_failure(tmp_path, monk
     cubin_path.write_bytes(b"malformed-cubin")
 
     class FailingUtils:
+
         def get_device_properties(self, device):
             return {"max_shared_mem": 1 << 20}
 
@@ -741,9 +757,9 @@ def _dump_text(dump_dir, suffix):
     return _dump_file(dump_dir, suffix).read_text()
 
 
-def test_native_cuda_vector_add_forced_compile_dump_regression(tmp_path, monkeypatch):
+def test_native_cuda_vector_add_forced_compile_dump_regression(monkeypatch):
     torch = _torch_cuda()
-    dump_dir = tmp_path / "native-dump"
+    dump_dir = _repo_dump_dir("test_native_cuda_vector_add_forced_compile_dump_regression")
     monkeypatch.setenv("TRITON_ALWAYS_COMPILE", "1")
     monkeypatch.setenv("TRITON_KERNEL_DUMP", "1")
     monkeypatch.setenv("TRITON_DUMP_DIR", str(dump_dir))
@@ -781,10 +797,7 @@ def test_native_cuda_vector_add_forced_compile_dump_regression(tmp_path, monkeyp
     for pass_name in required_passes:
         assert pass_name in pass_dump_text
 
-    native_stage_files = [
-        path for path in Path(dump_dir).rglob("*")
-        if path.is_file() and "CodeGen" not in path.parts
-    ]
+    native_stage_files = [path for path in Path(dump_dir).rglob("*") if path.is_file() and "CodeGen" not in path.parts]
     for forbidden_suffix in (".ttir", ".ttgir", ".llir", ".ptx"):
         assert not [path for path in native_stage_files if path.name.endswith(forbidden_suffix)]
 

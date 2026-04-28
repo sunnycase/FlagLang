@@ -24,6 +24,21 @@ runs:
           git cat-file -e "${sha}^{commit}" >/dev/null
         }
 
+        is_docs_file() {
+          local file="$1"
+          case "$file" in
+            .github/*.yml|.github/*.yaml)
+              return 1
+              ;;
+            docs/*|*.md|*.rst|*.txt|CODEOWNERS|.github/CODEOWNERS)
+              return 0
+              ;;
+            *)
+              return 1
+              ;;
+          esac
+        }
+
         # Extract current workflow file path from github.workflow_ref
         # Format: owner/repo/.github/workflows/file.yml@ref
         WORKFLOW_REF="${{ github.workflow_ref }}"
@@ -63,7 +78,7 @@ runs:
               ONLY_DOCS_CHANGED=false
               break
             fi
-            if [[ ! "$file" =~ (\.(md|yml|txt)$|CODEOWNERS$) ]]; then
+            if ! is_docs_file "$file"; then
               echo "'$file' -> Not a docs file, need to run build/test"
               ONLY_DOCS_CHANGED=false
               break
