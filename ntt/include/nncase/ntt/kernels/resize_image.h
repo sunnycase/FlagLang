@@ -128,16 +128,13 @@ get_resize_scales(TShape in_shape, int32_t out_h, int32_t out_w,
     return ntt::make_tuple(height_scale, width_scale);
 }
 
-inline constexpr void set_resize_bilinear(size_t value, float scale,
-                                          bool half_pixel_centers,
-                                          size_t shape_size,
-                                          float &scaled_value, int32_t &v0,
-                                          int32_t &v1) {
-    if (half_pixel_centers) {
-        scaled_value = (value + 0.5f) * scale - 0.5f;
-    } else {
-        scaled_value = value * scale;
-    }
+inline constexpr void
+set_resize_bilinear(size_t value, float scale, size_t length_resized,
+                    size_t shape_size, get_coordinate_func_t get_coordinate_func,
+                    float &scaled_value, int32_t &v0, int32_t &v1) {
+    scaled_value = get_coordinate_func(
+        static_cast<float>(value), scale, static_cast<float>(length_resized),
+        static_cast<float>(shape_size), 0.0f, 0.0f);
     float scaled_value_floor = std::floor(scaled_value);
     v0 = std::max(static_cast<int32_t>(scaled_value_floor), 0);
     v1 = std::min(static_cast<int32_t>(std::ceil(scaled_value)),
@@ -145,11 +142,7 @@ inline constexpr void set_resize_bilinear(size_t value, float scale,
 }
 
 template <typename T> constexpr float get_rounding_offset() {
-    return std::is_integral_v<T> ? .5f : .0f;
-}
-
-template <FixedTensor T> constexpr float get_rounding_offset() {
-    return std::is_integral_v<typename T::element_type> ? .5f : .0f;
+    return std::is_integral_v<element_or_scalar_t<T>> ? .5f : .0f;
 }
 
 template <typename T, typename TInShape, typename TInStrides,
@@ -158,11 +151,11 @@ constexpr void
 resize_bilinear(const T *input, T *output, const TInShape in_shape,
                 const TInStrides in_strides, const TOutStrides out_strides,
                 int32_t out_h, int32_t out_w, bool align_corners,
-                bool half_pixel_centers) noexcept {
+                get_coordinate_func_t get_coordinate_func) noexcept {
     auto [height_scale, width_scale] =
         get_resize_scales(in_shape, out_h, out_w, align_corners);
 
-    const T rounding_offset = (T)get_rounding_offset<T>();
+    const float rounding_offset = get_rounding_offset<T>();
     dynamic_shape_t<4> in_index, out_index;
 
     auto get_input = [&](int32_t in_y, int32_t in_x) {
@@ -181,28 +174,33 @@ resize_bilinear(const T *input, T *output, const TInShape in_shape,
                 out_index[2_dim] = oy;
                 float in_y;
                 int32_t in_y0, in_y1;
-                set_resize_bilinear(oy, height_scale, half_pixel_centers,
-                                    in_shape[2], in_y, in_y0, in_y1);
+                set_resize_bilinear(oy, height_scale, out_h, in_shape[2],
+                                    get_coordinate_func, in_y, in_y0, in_y1);
 
                 for (size_t ox = 0; ox < (size_t)out_w; ox++) {
                     out_index[3_dim] = ox;
                     float in_x;
                     int32_t in_x0, in_x1;
-                    set_resize_bilinear(ox, width_scale, half_pixel_centers,
-                                        in_shape[3], in_x, in_x0, in_x1);
+                    set_resize_bilinear(ox, width_scale, out_w, in_shape[3],
+                                        get_coordinate_func, in_x, in_x0,
+                                        in_x1);
 
                     auto v0 = get_input(in_y0, in_x0);
                     auto v1 = get_input(in_y1, in_x0);
                     auto v2 = get_input(in_y0, in_x1);
                     auto v3 = get_input(in_y1, in_x1);
 
-                    auto a0 = (T)((1 - (in_y - in_y0)) * (1 - (in_x - in_x0)));
-                    auto a1 = (T)((in_y - in_y0) * (1 - (in_x - in_x0)));
-                    auto a2 = (T)((1 - (in_y - in_y0)) * (in_x - in_x0));
-                    auto a3 = (T)((in_y - in_y0) * (in_x - in_x0));
+                    auto a0 = (1 - (in_y - in_y0)) * (1 - (in_x - in_x0));
+                    auto a1 = (in_y - in_y0) * (1 - (in_x - in_x0));
+                    auto a2 = (1 - (in_y - in_y0)) * (in_x - in_x0);
+                    auto a3 = (in_y - in_y0) * (in_x - in_x0);
+                    auto interpolated = ntt::cast_elem<float>(v0) * a0 +
+                                        ntt::cast_elem<float>(v1) * a1 +
+                                        ntt::cast_elem<float>(v2) * a2 +
+                                        ntt::cast_elem<float>(v3) * a3 +
+                                        rounding_offset;
                     output[linear_offset(out_index, out_strides)] =
-                        (T)(v0 * a0 + v1 * a1 + v2 * a2 + v3 * a3 +
-                            rounding_offset);
+                        ntt::cast_elem<element_or_scalar_t<T>>(interpolated);
                 }
             }
         }
@@ -270,13 +268,14 @@ constexpr void resize(const TIn &input, TOut &&output,
                       image_resize_transformation_mode_t transformation_mode,
                       image_resize_nearest_mode_t nearest_mode) {
     if (resize_mode == image_resize_mode_t::bilinear) {
+        resize_detail::get_coordinate_func_t get_coordinate_func =
+            resize_detail::get_coordinate_from_resized(transformation_mode);
         resize_detail::resize_bilinear(
             input.elements().data(), output.elements().data(), input.shape(),
             input.strides(), output.strides(), new_size[2_dim], new_size[3_dim],
             transformation_mode ==
                 image_resize_transformation_mode_t::align_corners,
-            transformation_mode ==
-                image_resize_transformation_mode_t::half_pixel);
+            get_coordinate_func);
     } else {
         resize_detail::get_coordinate_func_t get_coordinate_func =
             resize_detail::get_coordinate_from_resized(transformation_mode);
