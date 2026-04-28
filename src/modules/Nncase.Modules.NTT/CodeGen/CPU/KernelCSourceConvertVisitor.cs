@@ -261,6 +261,19 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
         return symbol;
     }
 
+    protected override CSymbol VisitAsDim(AsDim expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var symbol))
+        {
+            return symbol;
+        }
+
+        var value = Visit(UnwrapDimValue(expr.Dim));
+        symbol = new("dim_t", value.Name);
+        _exprMemo.Add(expr, symbol);
+        return symbol;
+    }
+
     protected override CSymbol VisitBuffer(TIR.Buffer expr)
     {
         if (_exprMemo.TryGetValue(expr, out var symbol))
@@ -689,7 +702,7 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
                         str = CSourceUtilities.ConvertSelect(op, arguments);
                         break;
                     case IR.Tensors.Cast op:
-                        str = $"(({op.NewType.ToC()}){arguments[0].Name})";
+                        str = ConvertCast(op, arguments[0]);
                         break;
                     case TIR.Load op:
                         str = $"{arguments[0].Name}[{arguments[1].Name}]";
@@ -878,6 +891,16 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
         return symbol;
     }
 
+    private static string ConvertCast(IR.Tensors.Cast op, CSymbol input)
+    {
+        if (op is { CastMode: CastMode.Reinterpret, NewType: PointerType { ElemType: DataType elemType } })
+        {
+            return $"typed_span_reinterpret<{elemType.ToC()}>({input.Name})";
+        }
+
+        return $"(({op.NewType.ToC()}){input.Name})";
+    }
+
     private string VisitBufferLoad(Call expr)
     {
         var buffer = VisitBuffer((TIR.Buffer)expr[IR.Buffers.BufferLoad.Input]);
@@ -916,23 +939,41 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
     {
         while (index is Call call)
         {
-            if (call.Target is IR.Tensors.Cast)
+            var unwrapped = UnwrapDimCall(call);
+            if (ReferenceEquals(unwrapped, index))
             {
-                index = (BaseExpr)call[IR.Tensors.Cast.Input];
-                continue;
+                break;
             }
 
-            if (call.Target is IR.Shapes.AsTensor)
-            {
-                index = (BaseExpr)call[IR.Shapes.AsTensor.Input];
-                continue;
-            }
-
-            break;
+            index = unwrapped;
         }
 
         return index;
     }
+
+    private BaseExpr UnwrapDimValue(BaseExpr value)
+    {
+        while (value is Call call)
+        {
+            var unwrapped = UnwrapDimCall(call);
+            if (ReferenceEquals(unwrapped, value))
+            {
+                break;
+            }
+
+            value = unwrapped;
+        }
+
+        return value;
+    }
+
+    private BaseExpr UnwrapDimCall(Call call) =>
+        call.Target switch
+        {
+            IR.Tensors.Cast => call[IR.Tensors.Cast.Input],
+            IR.Shapes.AsTensor => call[IR.Shapes.AsTensor.Input],
+            _ => call,
+        };
 
     private CSymbol VisitBuffer(BaseExpr buffer, bool local)
     {
@@ -955,7 +996,7 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
                 // If the buffer has a start, we create a tensor view
                 var dtypeStr = buffer.ElemType.ToC();
                 var dimensions = buffer.DistributedType is null ? buffer.Dimensions : ((RankedShape)buffer.DistributedType.TensorType.Shape).Dimensions;
-                var spanStr = $"span_cast<{dtypeStr}>({Visit(buffer.MemSpan).Name})";
+                var spanStr = $"typed_span_reinterpret<{dtypeStr}>({Visit(buffer.MemSpan).Name})";
                 var dimensionValues = dimensions.AsValueEnumerable().Select(x => Visit(x).Name);
                 var strideValues = buffer.Strides.AsValueEnumerable().Select(x => Visit(x).Name);
 

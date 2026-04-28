@@ -121,7 +121,13 @@ public static unsafe partial class CApi
         using var session = CompileSession.Create(target, compileOptions);
         using var dumpScope = new DumpScope(session.GetRequiredService<IDumpperFactory>().Root, session);
         var originalIr = PrintModule(module);
-        var compiledModule = RunNativeCudaPassPipeline(session, module, request.EnableAutoDist);
+        var compiler = (Nncase.Compiler.Compiler)session.Compiler;
+        compiler.ImportIRModule(module);
+        var nncaseModule = RunNativeCudaImportPass(session, compiler.Module);
+        compiler.ImportIRModule(nncaseModule);
+        compiler.CompileAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+        var compiledModule = compiler.Module;
+        EnsureNoTritonLoadStore(compiledModule, "after CompileAsync");
 
         using var output = new MemoryStream();
         session.Compiler.Gencode(output);
@@ -129,12 +135,15 @@ public static unsafe partial class CApi
         var codegenDir = Path.Combine(dumpDir, "CodeGen", CUDATarget.Kind);
         var cubinPath = FindGeneratedCubin(codegenDir, request.Capability);
         var cubin = File.ReadAllBytes(cubinPath);
+        ValidateGeneratedCubin(cubinPath, cubin, "flaglang_native_entry");
         var compilerLog = ReadOptional(Path.Combine(codegenDir, "compiler.log"));
-        var asm = CollectNativeCudaStages(originalIr, compiledModule, codegenDir, compilerLog);
+        var passDumps = CollectPassDumpNames(dumpDir);
+        var asm = CollectNativeCudaStages(originalIr, nncaseModule, compiledModule, dumpDir, codegenDir, compilerLog, passDumps);
         var metadata = new Dictionary<string, object?>
         {
             ["name"] = "flaglang_native_entry",
             ["original_entry_name"] = request.EntryName,
+            ["flaglang_abi"] = DescribeNativeCudaAbi(nncaseModule, "flaglang_native_entry", request.EntryName),
             ["shared"] = 0,
             ["num_warps"] = request.NumWarps,
             ["num_ctas"] = request.NumCtas,
@@ -146,9 +155,10 @@ public static unsafe partial class CApi
             ["profile_scratch_align"] = 1,
             ["cuda_compiler"] = request.CudaCompiler,
             ["cuda_arch"] = request.Arch,
-            ["enable_auto_dist"] = request.EnableAutoDist,
+            ["enable_auto_dist"] = true,
             ["dump_dir"] = dumpDir,
             ["cubin_path"] = cubinPath,
+            ["pass_dumps"] = passDumps,
         };
 
         var json = JsonSerializer.Serialize(new Dictionary<string, object?>
@@ -171,40 +181,21 @@ public static unsafe partial class CApi
             ?? throw new InvalidOperationException("Native CUDA compilation requires an IRModule entry function.");
     }
 
-    private static IR.IRModule RunNativeCudaPassPipeline(CompileSession session, IR.IRModule module, bool enableAutoDist)
+    private static IR.IRModule RunNativeCudaImportPass(CompileSession session, IR.IRModule module)
     {
         using var scope = new CompileSessionScope(session);
-        var compiler = (Nncase.Compiler.Compiler)session.Compiler;
-        compiler.ImportIRModule(module);
-
-        var passManager = session.CreatePassManager("NativeCudaPipeline");
-        compiler.TargetIndependentPass(passManager);
-        session.Target.RegisterPostAutoVectorizePass(passManager, session.CompileOptions);
-        if (enableAutoDist)
+        var passManager = session.CreatePassManager("NativeCudaImportPass");
+        passManager.Add<TTIRToIRPass>();
+        passManager.AddWithName<DataflowPass>("TritonLoadStoreToAffineIO").Configure(c =>
         {
-            compiler.AutoDistributedPass(passManager);
-        }
-
-        compiler.AutoTilingPass(passManager);
-        NativeCudaTIRPass(session, passManager);
-        var compiledModule = passManager.RunAsync(module).ConfigureAwait(false).GetAwaiter().GetResult();
-        compiler.ImportIRModule(compiledModule);
-        return compiledModule;
-    }
-
-    private static void NativeCudaTIRPass(CompileSession session, IPassManager passManager)
-    {
-        session.Target.RegisterTIRSelectionPass(passManager, session.CompileOptions);
-        passManager.Add<AddFunctionToModule>();
-        passManager.AddWithName<PrimFuncPass>("RemoveFunctionWrapper").Configure(p =>
-        {
-            p.Add<Passes.Mutators.RemoveFunctionWrapper>();
+            c.Add<Passes.Rules.Triton.LoadToAffineGather>();
+            c.Add<Passes.Rules.Triton.StoreToAffineScatter>();
         });
-
-        passManager.Add<RemoveUnusedFunctions>();
         passManager.Add<InferRangePass>();
         passManager.Add<OptimizeByRangePass>();
-        passManager.Add<BufferizePass>();
+        var nncaseModule = passManager.RunAsync(module).ConfigureAwait(false).GetAwaiter().GetResult();
+        EnsureNoTritonLoadStore(nncaseModule, "after native CUDA import");
+        return nncaseModule;
     }
 
     [UnmanagedCallersOnly]
@@ -238,7 +229,6 @@ public static unsafe partial class CApi
         {
             Path.Combine(codegenDir, "build", "nncase_ntt_module.cubin"),
             Path.Combine(codegenDir, "build", $"linked_sm_{capability}.o"),
-            Path.Combine(codegenDir, "build", "nncase_ntt_module"),
         };
 
         foreach (var candidate in candidates)
@@ -252,13 +242,22 @@ public static unsafe partial class CApi
         throw new FileNotFoundException($"CUDA codegen did not produce a cubin artifact under {codegenDir}.");
     }
 
-    private static Dictionary<string, string> CollectNativeCudaStages(string originalIr, IR.IRModule compiledModule, string codegenDir, string compilerLog)
+    private static Dictionary<string, string> CollectNativeCudaStages(
+        string originalIr,
+        IR.IRModule nncaseModule,
+        IR.IRModule compiledModule,
+        string dumpDir,
+        string codegenDir,
+        string compilerLog,
+        IReadOnlyList<string> passDumps)
     {
         var stages = new Dictionary<string, string>
         {
             ["triton_tir"] = originalIr,
+            ["nncase_ir"] = PrintModule(nncaseModule),
             ["after_compile"] = PrintModule(compiledModule),
-            ["tir"] = PrintModule(compiledModule),
+            ["tir"] = ReadPassDump(dumpDir, "TIRPass") ?? PrintModule(compiledModule),
+            ["pass_dumps"] = string.Join(Environment.NewLine, passDumps),
         };
 
         AddIfExists(stages, "ntt_cu", Path.Combine(codegenDir, "thread_main.cu"));
@@ -270,6 +269,142 @@ public static unsafe partial class CApi
         }
 
         return stages;
+    }
+
+    private static void EnsureNoTritonLoadStore(IR.IRModule module, string stage)
+    {
+        var text = PrintModule(module);
+        if (text.Contains("Triton.Load", StringComparison.Ordinal) ||
+            text.Contains("Triton.Store", StringComparison.Ordinal) ||
+            text.Contains("IR.Triton.Load", StringComparison.Ordinal) ||
+            text.Contains("IR.Triton.Store", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Native CUDA module still contains Triton load/store {stage}.");
+        }
+    }
+
+    private static Dictionary<string, object?> DescribeNativeCudaAbi(IR.IRModule module, string entryName, string originalEntryName)
+    {
+        var entry = SelectEntryBaseFunction(module);
+        var parameterOrder = GetFunctionParameterNames(entry);
+        return new Dictionary<string, object?>
+        {
+            ["entry"] = entryName,
+            ["wrapped_entry"] = originalEntryName,
+            ["argument_order"] = parameterOrder,
+            ["wrapper"] = "triton_raw_args_to_thread_main",
+        };
+    }
+
+    private static string[] GetFunctionParameterNames(IR.BaseFunction? function)
+    {
+        return function switch
+        {
+            IR.Function f => f.Parameters.ToArray().Select(p => p.Name).ToArray(),
+            IR.Fusion f => f.Parameters.ToArray().Select(p => p.Name).ToArray(),
+            IR.PrimFunctionWrapper f => f.Target.Parameters.ToArray().Select(p => p.Name).ToArray(),
+            Nncase.TIR.PrimFunction f => f.Parameters.ToArray().Select(p => p.Name).ToArray(),
+            _ => Array.Empty<string>(),
+        };
+    }
+
+    private static void ValidateGeneratedCubin(string cubinPath, byte[] cubin, string entryName)
+    {
+        if (cubin.Length < 64 ||
+            cubin[0] != 0x7f ||
+            cubin[1] != (byte)'E' ||
+            cubin[2] != (byte)'L' ||
+            cubin[3] != (byte)'F')
+        {
+            throw new InvalidDataException($"CUDA codegen produced a non-ELF cubin artifact: {cubinPath}");
+        }
+
+        if (!CubinContainsEntrySymbol(cubinPath, cubin, entryName))
+        {
+            throw new InvalidDataException($"Generated cubin does not contain entry symbol '{entryName}': {cubinPath}");
+        }
+    }
+
+    private static bool CubinContainsEntrySymbol(string cubinPath, byte[] cubin, string entryName)
+    {
+        var cuobjdump = TryRunProcess("cuobjdump", "--dump-elf", cubinPath);
+        if (!string.IsNullOrWhiteSpace(cuobjdump))
+        {
+            return cuobjdump.Contains(entryName, StringComparison.Ordinal);
+        }
+
+        return Encoding.UTF8.GetString(cubin).Contains(entryName, StringComparison.Ordinal);
+    }
+
+    private static IReadOnlyList<string> CollectPassDumpNames(string dumpDir)
+    {
+        if (!Directory.Exists(dumpDir))
+        {
+            return Array.Empty<string>();
+        }
+
+        return Directory.EnumerateDirectories(dumpDir)
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Cast<string>()
+            .Where(name => char.IsDigit(name[0]) || name.Equals("NativeCudaImportPass", StringComparison.Ordinal))
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static string? ReadPassDump(string dumpDir, string passName)
+    {
+        if (!Directory.Exists(dumpDir))
+        {
+            return null;
+        }
+
+        var passDir = Directory.EnumerateDirectories(dumpDir)
+            .Where(dir => Path.GetFileName(dir).Contains(passName, StringComparison.Ordinal))
+            .OrderBy(dir => dir, StringComparer.Ordinal)
+            .LastOrDefault();
+        if (passDir is null)
+        {
+            return null;
+        }
+
+        var dumpFile = Directory.EnumerateFiles(passDir, "*.*", SearchOption.AllDirectories)
+            .Where(path => path.EndsWith(".il", StringComparison.Ordinal) || path.EndsWith(".script", StringComparison.Ordinal))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .LastOrDefault(path => Path.GetFileName(path).StartsWith("End", StringComparison.Ordinal) ||
+                                   path.Contains("End_", StringComparison.Ordinal));
+        return dumpFile is null ? null : File.ReadAllText(dumpFile);
+    }
+
+    private static string TryRunProcess(string fileName, params string[] arguments)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo(fileName)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            foreach (var argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return string.Empty;
+            }
+
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(10_000);
+            return process.ExitCode == 0 ? output : string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private static void AddIfExists(IDictionary<string, string> stages, string name, string path)

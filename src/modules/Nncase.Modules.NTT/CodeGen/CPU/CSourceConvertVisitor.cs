@@ -364,7 +364,7 @@ public abstract class CSourceConvertVisitor : ExprFunctor<CSymbol, Unit>
             throw new NotSupportedException($"Only program_id(0) is supported by NTT C source codegen, got axis {expr.Axis}.");
         }
 
-        symbol = new("dim_t", "ntt::distributed::program_id<topology::thread>()");
+        symbol = new("dim_t", "ntt::distributed::program_id<topology::block>()");
         _exprMemo.Add(expr, symbol);
         return symbol;
     }

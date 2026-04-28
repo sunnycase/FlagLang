@@ -456,8 +456,13 @@ internal sealed class AutoDistributedRewriter : ExprVisitor<Unit, Unit>
         }
 
         // 4. add not infered type in search space.
+        if (expr.CheckedType is not TensorType tensorType)
+        {
+            return default;
+        }
+
         var addedBuckets = bucketMemo.Values.ToArray();
-        foreach (var nType in GetLeafCandidateDistTypes(expr.CheckedTensorType, Placements, _moduleKind, TargetOptions))
+        foreach (var nType in GetLeafCandidateDistTypes(tensorType, Placements, _moduleKind, TargetOptions))
         {
             if (!bucketMemo.TryGetValue(nType, out var bucket)
                 || expr.Users.Any(u => u is Call call && (call.Target.GetType().FullName!.Contains("CustomNTT", StringComparison.Ordinal) || (TargetOptions.HierarchyKind == HierarchyKind.SMT && expr.Target is PagedAttention)))
@@ -764,6 +769,12 @@ internal sealed class AutoDistributedRewriter : ExprVisitor<Unit, Unit>
         else
         {
             if (init)
+            {
+                var bucket = standCluster.CreateCluster<DistributedSearchGraph>(SearchGraphKind.Bucket);
+                var node = new SearchableNode(expr, expr.CheckedType);
+                bucket.AddVertex(node);
+            }
+            else if (expr.CheckedType is not TensorType and not DistributedType)
             {
                 var bucket = standCluster.CreateCluster<DistributedSearchGraph>(SearchGraphKind.Bucket);
                 var node = new SearchableNode(expr, expr.CheckedType);
@@ -1246,6 +1257,11 @@ internal sealed class DistributedCostEvaluateContext : Evaluator.ICostEvaluateCo
     {
         if (op.GetType() == parameter.OwnerType)
         {
+            if (parameter.Index >= Args.Length && op is Boxing)
+            {
+                return (T)ReturnType;
+            }
+
             return (T?)Args[parameter.Index].CheckedType ?? throw new InvalidOperationException("Run type infer first.");
         }
         else

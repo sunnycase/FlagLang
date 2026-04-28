@@ -19,9 +19,11 @@
 #include <cuda/ptx>
 
 namespace nncase::ntt::distributed {
+inline constexpr size_t cuda_warp_lanes_v = 32;
+
 template <> struct program_id_getter<topology::thread> {
     __device__ static size_t id() noexcept {
-        if constexpr (program_dim<topology::thread>() == 32) {
+        if constexpr (program_dim<topology::thread>() == cuda_warp_lanes_v) {
             return cuda::ptx::get_sreg_laneid();
 
         } else {

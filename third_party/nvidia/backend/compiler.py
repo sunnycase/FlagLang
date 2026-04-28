@@ -126,6 +126,15 @@ def _initialize_cuda_kernel_metadata(metadata, name, opt):
 
 
 @dataclass(frozen=True)
+class NativeCudaIRStage:
+    module: Any
+    suppress_stage_file: bool = True
+
+    def __str__(self):
+        return str(self.module)
+
+
+@dataclass(frozen=True)
 class NativeCudaCompilation:
     cubin: bytes
     metadata: Dict[str, Any]
@@ -150,6 +159,7 @@ class NativeCudaCompilation:
 
 
 def _require_native_ir_module(src):
+    src = _unwrap_native_cuda_stage(src)
     module_type = getattr(ir, "module", None)
     if module_type is None or not isinstance(src, module_type):
         entry = _module_entry_name(src)
@@ -157,6 +167,19 @@ def _require_native_ir_module(src):
             "Unsupported native module for CUDA cubin emission: expected actual post-TTIR native "
             f"ir.module, got entry {entry!r} of type {type(src).__name__}."
         )
+
+
+def _unwrap_native_cuda_stage(src):
+    return src.module if isinstance(src, NativeCudaIRStage) else src
+
+
+def _is_cubin_elf(cubin: bytes) -> bool:
+    return (
+        len(cubin) >= 64 and
+        cubin[0:4] == b"\x7fELF" and
+        cubin[4] == 2 and
+        cubin[5] == 1
+    )
 
 
 def _normalize_native_cuda_compilation(result) -> NativeCudaCompilation:
@@ -172,6 +195,8 @@ def _normalize_native_cuda_compilation(result) -> NativeCudaCompilation:
         cubin = bytes(cubin)
     if not isinstance(cubin, bytes) or not cubin:
         raise TypeError("Native CUDA compile helper must return non-empty cubin bytes.")
+    if not _is_cubin_elf(cubin):
+        raise ValueError("Native CUDA compile helper returned bytes that are not a CUDA ELF cubin artifact.")
 
     metadata = result.get("metadata", {})
     if not isinstance(metadata, dict):
@@ -191,6 +216,7 @@ def _normalize_native_cuda_compilation(result) -> NativeCudaCompilation:
 
 
 def _native_compile_options(src, opt, capability):
+    src = _unwrap_native_cuda_stage(src)
     cluster_dims = tuple(opt.cluster_dims or (1, 1, 1))
     return {
         "entry_name": _module_entry_name(src),
@@ -222,6 +248,7 @@ def _native_compile_options(src, opt, capability):
 
 
 def _compile_native_module_to_cubin(src, metadata, opt, capability) -> NativeCudaCompilation:
+    src = _unwrap_native_cuda_stage(src)
     _require_native_ir_module(src)
     compile_to_cubin = getattr(ir, "compile_to_cubin", None)
     if not callable(compile_to_cubin):
@@ -238,6 +265,14 @@ def _apply_native_cuda_metadata(metadata, compilation: NativeCudaCompilation, op
     name = native_metadata.get("name") or metadata.get("name")
     if not name:
         raise KeyError("Native CUDA compile helper metadata must include kernel entry name.")
+    abi = native_metadata.get("flaglang_abi")
+    if not isinstance(abi, dict):
+        raise KeyError("Native CUDA compile helper metadata must include flaglang_abi contract.")
+    if abi.get("entry") != name:
+        raise ValueError("Native CUDA ABI entry must match kernel metadata name.")
+    argument_order = abi.get("argument_order")
+    if not isinstance(argument_order, list) or len(argument_order) != len(set(argument_order)):
+        raise ValueError("Native CUDA ABI argument_order must be a list with unique entries.")
 
     _initialize_cuda_kernel_metadata(metadata, name, opt)
     metadata.update(native_metadata)
@@ -393,10 +428,14 @@ class CUDABackend(BaseBackend):
         # passes.common.add_symbol_dce(pm)
         # passes.ttir.add_loop_unroll(pm)
         pm.run(mod)
+        if isinstance(mod, getattr(ir, "module", ())):
+            return NativeCudaIRStage(mod)
         return mod
 
     @staticmethod
     def make_ttgir(mod, metadata, opt, capability):
+        if isinstance(mod, NativeCudaIRStage):
+            return mod
         # Set maxnreg on all kernels, if it was provided.
         # if opt.maxnreg is not None:
         #     mod.set_attr("ttg.maxnreg", ir.builder(mod.context).get_int32_attr(opt.maxnreg))
@@ -500,7 +539,10 @@ class CUDABackend(BaseBackend):
         return mod
 
     def make_llir(self, src, metadata, options, capability):
-        ptx_version = get_ptx_version_from_options(options, self.target.arch)
+        if isinstance(src, NativeCudaIRStage):
+            return src
+
+        ptx_version = get_ptx_version_from_options(options, capability)
 
         mod = src
         # TritonGPU -> LLVM-IR (MLIR)
@@ -575,6 +617,7 @@ class CUDABackend(BaseBackend):
         # return ret
 
     def make_ptx(self, src, metadata, opt, capability):
+        src = _unwrap_native_cuda_stage(src)
         if not isinstance(src, str):
             return _compile_native_module_to_cubin(src, metadata, opt, capability)
 
@@ -690,8 +733,8 @@ please share the reproducer above with Triton project.
         elif language == Language.GLUON:
             stages["ttgir"] = lambda src, metadata: self.gluon_to_ttgir(src, metadata, options, capability)
         stages["llir"] = lambda src, metadata: self.make_llir(src, metadata, options, capability)
-        stages["ptx"] = lambda src, metadata: self.make_ptx(src, metadata, options, self.target.arch)
-        stages["cubin"] = lambda src, metadata: self.make_cubin(src, metadata, options, self.target.arch)
+        stages["ptx"] = lambda src, metadata: self.make_ptx(src, metadata, options, capability)
+        stages["cubin"] = lambda src, metadata: self.make_cubin(src, metadata, options, capability)
 
     @functools.lru_cache()
     def hash(self):

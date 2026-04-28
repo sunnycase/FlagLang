@@ -6,7 +6,7 @@ import pytest
 import triton
 import triton.language as tl
 from triton.backends import backends
-from triton.backends.compiler import GPUTarget
+from triton.backends.compiler import GPUTarget, Language
 from triton.backends.nvidia import compiler as nvidia_compiler
 from triton.compiler.compiler import CompiledKernel
 from triton.runtime.jit import MockTensor
@@ -68,6 +68,32 @@ def _valid_vector_add_descriptor():
         ],
         "compute": "fadd",
         "store": {"dest": "param_2"},
+    }
+
+
+def _fake_cubin_with_symbol(symbol=b"native_entry"):
+    header = bytearray(64)
+    header[0:4] = b"\x7fELF"
+    header[4] = 2
+    header[5] = 1
+    header[6] = 1
+    header[7] = 0x41
+    return bytes(header) + b"\0.symtab\0" + symbol + b"\0"
+
+
+def _native_metadata(name="native_entry", argument_order=None):
+    if argument_order is None:
+        argument_order = ["param_0", "param_1", "param_2", "param_3"]
+    return {
+        "name": name,
+        "cuda_compiler": "nvcc",
+        "cuda_arch": "sm_80",
+        "flaglang_abi": {
+            "entry": name,
+            "wrapped_entry": "primfunc_0",
+            "argument_order": argument_order,
+            "wrapper": "triton_raw_args_to_thread_main",
+        },
     }
 
 
@@ -156,8 +182,8 @@ def test_native_compile_helper_receives_parsed_capability_and_options(monkeypatc
         captured["src"] = src
         captured["options"] = helper_options
         return {
-            "cubin": b"\x7fELF-fake-cubin",
-            "metadata": {"name": "block_entry"},
+            "cubin": _fake_cubin_with_symbol(b"block_entry"),
+            "metadata": _native_metadata("block_entry"),
             "asm": {"ntt_cu": "__global__ void block_entry() {}"},
             "compiler_log": "nvcc --gpu-architecture=sm_90a",
         }
@@ -181,8 +207,8 @@ def test_native_compile_helper_receives_parsed_capability_and_options(monkeypatc
 
 def test_native_compile_result_cache_artifacts_uses_truthful_stage_names():
     result = nvidia_compiler.NativeCudaCompilation(
-        cubin=b"\x7fELF-fake-cubin",
-        metadata={"name": "block_entry"},
+        cubin=_fake_cubin_with_symbol(b"block_entry"),
+        metadata=_native_metadata("block_entry"),
         asm={
             "triton_tir": "triton module text",
             "nncase_ir": "nncase module text",
@@ -212,8 +238,8 @@ def test_native_compile_result_supplies_cubin_and_metadata(monkeypatch):
         assert isinstance(src, FakeNativeModule)
         assert capability == 80
         return nvidia_compiler.NativeCudaCompilation(
-            cubin=b"\x7fELF-fake-cubin",
-            metadata={"name": "native_entry", "cuda_compiler": "nvcc", "cuda_arch": "sm_80"},
+            cubin=_fake_cubin_with_symbol(),
+            metadata=_native_metadata(),
             asm={"ntt_cu": "__global__ void native_entry() {}"},
             compiler_log="nvcc --gpu-architecture=sm_80",
         )
@@ -224,7 +250,7 @@ def test_native_compile_result_supplies_cubin_and_metadata(monkeypatch):
     assert isinstance(result, nvidia_compiler.NativeCudaCompilation)
 
     cubin = backend.make_cubin(result, metadata, options, 80)
-    assert cubin == b"\x7fELF-fake-cubin"
+    assert cubin == _fake_cubin_with_symbol()
     assert metadata["name"] == "native_entry"
     assert metadata["shared"] == 0
     assert metadata["num_warps"] == 4
@@ -232,6 +258,81 @@ def test_native_compile_result_supplies_cubin_and_metadata(monkeypatch):
     assert metadata["flaglang_pipeline"]["kind"] == "native_cuda"
     assert metadata["flaglang_pipeline"]["artifact"] == "cubin"
     assert "flaglang_kernel" not in metadata
+
+
+def test_native_compile_result_rejects_malformed_cubin():
+    with pytest.raises(ValueError, match="not a CUDA ELF cubin"):
+        nvidia_compiler._normalize_native_cuda_compilation({
+            "cubin": b"not-a-cubin",
+            "metadata": _native_metadata(),
+            "asm": {},
+        })
+
+
+def test_native_compile_metadata_requires_abi_contract():
+    metadata = {}
+    result = nvidia_compiler.NativeCudaCompilation(
+        cubin=_fake_cubin_with_symbol(),
+        metadata={"name": "native_entry"},
+        asm={},
+    )
+
+    with pytest.raises(KeyError, match="flaglang_abi"):
+        nvidia_compiler._apply_native_cuda_metadata(metadata, result, _cuda_backend().parse_options({}))
+
+
+def test_native_compile_metadata_rejects_abi_entry_mismatch():
+    metadata = {}
+    bad_metadata = _native_metadata("native_entry")
+    bad_metadata["flaglang_abi"]["entry"] = "other_entry"
+    result = nvidia_compiler.NativeCudaCompilation(
+        cubin=_fake_cubin_with_symbol(),
+        metadata=bad_metadata,
+        asm={},
+    )
+
+    with pytest.raises(ValueError, match="ABI entry"):
+        nvidia_compiler._apply_native_cuda_metadata(metadata, result, _cuda_backend().parse_options({}))
+
+
+def test_add_stages_routes_parsed_capability_to_native_compile(monkeypatch):
+    backend = _cuda_backend()
+    options = backend.parse_options({"arch": "sm90"})
+    stages = {}
+    captured = {}
+
+    class FakeNativeModule:
+        context = object()
+
+        def get_entry_func_name(self):
+            return "primfunc_0"
+
+    native_module = FakeNativeModule()
+
+    def fake_make_ttir(mod, metadata, opt, capability):
+        captured["ttir_capability"] = capability
+        return nvidia_compiler.NativeCudaIRStage(native_module)
+
+    def fake_compile(src, metadata, opt, capability):
+        captured["ptx_capability"] = capability
+        return nvidia_compiler.NativeCudaCompilation(
+            cubin=_fake_cubin_with_symbol(),
+            metadata=_native_metadata(),
+            asm={},
+        )
+
+    monkeypatch.setattr(backend, "make_ttir", fake_make_ttir)
+    monkeypatch.setattr(nvidia_compiler, "_compile_native_module_to_cubin", fake_compile)
+
+    backend.add_stages(stages, options, Language.TRITON)
+    stage = stages["ttir"](native_module, {})
+    stage = stages["ttgir"](stage, {})
+    stage = stages["llir"](stage, {})
+    stage = stages["ptx"](stage, {})
+
+    assert captured == {"ttir_capability": 90, "ptx_capability": 90}
+    assert isinstance(stage, nvidia_compiler.NativeCudaCompilation)
+    assert stage.suppress_stage_file is True
 
 
 def test_compiled_kernel_rejects_missing_launcher_metadata(tmp_path):

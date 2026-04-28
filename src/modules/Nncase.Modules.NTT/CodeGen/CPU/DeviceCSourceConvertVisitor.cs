@@ -330,12 +330,12 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
                     var dtypeStr = buffer.ElemType.ToC();
                     var dimensionStrs = dimensionSymbols.Select(x => x.Name);
                     var strideStrs = strideSymbols.Select(x => x.Name);
-                    str = $"make_tensor_view(span_cast<{dtypeStr}>({Visit(buffer.MemSpan).Name}), make_shape({StringUtility.Join(", ", dimensionStrs)}), make_strides({StringUtility.Join(", ", strideStrs)}))";
+                    str = $"make_tensor_view(typed_span_reinterpret<{dtypeStr}>({Visit(buffer.MemSpan).Name}), make_shape({StringUtility.Join(", ", dimensionStrs)}), make_strides({StringUtility.Join(", ", strideStrs)}))";
                 }
 
                 break;
             case IR.Tensors.Cast op:
-                str = $"(({op.NewType.ToC()}){arguments[0].Name})";
+                str = ConvertCast(op, arguments[0]);
                 break;
             case TIR.Memcopy op:
                 WriteIndWithProfiler($"tensor_copy_sync({arguments[1].Name}, {arguments[0].Name});\n");
@@ -630,7 +630,7 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
             return symbol;
         }
 
-        var value = Visit(expr.Dim);
+        var value = Visit(UnwrapDimValue(expr.Dim));
         symbol = new("dim_t", value.Name);
         _exprMemo.Add(expr, symbol);
         return symbol;
@@ -653,5 +653,36 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
         _exprMemo.Add(expr, symbol);
         return symbol;
 #endif
+    }
+
+    private static string ConvertCast(IR.Tensors.Cast op, CSymbol input)
+    {
+        if (op is { CastMode: CastMode.Reinterpret, NewType: PointerType { ElemType: DataType elemType } })
+        {
+            return $"typed_span_reinterpret<{elemType.ToC()}>({input.Name})";
+        }
+
+        return $"(({op.NewType.ToC()}){input.Name})";
+    }
+
+    private static BaseExpr UnwrapDimValue(BaseExpr value)
+    {
+        while (value is Call call)
+        {
+            var unwrapped = call.Target switch
+            {
+                IR.Tensors.Cast => call[IR.Tensors.Cast.Input],
+                IR.Shapes.AsTensor => call[IR.Shapes.AsTensor.Input],
+                _ => call,
+            };
+            if (ReferenceEquals(unwrapped, value))
+            {
+                break;
+            }
+
+            value = unwrapped;
+        }
+
+        return value;
     }
 }

@@ -47,16 +47,28 @@ constexpr auto get_safe_stride(const TTensor &tensor,
 }
 } // namespace utility_detail
 
+template <class U, class T>
+constexpr U *typed_pointer_reinterpret(T *src) noexcept {
+    if constexpr (std::is_const_v<T> && !std::is_const_v<U>) {
+        using mutable_src_type = std::remove_const_t<T>;
+        return reinterpret_cast<U *>(const_cast<mutable_src_type *>(src));
+    } else {
+        return reinterpret_cast<U *>(src);
+    }
+}
+
 template <class U, class T, size_t Extent>
-constexpr auto span_cast(ntt::span<T, Extent> src) noexcept {
+constexpr auto typed_span_reinterpret(ntt::span<T, Extent> src) noexcept {
     using return_type = ntt::span<U, Extent == std::dynamic_extent
                                          ? std::dynamic_extent
                                          : Extent * sizeof(T) / sizeof(U)>;
-    if constexpr (std::is_const_v<U>) {
-        return return_type{(const U *)src.data(), src.size_bytes() / sizeof(U)};
-    } else {
-        return return_type{(U *)src.data(), src.size_bytes() / sizeof(U)};
-    }
+    return return_type{typed_pointer_reinterpret<U>(src.data()),
+                       src.size_bytes() / sizeof(U)};
+}
+
+template <class U, class T, size_t Extent>
+constexpr auto span_cast(ntt::span<T, Extent> src) noexcept {
+    return typed_span_reinterpret<U>(src);
 }
 
 template <class T, size_t SrcExtent, Dimension TOffset, Dimension TExtent>

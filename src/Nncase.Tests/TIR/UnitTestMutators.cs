@@ -28,6 +28,30 @@ public sealed class UnitTestMutators : TestClassBase
     }
 
     [Fact]
+    public void TestFlattenBufferKeepsFlatTypedAccessStable()
+    {
+        T.CreateBuffer(new TensorType(DataTypes.Float32, new[] { 4 }), MemoryLocation.Data, out var buffer);
+        var load = T.BufferLoad(buffer, 0);
+        var store = T.BufferStore(buffer, new Expr[] { 0 }, 1.0f);
+        var rewriter = new FlattenBuffer();
+
+        AssertReinterpretLoad(rewriter.Rewrite(load), DataTypes.Float32);
+        AssertReinterpretStore(rewriter.Rewrite(store), DataTypes.Float32);
+    }
+
+    [Fact]
+    public void TestFlattenBufferRewritesMultiDimAccessOnce()
+    {
+        T.CreateBuffer(new TensorType(DataTypes.Float32, new[] { 2, 3 }), MemoryLocation.Data, out var buffer);
+        var load = T.BufferLoad(buffer, 1, 2);
+        var rewriter = new FlattenBuffer();
+
+        var flattened = AssertReinterpretLoad(rewriter.Rewrite(load), DataTypes.Float32);
+
+        Assert.Same(flattened, rewriter.Rewrite(flattened));
+    }
+
+    [Fact]
     public async Task TestFoldConstCallWithTuple()
     {
         T.CreateBufferVar(new TensorType(DataTypes.BFloat16, new[] { 48 }), out var ddr_if);
@@ -417,5 +441,32 @@ public sealed class UnitTestMutators : TestClassBase
                 }
             }
         }
+    }
+
+    private static Call AssertReinterpretLoad(BaseExpr expr, DataType elemType)
+    {
+        var load = Assert.IsType<Call>(expr);
+        Assert.IsType<Load>(load.Target);
+        AssertReinterpretHandle(load[Load.Handle], elemType);
+        return load;
+    }
+
+    private static Call AssertReinterpretStore(BaseExpr expr, DataType elemType)
+    {
+        var store = Assert.IsType<Call>(expr);
+        Assert.IsType<Store>(store.Target);
+        AssertReinterpretHandle(store[Store.Handle], elemType);
+        return store;
+    }
+
+    private static void AssertReinterpretHandle(BaseExpr handle, DataType elemType)
+    {
+        var castCall = Assert.IsType<Call>(handle);
+        var cast = Assert.IsType<Nncase.IR.Tensors.Cast>(castCall.Target);
+        var pointer = Assert.IsType<PointerType>(cast.NewType);
+
+        Assert.Equal(CastMode.Reinterpret, cast.CastMode);
+        Assert.Equal(elemType, pointer.ElemType);
+        Assert.IsType<MemSpan>(castCall[Nncase.IR.Tensors.Cast.Input]);
     }
 }
