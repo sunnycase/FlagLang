@@ -57,6 +57,22 @@ public sealed class UnitTestInferRangePass : TestClassBase
     }
 
     [Fact]
+    public async Task IntegralDivRangeUsesTruncatingSemantics()
+    {
+        var lhs = new Var("lhs", TensorType.Scalar(DataTypes.Int32));
+        var rhs = new Var("rhs", TensorType.Scalar(DataTypes.Int32));
+        lhs.Metadata.Range = new ValueRange<double>(-3, -1);
+        rhs.Metadata.Range = new ValueRange<double>(2, 2);
+        var div = IR.F.Math.Div(lhs, rhs);
+        var function = new Function("main", new IRBlock(div, lhs, rhs));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        await new InferRangePass().RunAsync(function, new RunPassContext());
+
+        Assert.Equal(new ValueRange<double>(-1, 0), div.Metadata.Range);
+    }
+
+    [Fact]
     public async Task SignedIntegralModRangePreservesDividendSignPossibility()
     {
         var lhs = new Var("lhs", TensorType.Scalar(DataTypes.Int32));

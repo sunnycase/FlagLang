@@ -619,14 +619,34 @@ class JitFunctionInfo:
 
 
 def compute_cache_key(kernel_key_cache, specialization, options):
-    key = (tuple(specialization), str(options))
+    normalized_specialization = tuple(_normalize_cache_key_value(value) for value in specialization)
+    key = (normalized_specialization, str(options))
     cache_key = kernel_key_cache.get(key, None)
     if cache_key is not None:
         return cache_key
 
-    cache_key = str(specialization) + str(options)
+    cache_key = str(normalized_specialization) + str(options)
     kernel_key_cache[key] = cache_key
     return cache_key
+
+
+def _normalize_cache_key_value(value):
+    if isinstance(value, tuple):
+        return ("tuple", tuple(_normalize_cache_key_value(item) for item in value))
+    if isinstance(value, list):
+        return ("list", tuple(_normalize_cache_key_value(item) for item in value))
+    if isinstance(value, dict):
+        items = [(_normalize_cache_key_value(key), _normalize_cache_key_value(val)) for key, val in value.items()]
+        return ("dict", tuple(sorted(items, key=repr)))
+    if isinstance(value, (set, frozenset)):
+        return (type(value).__name__, tuple(sorted((_normalize_cache_key_value(item) for item in value), key=repr)))
+
+    try:
+        hash(value)
+    except TypeError:
+        return ("repr", type(value).__module__, type(value).__qualname__, repr(value))
+
+    return value
 
 
 class JITFunction(JITCallable, KernelInterface[T]):

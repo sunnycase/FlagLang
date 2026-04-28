@@ -228,10 +228,10 @@ internal sealed class InferRangeVisitor : ExprVisitor<ValueRange<double>, Unit>
         {
             values = new[]
             {
-                Math.Floor(lhs.Min / rhs.Min),
-                Math.Floor(lhs.Min / rhs.Max),
-                Math.Floor(lhs.Max / rhs.Min),
-                Math.Floor(lhs.Max / rhs.Max),
+                Math.Truncate(lhs.Min / rhs.Min),
+                Math.Truncate(lhs.Min / rhs.Max),
+                Math.Truncate(lhs.Max / rhs.Min),
+                Math.Truncate(lhs.Max / rhs.Max),
             };
         }
         else

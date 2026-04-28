@@ -4,6 +4,20 @@ import torch
 
 import triton
 import triton.language as tl
+from triton.runtime.jit import compute_cache_key
+
+
+def test_compute_cache_key_normalizes_unhashable_constexprs():
+    cache = {}
+    options = {"num_warps": 4}
+    specialization_a = [("constexpr", {"shape": [1, 2, 3], "flags": {"b": True, "a": False}})]
+    specialization_b = [("constexpr", {"flags": {"a": False, "b": True}, "shape": [1, 2, 3]})]
+
+    key_a = compute_cache_key(cache, specialization_a, options)
+    key_b = compute_cache_key(cache, specialization_b, options)
+
+    assert key_a == key_b
+    assert len(cache) == 1
 
 
 def test_pre_call_hooks(device):
