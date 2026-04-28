@@ -276,6 +276,7 @@ def test_native_compile_helper_receives_parsed_capability_and_options(monkeypatc
     assert captured["options"]["arch"] == "sm_90a"
     assert captured["options"]["threads_per_cta"] == options.num_warps * options.warp_size
     assert captured["options"]["binary_ext"] == "cubin"
+    assert captured["options"]["cuobjdump"] == nvidia_compiler.knobs.nvidia.cuobjdump.path
     assert captured["options"]["enable_auto_dist"] is False
     assert "ntt_cu" in captured["options"]["stage_names"]
     assert "compiler_log" in captured["options"]["stage_names"]

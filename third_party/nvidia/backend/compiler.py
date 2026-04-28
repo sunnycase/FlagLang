@@ -412,6 +412,7 @@ def _native_compile_options(src, metadata, opt, capability):
         ],
         "stage_names": ["triton_tir", "nncase_ir", "after_compile", "tir", "ntt_cu", "compiler_log", "cubin"],
         "dump_dir": os.environ.get("TRITON_DUMP_DIR"),
+        "cuobjdump": knobs.nvidia.cuobjdump.path,
         "enable_auto_dist": False,
         "runtime_argument_count": metadata.get("runtime_argument_count", 0),
         "runtime_argument_order": list(metadata.get("runtime_argument_order", [])),

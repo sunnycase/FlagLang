@@ -137,7 +137,7 @@ public static unsafe partial class CApi
         var codegenDir = Path.Combine(dumpDir, "CodeGen", CUDATarget.Kind);
         var cubinPath = FindGeneratedCubin(codegenDir, request.Capability);
         var cubin = File.ReadAllBytes(cubinPath);
-        ValidateGeneratedCubin(cubinPath, cubin, "flaglang_native_entry");
+        ValidateGeneratedCubin(cubinPath, cubin, "flaglang_native_entry", request.Cuobjdump);
         var compilerLog = ReadOptional(Path.Combine(codegenDir, "compiler.log"));
         var passDumps = CollectPassDumpNames(dumpDir);
         var asm = CollectNativeCudaStages(originalIr, nncaseModule, compiledModule, dumpDir, codegenDir, compilerLog, passDumps);
@@ -156,6 +156,7 @@ public static unsafe partial class CApi
             ["profile_scratch_size"] = 0,
             ["profile_scratch_align"] = 1,
             ["cuda_compiler"] = request.CudaCompiler,
+            ["cuobjdump"] = request.Cuobjdump,
             ["cuda_arch"] = request.Arch,
             ["enable_auto_dist"] = true,
             ["dump_dir"] = dumpDir,
@@ -405,7 +406,7 @@ public static unsafe partial class CApi
         return "std::byte *";
     }
 
-    private static void ValidateGeneratedCubin(string cubinPath, byte[] cubin, string entryName)
+    private static void ValidateGeneratedCubin(string cubinPath, byte[] cubin, string entryName, string cuobjdumpPath)
     {
         if (cubin.Length < 64 ||
             cubin[0] != 0x7f ||
@@ -416,15 +417,15 @@ public static unsafe partial class CApi
             throw new InvalidDataException($"CUDA codegen produced a non-ELF cubin artifact: {cubinPath}");
         }
 
-        if (!CubinContainsEntrySymbol(cubinPath, entryName))
+        if (!CubinContainsEntrySymbol(cubinPath, entryName, cuobjdumpPath))
         {
             throw new InvalidDataException($"Generated cubin does not contain entry symbol '{entryName}': {cubinPath}");
         }
     }
 
-    private static bool CubinContainsEntrySymbol(string cubinPath, string entryName)
+    private static bool CubinContainsEntrySymbol(string cubinPath, string entryName, string cuobjdumpPath)
     {
-        var cuobjdump = TryRunProcess("cuobjdump", "--dump-elf", cubinPath);
+        var cuobjdump = TryRunProcess(cuobjdumpPath, "--dump-elf", cubinPath);
         return !string.IsNullOrWhiteSpace(cuobjdump) && cuobjdump.Contains(entryName, StringComparison.Ordinal);
     }
 
@@ -543,6 +544,7 @@ public static unsafe partial class CApi
         int ThreadsPerCta,
         string DumpDir,
         string CudaCompiler,
+        string Cuobjdump,
         string[] RuntimeArgumentOrder,
         string[] RuntimeArgumentTypes,
         bool EnableAutoDist)
@@ -571,6 +573,7 @@ public static unsafe partial class CApi
                 ThreadsPerCta: threadsPerCta,
                 DumpDir: dumpDir,
                 CudaCompiler: GetString(root, "cuda_compiler", Environment.GetEnvironmentVariable("NNCASE_CUDA_COMPILER") ?? "nvcc"),
+                Cuobjdump: GetString(root, "cuobjdump", Environment.GetEnvironmentVariable("TRITON_CUOBJDUMP_PATH") ?? "cuobjdump"),
                 RuntimeArgumentOrder: GetStringArray(root, "runtime_argument_order", Array.Empty<string>()),
                 RuntimeArgumentTypes: GetStringArray(root, "runtime_argument_types", Array.Empty<string>()),
                 EnableAutoDist: GetBool(root, "enable_auto_dist", false));

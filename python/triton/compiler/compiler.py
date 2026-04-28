@@ -16,6 +16,7 @@ import functools
 import os
 import time
 import copy
+import inspect
 
 # - ^\s*tt\.func\s+ : match the start of the string, any leading whitespace, the keyword func,
 #    and any following whitespace
@@ -173,6 +174,36 @@ def _serialize_ir_for_storage(module, ext):
     return str(module)
 
 
+def _supports_positional_argument(method, count: int) -> bool:
+    params = inspect.signature(method).parameters.values()
+    positional = {
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    }
+    supported = 0
+    for param in params:
+        if param.kind == inspect.Parameter.VAR_POSITIONAL:
+            return True
+        if param.kind in positional:
+            supported += 1
+    return supported >= count
+
+
+def _add_backend_stages(backend: BaseBackend, stages: dict, options: object, language: Language) -> None:
+    add_stages = backend.add_stages
+    if _supports_positional_argument(add_stages, 3):
+        add_stages(stages, options, language)
+    else:
+        add_stages(stages, options)
+
+
+def _get_backend_codegen_implementation(backend: BaseBackend, options: object):
+    get_codegen = backend.get_codegen_implementation
+    if _supports_positional_argument(get_codegen, 1):
+        return get_codegen(options)
+    return get_codegen()
+
+
 def filter_traceback(e: BaseException):
     """
     Removes code_generator.py and related files from tracebacks.
@@ -317,13 +348,13 @@ def compile(src, target=None, options=None, _env_vars=None):
     metadata["triton_version"] = __version__
     # run compilation pipeline  and populate metadata
     stages = dict()
-    backend.add_stages(stages, options, src.language)
+    _add_backend_stages(backend, stages, options, src.language)
     first_stage = list(stages.keys()).index(src.ext)
     # when the source is an IR file, don't apply the passes related to this stage. This makes it easier to write IR level tests.
     if ir_source:
         first_stage += 1
 
-    codegen_fns = backend.get_codegen_implementation(options)
+    codegen_fns = _get_backend_codegen_implementation(backend, options)
     module_map = backend.get_module_map()
     module = src.make_ir(target, options, codegen_fns, module_map, context)
     # try:
