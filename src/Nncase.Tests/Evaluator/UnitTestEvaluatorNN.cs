@@ -190,6 +190,46 @@ public sealed class PagedAttentionSchedulerTestData : TheoryData<PagedAttentionC
 public class UnitTestEvaluatorNN : TestClassBase
 {
     [Fact]
+    public void TestQwen3MoEPerChannelInputScaleBroadcast()
+    {
+        const long seqLen = 2;
+        const long hiddenSize = 3;
+        const long moeIntermediateSize = 4;
+        const long numExpert = 1;
+
+        static Tensor Filled(float value, params long[] shape)
+        {
+            var length = shape.Aggregate(1L, (acc, dim) => acc * dim);
+            return Tensor.From(Enumerable.Repeat(value, (int)length).ToArray(), shape);
+        }
+
+        var expr = IR.F.NN.Qwen3MoE(
+            Filled(1F, seqLen, hiddenSize),
+            Filled(1F, numExpert, hiddenSize),
+            Filled(2F, numExpert, hiddenSize, 1L),
+            Filled(1F, numExpert, moeIntermediateSize, hiddenSize),
+            Filled(1F, numExpert, moeIntermediateSize, 1L),
+            Filled(2F, numExpert, moeIntermediateSize, 1L),
+            Filled(1F, numExpert, hiddenSize, moeIntermediateSize),
+            Filled(1F, numExpert, hiddenSize, 1L),
+            Filled(2F, numExpert, hiddenSize, 1L),
+            Filled(1F, numExpert, moeIntermediateSize, hiddenSize),
+            Filled(1F, numExpert, moeIntermediateSize, 1L),
+            layerId: 0,
+            hiddenSize: hiddenSize,
+            intermediateSize: hiddenSize,
+            moeIntermediateSize: moeIntermediateSize,
+            numExpert: numExpert,
+            numTopK: 1,
+            isNormTopkProb: 0);
+
+        CompilerServices.InferenceType(expr);
+        var result = expr.Evaluate().AsTensor();
+
+        Assert.Equal(new[] { seqLen, hiddenSize }, result.Dimensions.ToArray());
+    }
+
+    [Fact]
     public void TestActivationCelu()
     {
         var input = OrtKI.Random(new long[] { 1, 3, 16, 16 });

@@ -17,6 +17,7 @@ import os
 import time
 import copy
 import inspect
+from dataclasses import dataclass
 
 ptx_prototype_pattern = r"^\s*(?:\.(?:visible|extern)\s+)?\.entry\s+([A-Za-z_][A-Za-z0-9_$]*)\s*\(([^)]*)\)"
 prototype_pattern = {
@@ -97,30 +98,102 @@ def _parse_ptx_param_types(signature):
     return [_parse_ptx_param_type(param) for param in params]
 
 
+@dataclass
+class AttrsDescriptor:
+    divisible_by_16: set | None = None
+    equal_to_1: set | None = None
+    divisible_by_8: set | None = None
+
+    def __post_init__(self):
+        self.divisible_by_16 = set() if self.divisible_by_16 is None else set(self.divisible_by_16)
+        self.equal_to_1 = set() if self.equal_to_1 is None else set(self.equal_to_1)
+        self.divisible_by_8 = set() if self.divisible_by_8 is None else set(self.divisible_by_8)
+
+    def to_dict(self):
+        return {
+            "divisible_by_16": list(self.divisible_by_16),
+            "equal_to_1": list(self.equal_to_1),
+            "divisible_by_8": list(self.divisible_by_8),
+        }
+
+    @staticmethod
+    def from_dict(data):
+        return AttrsDescriptor(
+            divisible_by_16=set(data.get("divisible_by_16", [])),
+            equal_to_1=set(data.get("equal_to_1", [])),
+            divisible_by_8=set(data.get("divisible_by_8", [])),
+        )
+
+    def hash(self):
+        key = str([sorted(self.divisible_by_16), sorted(self.equal_to_1), sorted(self.divisible_by_8)])
+        return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def _normalize_arg_key(fn, key):
+    if isinstance(key, str):
+        return key
+    if isinstance(key, int):
+        return fn.arg_names[key]
+    raise TypeError("Signature keys must be string or integer argument indexes")
+
+
+def _normalize_signature(fn, signature):
+    if isinstance(signature, str):
+        signature = {i: ty.strip() for i, ty in enumerate(signature.split(",")) if ty.strip()}
+
+    return {_normalize_arg_key(fn, key): value for key, value in signature.items()}
+
+
+def _normalize_path_key(fn, key):
+    if isinstance(key, tuple):
+        return key
+    if isinstance(key, str):
+        return (fn.arg_names.index(key), )
+    if isinstance(key, int):
+        return (key, )
+    raise TypeError("Constant and attribute keys must be strings, integers, or tuple paths")
+
+
+def _normalize_attrs(fn, attrs):
+    if attrs is None:
+        return {}
+
+    if isinstance(attrs, AttrsDescriptor):
+        normalized = {}
+        for key in attrs.divisible_by_16:
+            normalized[_normalize_path_key(fn, key)] = [["tt.divisibility", 16]]
+        for key in attrs.divisible_by_8:
+            normalized[_normalize_path_key(fn, key)] = [["tt.divisibility", 8]]
+        return normalized
+
+    return {_normalize_path_key(fn, key): value for key, value in attrs.items()}
+
+
 class ASTSource:
 
-    def __init__(self, fn, signature, constexprs=None, attrs=None) -> None:
+    def __init__(self, fn, signature, constexprs=None, attrs=None, constants=None) -> None:
+        if constants is not None:
+            if constexprs is not None:
+                raise TypeError("ASTSource expects either constexprs or constants, not both")
+            constexprs = constants
+
         self.fn = fn
         self.language = Language.TRITON
         self.ext = "ttir"
         self.name = fn.__name__
-        self.signature = signature
+        self.signature = _normalize_signature(fn, signature)
         self.constants = dict()
         if constexprs is not None:
             for k, v in constexprs.items():
-                k = (fn.arg_names.index(k), ) if isinstance(k, str) else k
-                assert isinstance(k, tuple)
-                self.constants[k] = v
-        self.attrs = attrs or dict()
-        for k in self.signature.keys():
-            if not isinstance(k, str):
-                raise TypeError("Signature keys must be string")
+                self.constants[_normalize_path_key(fn, k)] = v
+        self.attrs = _normalize_attrs(fn, attrs)
+        self._attrs_key = attrs.hash() if isinstance(attrs, AttrsDescriptor) else str(self.attrs)
 
     def hash(self):
         sorted_sig = [v for k, v in sorted(self.signature.items())]
         get_key = lambda x: x.cache_key if hasattr(x, 'cache_key') else str(x)
         constants_key = '-'.join([get_key(v) for k, v in sorted(self.constants.items())])
-        key = f"{self.fn.cache_key}-{str(self.attrs)}-{sorted_sig}-{constants_key}"
+        key = f"{self.fn.cache_key}-{self._attrs_key}-{sorted_sig}-{constants_key}"
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
     def make_ir(self, target: GPUTarget, options, codegen_fns, module_map, context):

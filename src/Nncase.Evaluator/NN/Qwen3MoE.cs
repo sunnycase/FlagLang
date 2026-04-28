@@ -138,17 +138,17 @@ public sealed class Qwen3MoEEvaluator : ITypeInferencer<Qwen3MoE>, ICostEvaluato
             // var qExpand = OrtKI.Unsqueeze(currentState, new[] { 0L });
 
             // prepare gate matmul
-            var gateInputScale = SliceAndSqueeze(moeExpertGateInputScale, expertIndex);
+            var gateInputScale = SliceInputScale(moeExpertGateInputScale, expertIndex);
             var gateProjW = SliceAndSqueeze(moeExpertGateProjW, expertIndex);
             var gateProjScale = SliceAndSqueeze(moeExpertGateProjScale, expertIndex);
 
             // prepare up matmul
-            var upInputScale = SliceAndSqueeze(moeExpertUpInputScale, expertIndex);
+            var upInputScale = SliceInputScale(moeExpertUpInputScale, expertIndex);
             var upProjW = SliceAndSqueeze(moeExpertUpProjW, expertIndex);
             var upProjScale = SliceAndSqueeze(moeExpertUpProjScale, expertIndex);
 
             // prepare down matmul
-            var downInputScale = SliceAndSqueeze(moeExpertDownInputScale, expertIndex);
+            var downInputScale = SliceInputScale(moeExpertDownInputScale, expertIndex);
             var downProjW = SliceAndSqueeze(moeExpertDownProjW, expertIndex);
             var downProjScale = SliceAndSqueeze(moeExpertDownProjScale, expertIndex);
 
@@ -187,6 +187,17 @@ public sealed class Qwen3MoEEvaluator : ITypeInferencer<Qwen3MoE>, ICostEvaluato
         return OrtKI.Squeeze(slicedTensor, new[] { 0L });
     }
 
+    private OrtKISharp.Tensor SliceInputScale(OrtKISharp.Tensor tensor, long index)
+    {
+        var scale = SliceAndSqueeze(tensor, index);
+        if (scale.Rank == 2 && scale.Shape[1] == 1L)
+        {
+            return OrtKI.Squeeze(scale, new[] { 1L });
+        }
+
+        return scale;
+    }
+
     private OrtKISharp.Tensor MLP(OrtKISharp.Tensor q, OrtKISharp.Tensor? gateInputScale, OrtKISharp.Tensor gateProjW, OrtKISharp.Tensor gateProjScale, OrtKISharp.Tensor? upInputScale, OrtKISharp.Tensor upProjW, OrtKISharp.Tensor upProjScale, OrtKISharp.Tensor? downInputScale, OrtKISharp.Tensor downProjW, OrtKISharp.Tensor downProjScale, long hiddenSize, long moeIntermediateSize)
     {
         // gate_proj(q)
@@ -216,6 +227,7 @@ public sealed class Qwen3MoEEvaluator : ITypeInferencer<Qwen3MoE>, ICostEvaluato
 
     private OrtKISharp.Tensor Matmul(OrtKISharp.Tensor q, OrtKISharp.Tensor? inputScale, OrtKISharp.Tensor projW, OrtKISharp.Tensor projScale)
     {
+        var restoreScalarInputScale = inputScale is not null && inputScale.Shape.Aggregate(1L, (acc, dim) => acc * dim) == 1L;
         if (inputScale != null)
         {
             q = OrtKI.Div(q, inputScale.Cast(OrtDataType.Float));
@@ -234,7 +246,7 @@ public sealed class Qwen3MoEEvaluator : ITypeInferencer<Qwen3MoE>, ICostEvaluato
             states = OrtKI.Mul(states, scale.Cast(OrtDataType.Float)); // [seq_len, moe_intermediate_size]
         }
 
-        if (inputScale != null)
+        if (inputScale != null && restoreScalarInputScale)
         {
             states = OrtKI.Mul(states, inputScale.Cast(OrtDataType.Float));
         }
