@@ -148,6 +148,22 @@ def constexpr_fn_user(out):
     tl.store(out, a)
 
 
+class ConstexprMethodOwner:
+
+    @triton.constexpr_function
+    def offset(self, value):
+        return value + 1
+
+
+CONSTEXPR_METHOD_OWNER = ConstexprMethodOwner()
+
+
+@triton.jit
+def constexpr_method_user(out):
+    a: tl.constexpr = CONSTEXPR_METHOD_OWNER.offset(7)
+    tl.store(out, a)
+
+
 def test_constexpr_fn_change():
     baseline = constexpr_fn_user.cache_key
 
@@ -161,6 +177,11 @@ def test_constexpr_fn_change():
     constexpr_flag_fn._unsafe_update_src(orig_src)
     constexpr_fn_user.hash = None
     assert constexpr_fn_user.cache_key == baseline
+
+
+def test_bound_constexpr_fn_cache_key():
+    assert CONSTEXPR_METHOD_OWNER.offset.cache_key
+    assert constexpr_method_user.cache_key
 
 
 @triton.constexpr_function

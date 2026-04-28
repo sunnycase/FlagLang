@@ -9,6 +9,12 @@ import uuid
 from triton._internal_testing import is_cuda
 
 
+def _repo_dump_file(suffix):
+    dump_dir = pathlib.Path(__file__).resolve().parents[4] / "dump" / "pytest" / "test_autotuner"
+    dump_dir.mkdir(parents=True, exist_ok=True)
+    return dump_dir / f"test_override_{uuid.uuid4()}.{suffix}"
+
+
 def do_bench(kernel_call, quantiles, use_cuda_graph=False):
     if use_cuda_graph:
         return triton.testing.do_bench_cudagraph(kernel_call, quantiles=quantiles)
@@ -203,7 +209,7 @@ module {
   }
 }
     """
-    temp_file = pathlib.Path(f"/tmp/test_override_{str(uuid.uuid4())}.ttir")
+    temp_file = _repo_dump_file("ttir")
     temp_file.write_text(ir_src)
 
     configs = [triton.Config(kwargs={'BLOCK_SIZE': 32, 'ir_override': str(temp_file)})]
@@ -253,7 +259,7 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32, ttg.targ
   }
 }
     """
-    temp_file = pathlib.Path(f"/tmp/test_override_{str(uuid.uuid4())}.ttgir")
+    temp_file = _repo_dump_file("ttgir")
     temp_file.write_text(ir_src)
 
     configs = [triton.Config(kwargs={'BLOCK_SIZE': 32, 'ir_override': str(temp_file)})]
@@ -350,7 +356,7 @@ $L__func_end0:
                                         // -- End function
 }
     """
-    temp_file = pathlib.Path(f"/tmp/test_override_{str(uuid.uuid4())}.ptx")
+    temp_file = _repo_dump_file("ptx")
     temp_file.write_text(ir_src)
 
     configs = [triton.Config(kwargs={'BLOCK_SIZE': 32, 'ir_override': str(temp_file)})]

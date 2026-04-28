@@ -44,7 +44,7 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(__file__))
 from python.setup_tools import setup_helper as helper
 
-from python.build_helpers import get_base_dir, get_cmake_dir
+from python.build_helpers import get_base_dir, get_cmake_dir, get_host_toolchain_profile
 
 
 def is_git_repo():
@@ -482,28 +482,12 @@ class CMakeBuild(build_ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.path)))
         wheeldir = os.path.dirname(extdir)
 
-        toolchain_arch = ""
-        if platform.machine() == "AMD64" or platform.machine() == "x86_64":
-            toolchain_arch = "x86_64"
-        elif platform.machine() == "arm64":
-            toolchain_arch = "aarch64"
-        elif platform.machine() == "riscv64":
-            toolchain_arch = "aarch64"
-
-        toolchain_os = ""
-        if platform.system() == "Windows":
-            toolchain_os = "windows"
-        elif platform.system() == "Linux":
-            toolchain_os = "linux"
-        elif platform.system() == "Darwin":
-            toolchain_os = "macos"
-            
         # create build directories
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
         # python directories
         python_include_dir = sysconfig.get_path("platinclude")
-        host_toolchain_path = os.path.join(self.base_dir, "toolchains", f"{toolchain_arch}-{toolchain_os}.profile.jinja")
+        host_toolchain_path = get_host_toolchain_profile(self.base_dir)
         
         # configuration
         cfg = get_build_type()
@@ -514,7 +498,7 @@ class CMakeBuild(build_ext):
         cmake_dir = get_cmake_dir()
         build_dir = cmake_dir / conan_build_type
         subprocess.check_call(["conan", "install", self.base_dir, "--build=missing", "-s",
-                               "build_type=" + conan_build_type, f"-pr:a={host_toolchain_path}",
+                               "build_type=" + conan_build_type, f"-pr:a={str(host_toolchain_path)}",
                                "-o", "&:python=True", "-o", "&:tests=False", "-o", f"&:python_root={python_root}",
                                "-c", f"tools.cmake.cmake_layout:build_folder={cmake_dir}"])
         subprocess.check_call(["cmake", "-B", ".", "-S", self.base_dir, "--preset", "conan-" + conan_build_type.lower(),

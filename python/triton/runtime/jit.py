@@ -1074,6 +1074,7 @@ def get_jit_fn_file_line(fn):
 class BoundConstexprFunction(JITCallable):
 
     def __init__(self, instance, fn):
+        super().__init__(fn.fn)
         self.__self__ = instance
         self.__func__ = fn
 
