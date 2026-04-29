@@ -392,7 +392,8 @@ class XPUDriver(GPUDriver):
     def is_active():
         return True
 
-    def map_python_to_cpp_type(self, ty: str) -> str:
+    @staticmethod
+    def map_python_to_cpp_type(ty: str) -> str:
         return ty_to_cpp(ty)
 
     def get_current_target(self):

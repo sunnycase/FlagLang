@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -12,6 +13,7 @@ import triton
 from triton.backends.compiler import GPUTarget
 from triton.backends.nvidia.driver import include_dirs, library_dirs
 from triton._internal_testing import is_cuda, is_hip
+from triton.tools.compile import _type_mapper_for_target
 
 kernel_utils_src = """
 import triton
@@ -98,6 +100,28 @@ static void read_csv_to_buffer(char *filename, int16_t *buffer, int size) {
     }
     fclose(file);
 }"""
+
+
+def test_aot_type_mapper_uses_requested_target_backend(monkeypatch):
+
+    class RequestedCompiler:
+
+        @staticmethod
+        def supports_target(target):
+            return target.backend == "requested"
+
+    class RequestedDriver:
+
+        @staticmethod
+        def map_python_to_cpp_type(ty):
+            return f"requested:{ty}"
+
+    monkeypatch.setitem(triton.backends.backends, "requested",
+                        SimpleNamespace(compiler=RequestedCompiler, driver=RequestedDriver))
+
+    ty_to_cpp = _type_mapper_for_target(GPUTarget("requested", "offline", 1))
+
+    assert ty_to_cpp("*fp32") == "requested:*fp32"
 
 
 def gen_kernel_library(dir, libname):

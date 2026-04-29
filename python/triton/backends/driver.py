@@ -15,8 +15,9 @@ class DriverBase(metaclass=ABCMeta):
     def is_active(self):
         pass
 
+    @staticmethod
     @abstractmethod
-    def map_python_to_cpp_type(self, ty: str) -> str:
+    def map_python_to_cpp_type(ty: str) -> str:
         """
         Converts a Triton type string to its corresponding C++ type string for this backend.
 

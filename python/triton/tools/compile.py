@@ -9,6 +9,7 @@ from typing import List
 
 import triton
 import triton.backends
+from triton.backends.compiler import GPUTarget
 
 
 @dataclass
@@ -77,6 +78,18 @@ def main():
     compile_kernel(args)
 
 
+def _type_mapper_for_target(target: GPUTarget):
+    drivers = [
+        backend.driver for backend in triton.backends.backends.values() if backend.compiler.supports_target(target)
+    ]
+    if len(drivers) != 1:
+        raise RuntimeError(
+            f"{len(drivers)} compatible backend drivers for target ({target.backend}) ({drivers}). There should only be one."
+        )
+    driver_cls = drivers[0]
+    return driver_cls.map_python_to_cpp_type
+
+
 def compile_kernel(args: CompileArgs):
     out_name = args.out_name if args.out_name else args.kernel_name
     out_path = args.out_path if args.out_path else Path(out_name)
@@ -134,7 +147,7 @@ def compile_kernel(args: CompileArgs):
     attrs = {k: [["tt.divisibility", 16]] for k, v in hints.items() if v == 16}
     src = triton.compiler.ASTSource(fn=kernel, constexprs=constants, signature=signature, attrs=attrs)
 
-    target = triton.backends.compiler.GPUTarget(*args.target.split(":")) \
+    target = GPUTarget(*args.target.split(":")) \
         if args.target else triton.runtime.driver.active.get_current_target()
     backend = triton.compiler.make_backend(target)
     kwargs = {"num_warps": args.num_warps, "num_stages": args.num_stages}
@@ -173,7 +186,7 @@ def compile_kernel(args: CompileArgs):
 
     hex_ = str(binascii.hexlify(asm))[2:-1]
 
-    ty_to_cpp = triton.runtime.driver.active.map_python_to_cpp_type
+    ty_to_cpp = _type_mapper_for_target(target)
 
     params = {
         "kernel_name": func_name,

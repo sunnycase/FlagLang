@@ -117,6 +117,12 @@ def _raw_arg_type(arg):
     return "int32_t" if arg.endswith("_3") else "float*"
 
 
+@pytest.mark.parametrize("capability, expected", [(80, "sm_80"), (89, "sm_89"), (90, "sm_90a"), (100, "sm_100a"),
+                                                  (120, "sm_120")])
+def test_sm_arch_from_capability_only_marks_known_a_variants(capability, expected):
+    assert nvidia_compiler.sm_arch_from_capability(capability) == expected
+
+
 def _native_metadata(name="native_entry", argument_order=None, raw_argument_order=None, imported_argument_order=None):
     if argument_order is None:
         argument_order = ["param_0", "param_1", "param_2", "param_3"]

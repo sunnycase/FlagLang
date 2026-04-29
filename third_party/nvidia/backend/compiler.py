@@ -98,9 +98,11 @@ def file_hash(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
+SM_ARCHES_WITH_A_VARIANT = frozenset({90, 100})
+
+
 def sm_arch_from_capability(capability: int):
-    # TODO: Handle non-"a" sms
-    suffix = "a" if capability >= 90 else ""
+    suffix = "a" if capability in SM_ARCHES_WITH_A_VARIANT else ""
     return f"sm_{capability}{suffix}"
 
 

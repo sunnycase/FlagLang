@@ -797,7 +797,8 @@ class CudaDriver(GPUDriver):
         except ImportError:
             return False
 
-    def map_python_to_cpp_type(self, ty: str) -> str:
+    @staticmethod
+    def map_python_to_cpp_type(ty: str) -> str:
         return ty_to_abi_cpp(ty)
 
     def get_benchmarker(self):
