@@ -7,6 +7,7 @@ import pytest
 import pathlib
 import uuid
 from triton._internal_testing import is_cuda
+from triton.runtime.autotuner import Autotuner
 
 
 def _repo_dump_file(suffix):
@@ -19,6 +20,36 @@ def do_bench(kernel_call, quantiles, use_cuda_graph=False):
     if use_cuda_graph:
         return triton.testing.do_bench_cudagraph(kernel_call, quantiles=quantiles)
     return triton.testing.do_bench(kernel_call, quantiles=quantiles, warmup=1, rep=1)
+
+
+def test_config_hash_normalizes_unhashable_meta():
+    config = triton.Config(kwargs={"BLOCK_SHAPE": [16, 16], "FLAGS": {"b": True, "a": False}})
+    same_config = triton.Config(kwargs={"FLAGS": {"a": False, "b": True}, "BLOCK_SHAPE": [16, 16]})
+
+    timings = {config: 1.0}
+
+    assert hash(config) == hash(same_config)
+    assert timings[same_config] == 1.0
+
+
+def test_autotune_rejects_missing_key_name():
+
+    def kernel(x):
+        return x
+
+    tuner = Autotuner(
+        kernel,
+        arg_names=["x"],
+        configs=[triton.Config(kwargs={"BLOCK_SIZE": 32}),
+                 triton.Config(kwargs={"BLOCK_SIZE": 64})],
+        key=["missing"],
+        reset_to_zero=None,
+        restore_value=None,
+        do_bench=lambda kernel_call, quantiles: 1.0,
+    )
+
+    with pytest.raises(KeyError, match="missing"):
+        tuner.run(1)
 
 
 @pytest.mark.parametrize('use_cuda_graph', [False, True])

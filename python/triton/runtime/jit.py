@@ -471,6 +471,20 @@ def create_function_from_signature(sig, kparams, backend):
     much of the kernel launch overhead -- every time we run the kernel.
     """
     assert len(sig.parameters) == len(kparams)
+    used_names = set(sig.parameters)
+
+    def internal_name(base):
+        name = f"__triton_{base}"
+        while name in used_names:
+            name = f"_{name}"
+        used_names.add(name)
+        return name
+
+    params_name = internal_name("params")
+    specialization_name = internal_name("specialization")
+    options_name = internal_name("options")
+    specialize_impl_name = internal_name("specialize_impl")
+
     # Create the function argument list and the dict entries for the return statement
     specialization = []
     # signature
@@ -481,7 +495,7 @@ def create_function_from_signature(sig, kparams, backend):
             is_const = 'True' if kp.is_const else 'False'
             specialize = 'False' if kp.do_not_specialize else 'True'
             align = 'False' if kp.do_not_specialize_on_alignment else 'True'
-            ret = f"specialize_impl({name}, {is_const}, {specialize}, {align})"
+            ret = f"{specialize_impl_name}({name}, {is_const}, {specialize}, {align})"
             if kp.annotation_type:
                 if isinstance(kp.annotation_type, str):
                     if kp.annotation_type == "u1" or kp.annotation_type[:2] in ["fp", "bf"]:
@@ -499,10 +513,10 @@ def create_function_from_signature(sig, kparams, backend):
     arg = lambda x: x[0] if x[1].default is inspect.Parameter.empty else f"{x[0]}=default_{x[0]}"
     # Join all arguments into a function definition string
     func_body = f"""
-def dynamic_func({", ".join(list(map(arg, sig.parameters.items())) + ["**options"])}):
-    params = {{{', '.join([f"'{name}': {name}" for name in sig.parameters.keys()])}}}
-    specialization = [{','.join(specialization)}]
-    return params, specialization, options
+def dynamic_func({", ".join(list(map(arg, sig.parameters.items())) + [f"**{options_name}"])}):
+    {params_name} = {{{', '.join([f"'{name}': {name}" for name in sig.parameters.keys()])}}}
+    {specialization_name} = [{','.join(specialization)}]
+    return {params_name}, {specialization_name}, {options_name}
 """
     # Prepare defaults to be inserted into function namespace
     func_namespace = {
@@ -512,7 +526,7 @@ def dynamic_func({", ".join(list(map(arg, sig.parameters.items())) + ["**options
     }
 
     func_namespace["JITCallable"] = JITCallable
-    func_namespace["specialize_impl"] = create_specialize_impl(backend.get_arg_specialization)
+    func_namespace[specialize_impl_name] = create_specialize_impl(backend.get_arg_specialization)
 
     # Execute the function string in func_namespace to create the function
     exec(func_body, func_namespace)

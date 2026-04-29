@@ -85,6 +85,22 @@ def test_none_non_constexpr_argument_remains_runtime_null_pointer():
     assert runtime_args == (None, )
 
 
+def test_generated_binder_internal_names_do_not_collide_with_kernel_args():
+
+    @triton.jit
+    def kernel(options, params, specialize_impl, block: tl.constexpr):
+        return options + params + specialize_impl + block
+
+    backend = _FakeBackend()
+    binder = create_function_from_signature(kernel.signature, kernel.params, backend)
+
+    bound_args, specialization, options = binder(1, 2, 3, block=4, num_warps=8)
+
+    assert bound_args == {"options": 1, "params": 2, "specialize_impl": 3, "block": 4}
+    assert specialization[-1] == ("constexpr", 4)
+    assert options == {"num_warps": 8}
+
+
 def test_pre_call_hooks(device):
 
     @triton.jit

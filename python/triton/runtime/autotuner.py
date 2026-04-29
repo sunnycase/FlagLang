@@ -16,6 +16,20 @@ from .cache import get_cache_manager, triton_key
 from triton._C.libtriton import get_cache_invalidating_env_vars
 
 
+def _make_hashable(value):
+    if isinstance(value, dict):
+        return tuple((key, _make_hashable(val)) for key, val in sorted(value.items(), key=lambda item: repr(item[0])))
+    if isinstance(value, (list, tuple)):
+        return tuple(_make_hashable(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_make_hashable(item) for item in value)
+    try:
+        hash(value)
+        return value
+    except TypeError:
+        return (type(value), id(value))
+
+
 class Autotuner(KernelInterface):
 
     def __init__(self, fn, arg_names, configs, key, reset_to_zero, restore_value, pre_hook=None, post_hook=None,
@@ -213,7 +227,10 @@ class Autotuner(KernelInterface):
         if len(self.configs) > 1:
             all_args = {**self.nargs, **kwargs}
             _args = {k: v for (k, v) in all_args.items() if k in self.arg_names}
-            key = [_args[key] for key in self.keys if key in _args]
+            missing_keys = [key for key in self.keys if key not in _args]
+            if missing_keys:
+                raise KeyError(f"Autotune key(s) not found in kernel arguments: {', '.join(map(str, missing_keys))}")
+            key = [_args[key] for key in self.keys]
             for _, arg in _args.items():
                 if hasattr(arg, "dtype"):
                     key.append(str(arg.dtype))
@@ -358,17 +375,11 @@ class Config:
         return ", ".join(res)
 
     def __hash__(self):
-        return hash((*self.all_kwargs().items(), self.pre_hook))
+        return hash((_make_hashable(self.all_kwargs()), self.pre_hook))
 
     def __eq__(self, other):
-        self_tuple = tuple((
-            *self.all_kwargs().items(),
-            self.pre_hook,
-        ))
-        other_tuple = tuple((
-            *other.all_kwargs().items(),
-            other.pre_hook,
-        ))
+        self_tuple = (_make_hashable(self.all_kwargs()), self.pre_hook)
+        other_tuple = (_make_hashable(other.all_kwargs()), other.pre_hook)
         return self_tuple == other_tuple
 
 
