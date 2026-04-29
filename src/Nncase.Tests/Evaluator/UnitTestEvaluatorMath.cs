@@ -144,6 +144,86 @@ public class UnitTestEvaluatorMath : TestClassBase {
     }
 
     [Fact]
+    public void TestBinaryFloat64TensorPreservesPrecision() {
+        var lhs =
+            Tensor.From(new[] { 16777217.0, -16777217.0 }, new long[] { 2 });
+        var rhs = Tensor.From(new[] { 0.0, 0.0 }, new long[] { 2 });
+        var expr = IR.F.Math.Binary(BinaryOp.Add, lhs, rhs);
+        CompilerServices.InferenceType(expr);
+
+        Assert.Equal(new[] { 16777217.0, -16777217.0 },
+                     expr.Evaluate().AsTensor().ToArray<double>());
+    }
+
+    [Fact]
+    public void TestBinaryInt64ScalarMathPreservesPrecision() {
+        Assert.Equal(
+            3002399751580332L,
+            IR.F.Math.Binary(BinaryOp.FloorDiv, 9007199254740997L, 3L)
+                .Evaluate()
+                .AsTensor()
+                .ToScalar<long>());
+        Assert.Equal(
+            3002399751580333L,
+            IR.F.Math.Binary(BinaryOp.CeilDiv, 9007199254740997L, 3L)
+                .Evaluate()
+                .AsTensor()
+                .ToScalar<long>());
+        Assert.Equal(
+            -3L,
+            IR.F.Math.Binary(BinaryOp.FloorDiv, -7L, 3L)
+                .Evaluate()
+                .AsTensor()
+                .ToScalar<long>());
+        Assert.Equal(
+            -2L,
+            IR.F.Math.Binary(BinaryOp.CeilDiv, -7L, 3L)
+                .Evaluate()
+                .AsTensor()
+                .ToScalar<long>());
+        Assert.Equal(
+            2500000000L,
+            IR.F.Math.Binary(BinaryOp.Pow, 50000L, 2L)
+                .Evaluate()
+                .AsTensor()
+                .ToScalar<long>());
+    }
+
+    [Fact]
+    public void TestBinaryInt64TensorFloorCeilDivPreservesPrecision() {
+        var lhs = Tensor.From(
+            new[] { 9007199254740997L, -7L, 7L }, new long[] { 3 });
+        var rhs = Tensor.From(new[] { 3L }, new long[] { 1 });
+
+        var floor = IR.F.Math.Binary(BinaryOp.FloorDiv, lhs, rhs);
+        CompilerServices.InferenceType(floor);
+        Assert.Equal(new[] { 3002399751580332L, -3L, 2L },
+                     floor.Evaluate().AsTensor().ToArray<long>());
+
+        var ceil = IR.F.Math.Binary(BinaryOp.CeilDiv, lhs, rhs);
+        CompilerServices.InferenceType(ceil);
+        Assert.Equal(new[] { 3002399751580333L, -2L, 3L },
+                     ceil.Evaluate().AsTensor().ToArray<long>());
+    }
+
+    [Fact]
+    public void TestBinaryUInt64TensorFloorCeilDivPreservesPrecision() {
+        var lhs = Tensor.From(
+            new[] { 9007199254740997UL, 10UL }, new long[] { 2 });
+        var rhs = Tensor.From(new[] { 3UL }, new long[] { 1 });
+
+        var floor = IR.F.Math.Binary(BinaryOp.FloorDiv, lhs, rhs);
+        CompilerServices.InferenceType(floor);
+        Assert.Equal(new[] { 3002399751580332UL, 3UL },
+                     floor.Evaluate().AsTensor().ToArray<ulong>());
+
+        var ceil = IR.F.Math.Binary(BinaryOp.CeilDiv, lhs, rhs);
+        CompilerServices.InferenceType(ceil);
+        Assert.Equal(new[] { 3002399751580333UL, 4UL },
+                     ceil.Evaluate().AsTensor().ToArray<ulong>());
+    }
+
+    [Fact]
     public void TestBinaryScalarTensor() {
         var ops = new BinaryOp[] {
             BinaryOp.Add,        BinaryOp.Sub,        BinaryOp.Mul,

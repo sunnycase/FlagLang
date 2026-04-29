@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using DryIoc;
 using NetFabric.Hyperlinq;
 using Nncase.CostModel;
@@ -130,22 +131,20 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
                 result = Value.FromTensor(Tensor.FromScalar(
                     Compute(binary.BinaryOp, lhs.ToScalar<uint>(),
                             rhs.ToScalar<uint>())));
+            } else if (lhs.ElementType == DataTypes.UInt64 &&
+                       rhs.ElementType == DataTypes.UInt64) {
+                result = Value.FromTensor(Tensor.FromScalar(
+                    Compute(binary.BinaryOp, lhs.ToScalar<ulong>(),
+                            rhs.ToScalar<ulong>())));
             } else {
                 result = Value.FromTensor(
                     Ort_compute(binary, lhs, rhs, originDtype));
             }
         } else {
             // for float16/float8/bfloat16 infere
-            var expandOrgDtype = originDtype.Legalize([
-                (DataTypes.Float16, DataTypes.Float32),
-                (DataTypes.BFloat16, DataTypes.Float32),
-                (DataTypes.Float8E4M3, DataTypes.Float32),
-                (DataTypes.Float8E5M2, DataTypes.Float32)
-            ]);
-            if (originDtype.IsFloat()) {
-                lhs = lhs.CastElement<float>();
-                rhs = rhs.CastElement<float>();
-            }
+            var expandOrgDtype = LegalizeLowPrecisionFloat(originDtype);
+            lhs = LegalizeLowPrecisionFloat(lhs);
+            rhs = LegalizeLowPrecisionFloat(rhs);
 
             result =
                 Value.FromTensor(Ort_compute(binary, lhs, rhs, expandOrgDtype)
@@ -244,12 +243,12 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         BinaryOp.Sub => a - b,
         BinaryOp.Mul => a * b,
         BinaryOp.Div => a / b,
-        BinaryOp.FloorDiv => (int)System.Math.Floor((float)a / b),
-        BinaryOp.CeilDiv => (int)System.Math.Ceiling((float)a / b),
+        BinaryOp.FloorDiv => FloorDivSigned(a, b),
+        BinaryOp.CeilDiv => CeilDivSigned(a, b),
         BinaryOp.Mod => a % b,
         BinaryOp.Min => System.Math.Min(a, b),
         BinaryOp.Max => System.Math.Max(a, b),
-        BinaryOp.Pow => checked((int)System.Math.Pow(a, b)),
+        BinaryOp.Pow => PowChecked(a, b),
         _ => throw new ArgumentOutOfRangeException(nameof(op)),
     };
 
@@ -258,12 +257,12 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         BinaryOp.Sub => a - b,
         BinaryOp.Mul => a * b,
         BinaryOp.Div => a / b,
-        BinaryOp.FloorDiv => (uint)System.Math.Floor((float)a / b),
-        BinaryOp.CeilDiv => (uint)System.Math.Ceiling((float)a / b),
+        BinaryOp.FloorDiv => FloorDivUnsigned(a, b),
+        BinaryOp.CeilDiv => CeilDivUnsigned(a, b),
         BinaryOp.Mod => a % b,
         BinaryOp.Min => System.Math.Min(a, b),
         BinaryOp.Max => System.Math.Max(a, b),
-        BinaryOp.Pow => checked((uint)System.Math.Pow((double)a, (double)b)),
+        BinaryOp.Pow => PowChecked(a, b),
         BinaryOp.LeftShift => a << (int)b,
         BinaryOp.RightShift => a >> (int)b,
         _ => throw new ArgumentOutOfRangeException(nameof(op)),
@@ -274,11 +273,12 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         BinaryOp.Sub => a - b,
         BinaryOp.Mul => a * b,
         BinaryOp.Div => a / b,
-        BinaryOp.FloorDiv => (ulong)System.Math.Floor((float)a / b),
-        BinaryOp.CeilDiv => (ulong)System.Math.Ceiling((float)a / b),
+        BinaryOp.FloorDiv => FloorDivUnsigned(a, b),
+        BinaryOp.CeilDiv => CeilDivUnsigned(a, b),
         BinaryOp.Mod => a % b,
         BinaryOp.Min => System.Math.Min(a, b),
         BinaryOp.Max => System.Math.Max(a, b),
+        BinaryOp.Pow => PowChecked(a, b),
         _ => throw new ArgumentOutOfRangeException(nameof(op)),
     };
 
@@ -294,12 +294,12 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         BinaryOp.Sub => a - b,
         BinaryOp.Mul => a * b,
         BinaryOp.Div => a / b,
-        BinaryOp.FloorDiv => (long)System.Math.Floor((float)a / b),
-        BinaryOp.CeilDiv => (long)System.Math.Ceiling((float)a / b),
+        BinaryOp.FloorDiv => FloorDivSigned(a, b),
+        BinaryOp.CeilDiv => CeilDivSigned(a, b),
         BinaryOp.Mod => a % b,
         BinaryOp.Min => System.Math.Min(a, b),
         BinaryOp.Max => System.Math.Max(a, b),
-        BinaryOp.Pow => checked((int)System.Math.Pow(a, b)),
+        BinaryOp.Pow => PowChecked(a, b),
         _ => throw new ArgumentOutOfRangeException(nameof(op)),
     };
 
@@ -314,6 +314,84 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         BinaryOp.Pow => System.MathF.Pow(a, b),
         _ => throw new ArgumentOutOfRangeException(nameof(op)),
     };
+
+    private DataType LegalizeLowPrecisionFloat(DataType dataType) =>
+        dataType.Legalize([
+            (DataTypes.Float16, DataTypes.Float32),
+            (DataTypes.BFloat16, DataTypes.Float32),
+            (DataTypes.Float8E4M3, DataTypes.Float32),
+            (DataTypes.Float8E5M2, DataTypes.Float32)
+        ]);
+
+    private Tensor LegalizeLowPrecisionFloat(Tensor tensor) {
+        var legalType = LegalizeLowPrecisionFloat(tensor.ElementType);
+        return legalType == tensor.ElementType ? tensor : tensor.CastTo(legalType);
+    }
+
+    private T FloorDivSigned<T>(T a, T b)
+        where T : unmanaged, IBinaryInteger<T>, ISignedNumber<T>,
+                  IEquatable<T> {
+        var quotient = a / b;
+        var remainder = a % b;
+        if (remainder != T.Zero &&
+            ((remainder > T.Zero) != (b > T.Zero))) {
+            return checked(quotient - T.One);
+        }
+
+        return quotient;
+    }
+
+    private T CeilDivSigned<T>(T a, T b)
+        where T : unmanaged, IBinaryInteger<T>, ISignedNumber<T>,
+                  IEquatable<T> {
+        var quotient = a / b;
+        var remainder = a % b;
+        if (remainder != T.Zero &&
+            ((remainder > T.Zero) == (b > T.Zero))) {
+            return checked(quotient + T.One);
+        }
+
+        return quotient;
+    }
+
+    private T FloorDivUnsigned<T>(T a, T b)
+        where T : unmanaged, IBinaryInteger<T>, IUnsignedNumber<T>,
+                  IEquatable<T> =>
+        a / b;
+
+    private T CeilDivUnsigned<T>(T a, T b)
+        where T : unmanaged, IBinaryInteger<T>, IUnsignedNumber<T>,
+                  IEquatable<T> {
+        var quotient = a / b;
+        return a % b == T.Zero ? quotient : checked(quotient + T.One);
+    }
+
+    private T PowChecked<T>(T value, T exponent)
+        where T : unmanaged, IBinaryInteger<T>, IEquatable<T> {
+        if (exponent < T.Zero) {
+            throw new OverflowException(
+                "Integer Pow does not support negative exponents.");
+        }
+
+        var result = T.One;
+        var baseValue = value;
+        var remainingExponent = exponent;
+        var two = T.One + T.One;
+        checked {
+            while (remainingExponent > T.Zero) {
+                if (remainingExponent % two != T.Zero) {
+                    result *= baseValue;
+                }
+
+                remainingExponent /= two;
+                if (remainingExponent > T.Zero) {
+                    baseValue *= baseValue;
+                }
+            }
+        }
+
+        return result;
+    }
 
     private Tensor EvaluatePointerBinary(Binary binary, Tensor lhs, Tensor rhs,
                                          TensorType resultType) {
@@ -433,8 +511,117 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         return TensorUtilities.GetLinearOffset(operandStrides, scratch);
     }
 
+    private Tensor EvaluateIntegralDivision(BinaryOp op, Tensor lhs,
+                                            Tensor rhs, DataType dataType) =>
+        dataType switch {
+            _ when dataType == DataTypes.Int8 =>
+                EvaluateIntegralBinary<sbyte>(
+                    lhs, rhs, op, FloorDivSigned, CeilDivSigned),
+            _ when dataType == DataTypes.Int16 =>
+                EvaluateIntegralBinary<short>(
+                    lhs, rhs, op, FloorDivSigned, CeilDivSigned),
+            _ when dataType == DataTypes.Int32 =>
+                EvaluateIntegralBinary<int>(
+                    lhs, rhs, op, FloorDivSigned, CeilDivSigned),
+            _ when dataType == DataTypes.Int64 =>
+                EvaluateIntegralBinary<long>(
+                    lhs, rhs, op, FloorDivSigned, CeilDivSigned),
+            _ when dataType == DataTypes.UInt8 =>
+                EvaluateIntegralBinary<byte>(
+                    lhs, rhs, op, FloorDivUnsigned, CeilDivUnsigned),
+            _ when dataType == DataTypes.UInt16 =>
+                EvaluateIntegralBinary<ushort>(
+                    lhs, rhs, op, FloorDivUnsigned, CeilDivUnsigned),
+            _ when dataType == DataTypes.UInt32 =>
+                EvaluateIntegralBinary<uint>(
+                    lhs, rhs, op, FloorDivUnsigned, CeilDivUnsigned),
+            _ when dataType == DataTypes.UInt64 =>
+                EvaluateIntegralBinary<ulong>(
+                    lhs, rhs, op, FloorDivUnsigned, CeilDivUnsigned),
+            _ => throw new NotSupportedException(
+                $"Integral {op} does not support data type {dataType}."),
+        };
+
+    private Tensor EvaluateIntegralBinary<T>(
+        Tensor lhsTensor, Tensor rhsTensor, BinaryOp op, Func<T, T, T> floor,
+        Func<T, T, T> ceil)
+        where T : unmanaged, IBinaryInteger<T>, IEquatable<T> {
+        var lhs = (Tensor<T>)lhsTensor;
+        var rhs = (Tensor<T>)rhsTensor;
+        var resultShape = GetBroadcastShape(lhs, rhs);
+        var result = new Tensor<T>(resultShape);
+        var resultSpan = result.Buffer.Span;
+        var lhsShape = lhs.Dimensions.ToArray();
+        var rhsShape = rhs.Dimensions.ToArray();
+        var lhsStrides = lhs.Strides.ToArray();
+        var rhsStrides = rhs.Strides.ToArray();
+        var lhsIndices = lhsShape.Length == 0 ? Array.Empty<long>()
+                                              : new long[lhsShape.Length];
+        var rhsIndices = rhsShape.Length == 0 ? Array.Empty<long>()
+                                              : new long[rhsShape.Length];
+        var outIndices = resultShape.Length == 0 ? Array.Empty<long>()
+                                                 : new long[resultShape.Length];
+        var totalElements = resultShape.Length == 0
+                                ? 1
+                                : TensorUtilities.GetProduct(resultShape);
+        var compute = op switch {
+            BinaryOp.FloorDiv => floor,
+            BinaryOp.CeilDiv => ceil,
+            _ => throw new ArgumentOutOfRangeException(nameof(op)),
+        };
+
+        for (long linear = 0; linear < totalElements; linear++) {
+            if (outIndices.Length > 0) {
+                TensorUtilities.UnravelIndex(linear, resultShape, outIndices);
+            }
+
+            var lhsOffset = GetBroadcastOffset(
+                outIndices, lhsShape, lhsStrides, lhsIndices);
+            var rhsOffset = GetBroadcastOffset(
+                outIndices, rhsShape, rhsStrides, rhsIndices);
+            resultSpan[checked((int)linear)] =
+                compute(lhs.Buffer.Span[checked((int)lhsOffset)],
+                        rhs.Buffer.Span[checked((int)rhsOffset)]);
+        }
+
+        return result;
+    }
+
+    private long[] GetBroadcastShape(Tensor lhs, Tensor rhs) {
+        var lhsShape = lhs.Dimensions.ToArray();
+        var rhsShape = rhs.Dimensions.ToArray();
+        var rank = System.Math.Max(lhsShape.Length, rhsShape.Length);
+        var resultShape = new long[rank];
+        for (int i = 0; i < rank; i++) {
+            var lhsIndex = i - (rank - lhsShape.Length);
+            var rhsIndex = i - (rank - rhsShape.Length);
+            var lhsDim = lhsIndex < 0 ? 1 : lhsShape[lhsIndex];
+            var rhsDim = rhsIndex < 0 ? 1 : rhsShape[rhsIndex];
+            if (lhsDim != rhsDim && lhsDim != 1 && rhsDim != 1) {
+                throw new InvalidOperationException(
+                    $"Cannot broadcast shapes [{string.Join(", ", lhsShape)}] and [{string.Join(", ", rhsShape)}].");
+            }
+
+            resultShape[i] = System.Math.Max(lhsDim, rhsDim);
+        }
+
+        return resultShape;
+    }
+
+    private OrtDataType GetFloatDivisionType(OrtKISharp.Tensor lhs,
+                                             OrtKISharp.Tensor rhs) =>
+        lhs.DataType == OrtDataType.Double || rhs.DataType == OrtDataType.Double
+            ? OrtDataType.Double
+            : OrtDataType.Float;
+
     private Tensor Ort_compute(Binary binary, Tensor lhs, Tensor rhs,
                                DataType dataType) {
+        if (binary.BinaryOp is BinaryOp.FloorDiv or BinaryOp.CeilDiv &&
+            dataType.IsIntegral()) {
+            return EvaluateIntegralDivision(
+                binary.BinaryOp, lhs, rhs, dataType);
+        }
+
         var a = lhs.ToOrtTensor();
         var b = rhs.ToOrtTensor();
         if (lhs.ElementType is VectorType vt &&
@@ -449,6 +636,8 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
                           .ToArray());
         }
 
+        var floatDivisionType = GetFloatDivisionType(a, b);
+
         static OrtKISharp.Tensor Mod(OrtKISharp.Tensor a, OrtKISharp.Tensor b) {
             var fmod = DataTypes.IsFloat(a.DataType.ToDataType()) &&
                                DataTypes.IsFloat(b.DataType.ToDataType())
@@ -462,14 +651,12 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
                    BinaryOp.Sub => a - b,
                    BinaryOp.Mul => a * b,
                    BinaryOp.Div => a / b,
-                   BinaryOp.FloorDiv => OrtKI
-                                            .Floor(a.Cast(OrtDataType.Float) /
-                                                   b.Cast(OrtDataType.Float))
-                                            .Cast(a.DataType),
-                   BinaryOp.CeilDiv => OrtKI
-                                           .Ceil(a.Cast(OrtDataType.Float) /
-                                                 b.Cast(OrtDataType.Float))
-                                           .Cast(a.DataType),
+                   BinaryOp.FloorDiv => OrtKI.Floor(
+                       a.Cast(floatDivisionType) / b.Cast(floatDivisionType))
+                       .Cast(a.DataType),
+                   BinaryOp.CeilDiv => OrtKI.Ceil(
+                       a.Cast(floatDivisionType) / b.Cast(floatDivisionType))
+                       .Cast(a.DataType),
                    BinaryOp.Mod => Mod(a, b),
                    BinaryOp.Min => OrtKI.Min(new[] { a, b }),
                    BinaryOp.Max => OrtKI.Max(new[] { a, b }),
