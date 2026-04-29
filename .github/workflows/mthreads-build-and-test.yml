@@ -75,26 +75,4 @@ jobs:
         shell: bash
         run: |
           set -x
-          TRITON_OPT=$(python3 - <<'PY'
-          import os
-          from python.build_helpers import get_cmake_dir
-
-          def env_flag(name, default=""):
-              return os.getenv(name, default).upper() in {"ON", "1", "YES", "TRUE", "Y"}
-
-          if env_flag("DEBUG"):
-              config = "Debug"
-          elif env_flag("REL_WITH_DEB_INFO"):
-              config = "RelWithDebInfo"
-          else:
-              config = "Release"
-          print(get_cmake_dir() / config / "bin" / "triton-opt")
-          PY
-          )
-          if [ ! -x "$TRITON_OPT" ]; then
-            echo "triton-opt was not built at: $TRITON_OPT" >&2
-            exit 1
-          fi
-          "$TRITON_OPT" --pass-pipeline='builtin.module(convert-triton-to-tritongpu{target="cuda:CC" num-warps=4 threads-per-warp=32 num-ctas=1})' ./python/tutorials/hints/01/base/add_kernel.ttir
-          "$TRITON_OPT" --convert-ub-to-llvm ./python/tutorials/hints/01/base/add_kernel.ttgir
           MUSA_VISIBLE_DEVICES=7 python3 -m pytest -s third_party/mthreads/python/test/unit

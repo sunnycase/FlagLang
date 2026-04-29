@@ -231,6 +231,24 @@ def test_managed_compiler_payload_hash_tracks_assembly_contents(tmp_path: pathli
     assert _managed_compiler_payload_hash(tmp_path) != original
 
 
+def test_managed_compiler_payload_hash_tracks_native_runtime_contents(tmp_path: pathlib.Path):
+    native_dir = tmp_path / "_C"
+    runtime_dir = native_dir / "nncase" / "runtimes"
+    runtime_dir.mkdir(parents=True)
+    runtime_so = native_dir / "libnncaseruntime.so"
+    nested_runtime_so = runtime_dir / "libnncase_native_runtime.so"
+    runtime_so.write_bytes(b"old native runtime")
+    nested_runtime_so.write_bytes(b"old nested native runtime")
+
+    original = _managed_compiler_payload_hash(tmp_path)
+    runtime_so.write_bytes(b"new native runtime")
+    assert _managed_compiler_payload_hash(tmp_path) != original
+
+    original = _managed_compiler_payload_hash(tmp_path)
+    nested_runtime_so.write_bytes(b"new nested native runtime")
+    assert _managed_compiler_payload_hash(tmp_path) != original
+
+
 @triton.constexpr_function
 def constexpr_flag_fn():
     return False

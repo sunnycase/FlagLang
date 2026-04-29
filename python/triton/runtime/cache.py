@@ -309,8 +309,11 @@ def _hash_path_tree(path, suffixes=None):
 
 
 def _managed_compiler_payload_hash(triton_path):
-    managed_compiler_path = os.path.join(triton_path, "_C", "nncase")
-    return _hash_path_tree(managed_compiler_path, suffixes=(".dll", ".deps.json", ".runtimeconfig.json"))
+    native_payload_path = os.path.join(triton_path, "_C")
+    return _hash_path_tree(
+        native_payload_path,
+        suffixes=(".dll", ".deps.json", ".runtimeconfig.json", ".so", ".dylib", ".pyd"),
+    )
 
 
 @functools.lru_cache()
