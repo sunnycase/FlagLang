@@ -146,6 +146,7 @@ result<value_t> cpu_runtime_function::invoke_core(
     [[maybe_unused]] value_t return_value) noexcept {
     size_t input_id = 0;
     std::vector<thread_paged_attention_kv_cache_desc *> inout_paged_kvcaches;
+    std::vector<mapped_buffer> paged_kv_cache_maps;
     for (auto arg : parameters) {
         try_var(t, arg.as<tensor>());
         try_var(hb, t->buffer().as_host());
@@ -171,16 +172,20 @@ result<value_t> cpu_runtime_function::invoke_core(
                             try_var(hbf,
                                     node->context_lens()->buffer().as_host());
                             try_var(mbf, hbf.map(map_read));
-                            desc.context_lens = (int64_t *)mbf.buffer().data();
+                            auto buffer = mbf.buffer();
+                            desc.context_lens = (int64_t *)buffer.data();
                             desc.context_lens_size =
-                                mbf.buffer().size_bytes() / sizeof(int64_t);
+                                buffer.size_bytes() / sizeof(int64_t);
+                            paged_kv_cache_maps.emplace_back(std::move(mbf));
                         }
                         {
                             try_var(hbf, node->seq_lens()->buffer().as_host());
                             try_var(mbf, hbf.map(map_read));
-                            desc.seq_lens = (int64_t *)mbf.buffer().data();
+                            auto buffer = mbf.buffer();
+                            desc.seq_lens = (int64_t *)buffer.data();
                             desc.seq_lens_size =
-                                mbf.buffer().size_bytes() / sizeof(int64_t);
+                                buffer.size_bytes() / sizeof(int64_t);
+                            paged_kv_cache_maps.emplace_back(std::move(mbf));
                         }
 
                         // Paged attention specific parameters
@@ -188,23 +193,27 @@ result<value_t> cpu_runtime_function::invoke_core(
                             try_var(hbf,
                                     node->block_tables()->buffer().as_host());
                             try_var(mbf, hbf.map(map_read));
-                            desc.block_table = (int64_t *)mbf.buffer().data();
+                            auto buffer = mbf.buffer();
+                            desc.block_table = (int64_t *)buffer.data();
                             desc.block_table_shape[0] =
                                 node->block_tables()->shape()[0];
                             desc.block_table_shape[1] =
                                 node->block_tables()->shape()[1];
                             desc.block_table_shape[2] =
                                 node->block_tables()->shape()[2];
+                            paged_kv_cache_maps.emplace_back(std::move(mbf));
                         }
                         {
                             try_var(hbf,
                                     node->slot_mapping()->buffer().as_host());
                             try_var(mbf, hbf.map(map_read));
-                            desc.slot_mapping = (int64_t *)mbf.buffer().data();
+                            auto buffer = mbf.buffer();
+                            desc.slot_mapping = (int64_t *)buffer.data();
                             desc.slot_mapping_shape[0] =
                                 node->slot_mapping()->shape()[0];
                             desc.slot_mapping_shape[1] =
                                 node->slot_mapping()->shape()[1];
+                            paged_kv_cache_maps.emplace_back(std::move(mbf));
                         }
 
                         {
@@ -227,10 +236,13 @@ result<value_t> cpu_runtime_function::invoke_core(
                                 size_t i = 0;
                                 for (auto kv_cache : node->kv_caches()) {
                                     try_var(hbf, kv_cache->buffer().as_host());
-                                    try_var(mbf, hbf.map(map_read));
+                                    try_var(mbf, hbf.map(map_read_write));
+                                    auto buffer = mbf.buffer();
                                     desc.kv_cache_addrs[i++] =
                                         reinterpret_cast<intptr_t>(
-                                            mbf.buffer().data());
+                                            buffer.data());
+                                    paged_kv_cache_maps.emplace_back(
+                                        std::move(mbf));
                                 }
                             }
                         }

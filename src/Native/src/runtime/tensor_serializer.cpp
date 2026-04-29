@@ -230,7 +230,7 @@ runtime::deserialize_tensor(const nlohmann::json &root) noexcept {
             base64::decode_into<std::vector<std::byte>>(base64_str);
 
         try_var(tensor_result,
-                hrt::create(element_type, dimensions,
+                hrt::create(element_type, dimensions, strides,
                             std::span<std::byte>{decoded_data.data(),
                                                  decoded_data.size()},
                             true));

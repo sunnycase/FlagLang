@@ -256,16 +256,17 @@ result<void> cuda_runtime_function::initialize_core(
                 // Allocate thread local datas
                 try_var(thread_local_data,
                         allocate_device_span(thread_local_data_size));
-                thread_local_datas_.emplace_back(thread_local_data);
 
                 // Allocate warp local datas
                 try_var(warp_local_data,
                         allocate_device_span(warp_local_data_size));
-                warp_local_datas_.emplace_back(warp_local_data);
 
                 // Allocate block local datas
                 try_var(block_local_data,
                         allocate_device_span(block_local_data_size));
+
+                thread_local_datas_.emplace_back(thread_local_data);
+                warp_local_datas_.emplace_back(warp_local_data);
                 block_local_datas_.emplace_back(block_local_data);
             }
             return ok();
