@@ -135,6 +135,10 @@ def _extract_ptx_entry_name(src):
     return names[0]
 
 
+def _looks_like_llvm_ir(src: str) -> bool:
+    return bool(re.search(r"(?m)^\s*(?:source_filename|target\s+(?:datalayout|triple)|define\s)", src))
+
+
 @dataclass(frozen=True)
 class NativeCudaIRStage:
     module: Any
@@ -800,6 +804,11 @@ class CUDABackend(BaseBackend):
         src = _unwrap_native_cuda_stage(src)
         if not isinstance(src, str):
             return _compile_native_module_to_cubin(src, metadata, opt, capability)
+
+        if _looks_like_llvm_ir(src):
+            raise RuntimeError(
+                "NVIDIA backend cannot pass LLVM IR text to ptxas; provide PTX input or enable LLIR-to-PTX "
+                "translation before the cubin stage.")
 
         return src
 

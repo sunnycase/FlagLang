@@ -26,6 +26,7 @@ jobs:
         id: checkout1
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'schedule' && 'triton_v3.5.x' || github.ref }}
           fetch-depth: 0
         continue-on-error: true
 
@@ -40,6 +41,7 @@ jobs:
         if: steps.checkout1.outcome == 'failure'
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'schedule' && 'triton_v3.5.x' || github.ref }}
           fetch-depth: 0
         continue-on-error: true
 
@@ -53,6 +55,7 @@ jobs:
         if: steps.checkout1.outcome == 'failure' && steps.checkout2.outcome == 'failure'
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'schedule' && 'triton_v3.5.x' || github.ref }}
           fetch-depth: 0
 
       - name: Verify checkout success
@@ -69,6 +72,8 @@ jobs:
           set -x
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             TARGET_BRANCH="${{ github.base_ref }}"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            TARGET_BRANCH="triton_v3.5.x"
           else
             TARGET_BRANCH="${{ github.ref_name }}"
           fi

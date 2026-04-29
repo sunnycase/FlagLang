@@ -203,6 +203,20 @@ def test_make_cubin_rejects_non_ptx_artifact():
         backend.make_cubin(object(), {}, options, 80)
 
 
+def test_make_ptx_rejects_llvm_ir_text_before_ptxas():
+    backend = _cuda_backend()
+    options = backend.parse_options({})
+    llir = """
+target triple = "nvptx64-nvidia-cuda"
+define void @kernel() {
+  ret void
+}
+"""
+
+    with pytest.raises(RuntimeError, match="cannot pass LLVM IR text to ptxas"):
+        backend.make_ptx(llir, {}, options, 80)
+
+
 def test_make_cubin_populates_metadata_for_ptx_text(monkeypatch):
     backend = _cuda_backend()
     options = backend.parse_options({})

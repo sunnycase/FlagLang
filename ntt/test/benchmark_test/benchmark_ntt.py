@@ -41,6 +41,42 @@ def ntt_matmul_riscv64_report_file(default: str):
     return os.getenv('BENCHMARK_NTT_MATMUL_RISCV64_REPORT_FILE', default)
 
 
+def benchmark_row_key(item: dict):
+    return (item['kind'], item['op'])
+
+
+def merge_benchmark_lists_by_key(*benchmark_lists: list):
+    keyed_lists = []
+    for index, benchmark_list in enumerate(benchmark_lists):
+        keyed = {}
+        for item in benchmark_list:
+            key = benchmark_row_key(item)
+            if key in keyed:
+                raise ValueError(f"Duplicate benchmark result for key {key} in benchmark list {index}.")
+            keyed[key] = item
+        keyed_lists.append(keyed)
+
+    if not keyed_lists:
+        return []
+
+    expected_keys = set(keyed_lists[0])
+    for index, keyed in enumerate(keyed_lists[1:], start=1):
+        keys = set(keyed)
+        if keys != expected_keys:
+            missing = sorted(expected_keys - keys)
+            extra = sorted(keys - expected_keys)
+            raise ValueError(
+                f"Benchmark result key mismatch in benchmark list {index}: missing={missing}, extra={extra}.")
+
+    merged = []
+    for key in sorted(expected_keys):
+        row = {}
+        for keyed in keyed_lists:
+            row.update(keyed[key])
+        merged.append(row)
+    return merged
+
+
 def generate_benchmark_ntt_md(benchmark_list: list, key: str, md_file: str):
     # generate dict after sorting
     dict = {}
@@ -1480,10 +1516,7 @@ if __name__ == '__main__':
     ntt_riscv64.run()
 
     # 1.3 merge benchmark list
-    benchmark_list = []
-    for i in range(len(ntt_x86_64.benchmark_list)):
-        item = {**ntt_x86_64.benchmark_list[i], **ntt_riscv64.benchmark_list[i]}
-        benchmark_list.append(item)
+    benchmark_list = merge_benchmark_lists_by_key(ntt_x86_64.benchmark_list, ntt_riscv64.benchmark_list)
 
     # 1.4 generate md
     md_file = ntt_f32_report_file('benchmark_ntt_f32.md')
