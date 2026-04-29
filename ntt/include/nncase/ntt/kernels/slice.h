@@ -17,10 +17,28 @@
 #include "../primitive_ops.h"
 #include "../ukernels.h"
 #include "../utility.h"
+#include <cstddef>
 #include <tuple>
 
 namespace nncase::ntt {
 namespace slice_detail {
+template <class T>
+constexpr void copy_strided(const T *input, dim_t input_stride, T *output,
+                            dim_t output_stride, size_t count) noexcept {
+    if (input_stride >= 0 && output_stride >= 0) {
+        ntt::u_unary(ntt::ops::copy<T>{}, input,
+                     static_cast<size_t>(input_stride), output,
+                     static_cast<size_t>(output_stride), count);
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        *output = *input;
+        input += input_stride;
+        output += output_stride;
+    }
+}
+
 template <Dimension TX, Dimension TDim, Dimension TLowerBound,
           Dimension TUpperBound>
 constexpr auto translate_begin_end(const TX &x, const TDim &dim,
@@ -99,9 +117,11 @@ constexpr void slice(const TIn &input, TOut &&output, const TBegins &begins,
             });
         auto pin =
             input.buffer().data() + linear_offset(in_index, input.strides());
-        ntt::u_unary(ntt::ops::copy<element_type>{}, pin,
-                     in_strides[-1_dim] * new_steps[-1_dim], pout,
-                     out_strides[-1_dim], count);
+        const auto input_stride =
+            dim_value(in_strides[-1_dim]) * dim_value(new_steps[-1_dim]);
+        const auto output_stride = dim_value(out_strides[-1_dim]);
+        slice_detail::copy_strided(pin, input_stride, pout, output_stride,
+                                   static_cast<size_t>(dim_value(count)));
     });
 }
 } // namespace nncase::ntt

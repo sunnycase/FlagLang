@@ -111,6 +111,7 @@ file(GLOB HANDWRITTEN_TESTS CONFIGURE_DEPENDS
     test_ntt_reshard.cpp
     test_ntt_rms_norm.cpp
     test_ntt_scatter_nd.cpp
+    test_ntt_slice_negative_step.cpp
     # test_ntt_slice.cpp
     test_ntt_softmax.cpp
     test_ntt_transpose.cpp

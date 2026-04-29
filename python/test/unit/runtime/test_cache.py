@@ -160,6 +160,7 @@ def test_nncase_cuda_compiler_affects_cache_key(monkeypatch):
     backend = KeyPart("backend")
     options = KeyPart("options")
 
+    monkeypatch.delenv("NNCASE_COMPILER", raising=False)
     monkeypatch.delenv("NNCASE_CUDA_COMPILER", raising=False)
     baseline = get_cache_key(src, backend, options, {})
 
@@ -171,6 +172,62 @@ def test_nncase_cuda_compiler_affects_cache_key(monkeypatch):
 
     assert baseline != nvcc_key
     assert nvcc_key != clang_key
+
+
+def test_nncase_compiler_affects_cache_key_with_path_and_contents(monkeypatch, tmp_path: pathlib.Path):
+
+    class KeyPart:
+
+        def __init__(self, value):
+            self.value = value
+
+        def hash(self):
+            return self.value
+
+    src = KeyPart("src")
+    backend = KeyPart("backend")
+    options = KeyPart("options")
+
+    monkeypatch.delenv("NNCASE_CUDA_COMPILER", raising=False)
+    monkeypatch.delenv("NNCASE_COMPILER", raising=False)
+    baseline = get_cache_key(src, backend, options, {})
+
+    compiler_a = tmp_path / "compiler-a" / "Nncase.Compiler.dll"
+    compiler_b = tmp_path / "compiler-b" / "Nncase.Compiler.dll"
+    compiler_a.parent.mkdir()
+    compiler_b.parent.mkdir()
+    compiler_a.write_bytes(b"compiler a v1")
+    compiler_b.write_bytes(b"compiler b v1")
+
+    monkeypatch.setenv("NNCASE_COMPILER", str(compiler_a))
+    compiler_a_key = get_cache_key(src, backend, options, {})
+
+    compiler_a.write_bytes(b"compiler a v2")
+    compiler_a_changed_key = get_cache_key(src, backend, options, {})
+
+    monkeypatch.setenv("NNCASE_COMPILER", str(compiler_b))
+    compiler_b_key = get_cache_key(src, backend, options, {})
+
+    assert baseline != compiler_a_key
+    assert compiler_a_key != compiler_a_changed_key
+    assert compiler_a_changed_key != compiler_b_key
+
+
+def test_nncase_compiler_cache_key_fails_for_missing_file(monkeypatch, tmp_path: pathlib.Path):
+
+    class KeyPart:
+
+        def __init__(self, value):
+            self.value = value
+
+        def hash(self):
+            return self.value
+
+    monkeypatch.delenv("NNCASE_CUDA_COMPILER", raising=False)
+    monkeypatch.setenv("NNCASE_COMPILER", str(tmp_path / "missing" / "Nncase.Compiler.dll"))
+
+    with pytest.raises(FileNotFoundError):
+        get_cache_key(KeyPart("src"), KeyPart("backend"), KeyPart("options"), {})
 
 
 def test_redis_remote_cache_backend_reads_redis_knobs(monkeypatch):

@@ -11,6 +11,7 @@ import sysconfig
 from triton import __version__, knobs
 
 _FLAGLANG_CACHE_INVALIDATING_ENV_VARS = ("NNCASE_CUDA_COMPILER", )
+_FLAGLANG_CACHE_INVALIDATING_FILE_ENV_VARS = ("NNCASE_COMPILER", )
 
 
 def _with_flaglang_cache_invalidating_env_vars(env_vars):
@@ -19,6 +20,14 @@ def _with_flaglang_cache_invalidating_env_vars(env_vars):
         value = os.environ.get(name)
         if value is not None:
             merged[name] = value
+    for name in _FLAGLANG_CACHE_INVALIDATING_FILE_ENV_VARS:
+        value = os.environ.get(name)
+        if value:
+            path = os.path.abspath(value)
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"{name} does not point to a file: {path}")
+            merged[name] = path
+            merged[f"{name}_SHA256"] = _hash_file(path)
     return merged
 
 
