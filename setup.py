@@ -433,8 +433,8 @@ class CMakeBuild(build_ext):
 
         match = re.search(r"version\s*(?P<major>\d+)\.(?P<minor>\d+)([\d.]+)?", out.decode())
         cmake_major, cmake_minor = int(match.group("major")), int(match.group("minor"))
-        if (cmake_major, cmake_minor) < (3, 20):
-            raise RuntimeError("CMake >= 3.20 is required")
+        if (cmake_major, cmake_minor) < (3, 21):
+            raise RuntimeError("CMake >= 3.21 is required")
 
         for ext in self.extensions:
             self.build_extension(ext)
@@ -863,7 +863,7 @@ setup(
     test_suite="tests",
     extras_require={
         "build": [
-            "cmake>=3.20,<4.0",
+            "cmake>=3.21,<4.0",
             "GitPython",
             "lit",
         ],

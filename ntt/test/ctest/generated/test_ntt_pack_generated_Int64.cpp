@@ -201,7 +201,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -271,7 +273,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -341,7 +345,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -520,7 +526,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -591,7 +599,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -819,7 +829,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -887,7 +899,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -955,7 +969,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -1132,7 +1148,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -1201,7 +1219,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -1487,7 +1507,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -1560,7 +1582,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -1633,7 +1657,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -1706,7 +1732,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -1779,7 +1807,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -1852,7 +1882,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -1925,7 +1957,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -1998,7 +2032,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2071,7 +2107,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2144,7 +2182,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2217,7 +2257,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2290,7 +2332,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2363,7 +2407,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2436,7 +2482,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2509,7 +2557,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2582,7 +2632,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2821,7 +2873,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2895,7 +2949,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -2969,7 +3025,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3043,7 +3101,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3117,7 +3177,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3191,7 +3253,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3265,7 +3329,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3339,7 +3405,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3413,7 +3481,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3487,7 +3557,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3561,7 +3633,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3635,7 +3709,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3924,7 +4000,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -3997,7 +4075,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4070,7 +4150,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4143,7 +4225,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4216,7 +4300,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4289,7 +4375,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4362,7 +4450,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4435,7 +4525,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4508,7 +4600,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4581,7 +4675,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4654,7 +4750,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4727,7 +4825,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4800,7 +4900,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4873,7 +4975,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -4946,7 +5050,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5019,7 +5125,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5258,7 +5366,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5332,7 +5442,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5406,7 +5518,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5480,7 +5594,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5554,7 +5670,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5628,7 +5746,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5702,7 +5822,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5776,7 +5898,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5850,7 +5974,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5924,7 +6050,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -5998,7 +6126,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -6072,7 +6202,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -6426,7 +6558,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W, D>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -6503,7 +6637,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W, D>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -6580,7 +6716,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W, D>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -6657,7 +6795,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W, D>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -6734,7 +6874,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W, D>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -7044,7 +7186,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W, D>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -7123,7 +7267,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W, D>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -7202,7 +7348,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W, D>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -7281,7 +7429,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>);
+        big_tensor.elements().data(), ntt::fixed_shape_v<N, C, H, W, D>,
+        ntt::canonicalize_strides(ntt::fixed_shape_v<N, C, H, W, D>,
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -7634,7 +7784,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W, D),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -7711,7 +7863,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W, D),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -7788,7 +7942,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W, D),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -7865,7 +8021,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W, D),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -7942,7 +8100,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W, D),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -8248,7 +8408,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W, D),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -8327,7 +8489,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W, D),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -8406,7 +8570,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W, D),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)
@@ -8485,7 +8651,9 @@ TEST(PackTest_Int64,
     NttTest::init_tensor(big_tensor, -1000000, 1000000, true, false);
 
     auto ntt_input = ntt::make_tensor_view_from_address<int64_t>(
-        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D));
+        big_tensor.elements().data(), ntt::make_shape(N, C, H, W, D),
+        ntt::canonicalize_strides(ntt::make_shape(N, C, H, W, D),
+                                  big_tensor.strides()));
 
     // ------------------------------------------------------------------
     // 2. call NTT operation to get NTT output (under test)

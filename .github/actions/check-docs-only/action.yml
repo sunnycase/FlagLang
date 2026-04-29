@@ -30,13 +30,23 @@ runs:
             .github/*.yml|.github/*.yaml)
               return 1
               ;;
-            docs/*|*.md|*.rst|*.txt|CODEOWNERS|.github/CODEOWNERS)
+            docs/*|CODEOWNERS|.github/CODEOWNERS)
               return 0
               ;;
             *)
-              return 1
               ;;
           esac
+
+          case "$(basename "$file")" in
+            *.md|*.rst)
+              if [[ "$file" != */* ]]; then
+                return 0
+              fi
+              ;;
+            *)
+              ;;
+          esac
+          return 1
         }
 
         # Extract current workflow file path from github.workflow_ref
