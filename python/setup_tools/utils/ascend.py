@@ -21,14 +21,18 @@ def install_extension(*args, **kargs):
     shutil.copy(src_ext_path, dst_ext_path)
 
 
+def _ascend_patch_package_dirs():
+    triton_patch_root_rel_dir = "third_party/ascend/triton_patch/python/triton_patch"
+    return {
+        "triton.triton_patch": triton_patch_root_rel_dir,
+        "triton.triton_patch.language": f"{triton_patch_root_rel_dir}/language",
+        "triton.triton_patch.compiler": f"{triton_patch_root_rel_dir}/compiler",
+        "triton.triton_patch.runtime": f"{triton_patch_root_rel_dir}/runtime",
+    }
+
+
 def get_package_dir():
-    package_dict = {}
-    triton_patch_root_rel_dir = "../third_party/ascend/triton_patch/python/triton_patch"
-    package_dict["triton/triton_patch"] = f"{triton_patch_root_rel_dir}"
-    package_dict["triton/triton_patch/language"] = f"{triton_patch_root_rel_dir}/language"
-    package_dict["triton/triton_patch/compiler"] = f"{triton_patch_root_rel_dir}/compiler"
-    package_dict["triton/triton_patch/runtime"] = f"{triton_patch_root_rel_dir}/runtime"
-    return package_dict
+    return _ascend_patch_package_dirs()
 
 
 def insert_at_file_start(filepath, import_lines):
@@ -155,39 +159,15 @@ language.math.ceil = ceil
 
 
 def get_ascend_patch_packages(backends):
-    packages = []
-    # packages += get_language_extra_packages()
-    packages += [
-        "triton/triton_patch",
-        "triton/triton_patch/language",
-        "triton/triton_patch/compiler",
-        "triton/triton_patch/runtime",
-    ]
-    return packages
+    return list(_ascend_patch_package_dirs())
 
 
 def get_ascend_patch_package_dir(backends):
-    package_dir = {}
-    # language_extra_list = get_language_extra_packages()
-    # for extra_full in language_extra_list:
-    #     extra_name = extra_full.replace("triton/language/extra/", "")
-    #     package_dir[extra_full] = f"{triton_root_rel_dir}/language/extra/{extra_name}"
-    #
-    triton_patch_root_rel_dir = "triton_patch/python/triton_patch"
-    package_dir["triton/triton_patch"] = f"{triton_patch_root_rel_dir}"
-    package_dir["triton/triton_patch/language"] = f"{triton_patch_root_rel_dir}/language"
-    package_dir["triton/triton_patch/compiler"] = f"{triton_patch_root_rel_dir}/compiler"
-    package_dir["triton/triton_patch/runtime"] = f"{triton_patch_root_rel_dir}/runtime"
-    return package_dir
+    return _ascend_patch_package_dirs()
 
 
 def get_extra_install_packages():
-    return [
-        "triton/triton_patch",
-        "triton/triton_patch/language",
-        "triton/triton_patch/compiler",
-        "triton/triton_patch/runtime",
-    ]
+    return list(_ascend_patch_package_dirs())
 
 
 def precompile_hock(*args, **kargs):

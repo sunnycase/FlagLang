@@ -4,7 +4,7 @@ import torch
 
 import triton
 import triton.language as tl
-from triton.runtime.jit import compute_cache_key
+from triton.runtime.jit import MockTensor, compute_cache_key
 
 
 def test_compute_cache_key_normalizes_unhashable_constexprs():
@@ -18,6 +18,14 @@ def test_compute_cache_key_normalizes_unhashable_constexprs():
 
     assert key_a == key_b
     assert len(cache) == 1
+
+
+def test_mock_tensor_stride_matches_contiguous_layout():
+    assert MockTensor(torch.float32, shape=[]).stride() == ()
+    assert MockTensor(torch.float32, shape=[4]).stride() == (1, )
+    assert MockTensor(torch.float32, shape=[2, 3]).stride() == (3, 1)
+    assert MockTensor(torch.float32, shape=[2, 3, 4]).stride() == (12, 4, 1)
+    assert MockTensor(torch.float32, shape=[2, 3, 4, 5]).stride() == (60, 20, 5, 1)
 
 
 def test_pre_call_hooks(device):

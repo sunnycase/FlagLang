@@ -610,6 +610,26 @@ def get_flagtree_language_extra_packages():
     yield package, package_dir
 
 
+def normalize_package_name(package):
+    return package.replace("/", ".")
+
+
+def get_flagtree_extra_packages():
+    extra_packages = list(helper.get_extra_packages())
+    if not extra_packages:
+        return
+    package_dirs = helper.get_extra_package_dirs()
+    for package in extra_packages:
+        normalized_package = normalize_package_name(package)
+        package_dir = package_dirs.get(package) or package_dirs.get(normalized_package)
+        if package_dir is None:
+            raise RuntimeError(f"{normalized_package} package directory is not provided by backend helper.")
+        package_dir = os.path.normpath(package_dir)
+        if not os.path.isdir(package_dir):
+            raise RuntimeError(f"{normalized_package} package directory does not exist: {package_dir}")
+        yield normalized_package, package_dir
+
+
 def get_package_dirs():
     yield ("", "python")
 
@@ -637,6 +657,7 @@ def get_package_dirs():
         yield ("triton.profiler.hooks", "third_party/proton/proton/hooks")
 
     yield from get_flagtree_language_extra_packages()
+    yield from get_flagtree_extra_packages()
 
 
 def get_packages():
@@ -658,6 +679,9 @@ def get_packages():
                 yield f"triton.tools.extra.{x}"
 
     for package, _ in get_flagtree_language_extra_packages():
+        yield package
+
+    for package, _ in get_flagtree_extra_packages():
         yield package
 
     if is_proton_build_enabled():

@@ -30,17 +30,16 @@ set_llvm_env = lambda path: set_env({
 
 
 def install_extension(*args, **kargs):
-    try:
-        activated_module.install_extension(*args, **kargs)
-    except Exception:
-        pass
+    install = getattr(activated_module, "install_extension", None)
+    if install is not None:
+        install(*args, **kargs)
 
 
 def get_backend_cmake_args(*args, **kargs):
-    try:
-        return activated_module.get_backend_cmake_args(*args, **kargs)
-    except Exception:
+    get_args = getattr(activated_module, "get_backend_cmake_args", None)
+    if get_args is None:
         return []
+    return get_args(*args, **kargs)
 
 
 def get_device_name():
@@ -48,20 +47,24 @@ def get_device_name():
 
 
 def get_extra_packages():
-    packages = []
-    try:
-        packages = activated_module.get_extra_install_packages()
-    except Exception:
-        packages = []
-    return packages
+    get_packages = getattr(activated_module, "get_extra_install_packages", None)
+    if get_packages is None:
+        return []
+    return get_packages()
+
+
+def get_extra_package_dirs():
+    get_package_dir = getattr(activated_module, "get_package_dir", None)
+    if get_package_dir is None:
+        return {}
+    return get_package_dir()
 
 
 def get_package_data_tools():
     package_data = ["compile.h", "compile.c"]
-    try:
-        package_data += activated_module.get_package_data_tools()
-    except Exception:
-        package_data
+    get_extra_package_data = getattr(activated_module, "get_package_data_tools", None)
+    if get_extra_package_data is not None:
+        package_data += get_extra_package_data()
     return package_data
 
 
@@ -317,10 +320,10 @@ class CommonUtils:
     def skip_package_dir(package):
         if 'backends' in package or 'profiler' in package:
             return True
-        try:
-            return activated_module.skip_package_dir(package)
-        except Exception:
+        skip = getattr(activated_module, "skip_package_dir", None)
+        if skip is None:
             return False
+        return skip(package)
 
     @staticmethod
     def get_package_dir(packages):
@@ -334,10 +337,7 @@ class CommonUtils:
                 pair = (package, f"{backend_triton_path}{package}")
                 connection.append(pair)
             package_dict.update(connection)
-        try:
-            package_dict.update(activated_module.get_package_dir())
-        except Exception:
-            pass
+        package_dict.update(get_extra_package_dirs())
         return package_dict
 
 
