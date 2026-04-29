@@ -155,10 +155,10 @@ class RedisRemoteCacheBackend(RemoteCacheBackend):
     def __init__(self, key):
         import redis
         self._key = key
-        self._key_fmt = knobs.cache.redis.key_format
+        self._key_fmt = knobs.redis.key_format
         self._redis = redis.Redis(
-            host=knobs.cache.redis.host,
-            port=knobs.cache.redis.port,
+            host=knobs.redis.host,
+            port=knobs.redis.port,
         )
 
     def _get_key(self, filename: str) -> str:

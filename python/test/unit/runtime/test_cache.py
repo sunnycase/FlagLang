@@ -3,6 +3,8 @@ import itertools
 import os
 import shutil
 import pathlib
+import sys
+import types
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 
 import pytest
@@ -11,7 +13,13 @@ import torch
 import triton
 import triton.language as tl
 from triton._internal_testing import is_hip
-from triton.runtime.cache import get_cache_key, get_cache_manager, make_so_cache_key, _managed_compiler_payload_hash
+from triton.runtime.cache import (
+    RedisRemoteCacheBackend,
+    get_cache_key,
+    get_cache_manager,
+    make_so_cache_key,
+    _managed_compiler_payload_hash,
+)
 from triton.backends.compiler import BaseBackend, GPUTarget
 
 
@@ -163,6 +171,24 @@ def test_nncase_cuda_compiler_affects_cache_key(monkeypatch):
 
     assert baseline != nvcc_key
     assert nvcc_key != clang_key
+
+
+def test_redis_remote_cache_backend_reads_redis_knobs(monkeypatch):
+
+    class FakeRedisClient:
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setitem(sys.modules, "redis", types.SimpleNamespace(Redis=FakeRedisClient))
+    monkeypatch.setenv("TRITON_REDIS_KEY_FORMAT", "cache:{key}:{filename}")
+    monkeypatch.setenv("TRITON_REDIS_HOST", "redis.internal")
+    monkeypatch.setenv("TRITON_REDIS_PORT", "6380")
+
+    backend = RedisRemoteCacheBackend("kernel-key")
+
+    assert backend._key_fmt == "cache:{key}:{filename}"
+    assert backend._redis.kwargs == {"host": "redis.internal", "port": 6380}
 
 
 class MinimalBackend(BaseBackend):
