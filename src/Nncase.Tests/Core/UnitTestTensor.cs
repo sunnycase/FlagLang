@@ -442,6 +442,17 @@ public sealed class UnitTestTensor
         }
 
         {
+            Tensor original = Tensor.From(new[] { true, false, true, false }, [2, 2]);
+            using var stream = new MemoryStream();
+            JsonSerializer.Serialize<Tensor>(stream, original, options);
+            stream.Position = 0;
+
+            var deserialized = JsonSerializer.Deserialize<Tensor>(stream, options);
+            Assert.NotNull(deserialized);
+            Assert.Equal(original, deserialized);
+        }
+
+        {
             var path = Path.GetTempFileName();
             var original = Tensor.From(new float[] { 1, 2, 3, 4 }, [1, 4]);
             using (var stream = File.Create(path))

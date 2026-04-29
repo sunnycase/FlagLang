@@ -31,36 +31,15 @@ public sealed partial class QuantizerMatmul : IRewriteRule
     {
         if (markerA.MixQuantInfo!.MarkerQuantType == DataTypes.Float8E4M3 && markerB.MixQuantInfo!.MarkerQuantType == DataTypes.Float8E4M3)
         {
-            if (inputA is TensorConst)
-            {
-                return QuantMatmulE4M3(inputB, scaleB, inputA, scaleA, call.Metadata);
-            }
-            else
-            {
-                return QuantMatmulE4M3(inputA, scaleA, inputB, scaleB, call.Metadata);
-            }
+            return QuantMatmulE4M3(inputA, scaleA, inputB, scaleB, call.Metadata);
         }
         else if (markerA.MixQuantInfo!.MarkerQuantType == DataTypes.Float8E5M2 && markerB.MixQuantInfo!.MarkerQuantType == DataTypes.Float8E5M2)
         {
-            if (inputA is TensorConst)
-            {
-                return QuantMatmulE5M2(inputB, scaleB, inputA, scaleA, call.Metadata);
-            }
-            else
-            {
-                return QuantMatmulE5M2(inputA, scaleA, inputB, scaleB, call.Metadata);
-            }
+            return QuantMatmulE5M2(inputA, scaleA, inputB, scaleB, call.Metadata);
         }
         else if (markerA.MixQuantInfo!.MarkerQuantType == DataTypes.Int8 && markerB.MixQuantInfo!.MarkerQuantType == DataTypes.Int8)
         {
-            if (inputA is TensorConst)
-            {
-                return QuantMatmulInt8(inputB, scaleB, inputA, scaleA, call.Metadata);
-            }
-            else
-            {
-                return QuantMatmulInt8(inputA, scaleA, inputB, scaleB, call.Metadata);
-            }
+            return QuantMatmulInt8(inputA, scaleA, inputB, scaleB, call.Metadata);
         }
         else
         {
@@ -140,6 +119,11 @@ public sealed partial class QuantizerMatmul : IRewriteRule
         var qScaleB = 1 / deqScaleB;
         var qInput = Nncase.IR.F.Math.Binary(Nncase.BinaryOp.Mul, inputA, qScaleA);
         qInput = Nncase.IR.F.Tensors.Cast(qInput, DataTypes.Int8);
+        if (inputB is not TensorConst)
+        {
+            return null;
+        }
+
         var weights = ((TensorConst)inputB).Value.ToArray<float>();
         var qWeights = new sbyte[weights.Length];
         for (int i = 0; i < weights.Length; i++)

@@ -89,7 +89,8 @@ internal sealed class TensorBaseJsonConverter : JsonConverter<Tensor>
         var concreteType = typeof(Tensor<>).MakeGenericType(clrType);
         var buffer = root.GetProperty("Buffer");
 
-        if (clrType.GetInterfaces().Any(i => i.IsGenericType && (i.GetGenericTypeDefinition() == typeof(System.Numerics.INumberBase<>) || i.GetGenericTypeDefinition() == typeof(IVector<>))))
+        if (clrType == typeof(bool) ||
+            clrType.GetInterfaces().Any(i => i.IsGenericType && (i.GetGenericTypeDefinition() == typeof(System.Numerics.INumberBase<>) || i.GetGenericTypeDefinition() == typeof(IVector<>))))
         {
             var method = typeof(TensorBaseJsonConverter).GetMethod(nameof(CreateTensorByBytes))!
                 .MakeGenericMethod(clrType);

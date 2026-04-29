@@ -38,5 +38,7 @@ public sealed class UnitTestLinqExtensions
         Assert.Equal(expected, result);
 
         Assert.Equal(Float8E4M3.One, Array.Empty<Float8E4M3>().Product());
+        Assert.Equal(Float8E4M3.One, new[] { Float8E4M3.One }.Product());
+        Assert.Equal(Float8E4M3.One, Float8E4M3.One * Float8E4M3.One);
     }
 }
