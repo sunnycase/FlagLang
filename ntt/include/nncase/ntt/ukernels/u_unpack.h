@@ -37,18 +37,26 @@ class u_unpack_impl {
         constexpr auto elem_shape =
             TVec::shape().template slice<0, TAxes::rank()>();
 
+        const auto out_shape = output.shape();
         const auto domain = input.shape().concat(elem_shape);
         ntt::apply(domain, [&](auto index) {
             const auto in_index = index.template slice<0, rank>();
             const auto elem_index = index.template slice<rank, elem_rank>();
             const auto out_index_template = index.template slice<0, rank>();
+            bool skip = false;
             const auto out_index =
                 axes.aggregate(out_index_template, [&](const auto cnt_out_index,
                                                        auto axis, auto i) {
-                    return cnt_out_index.template replace_at<axis>(
-                        cnt_out_index[axis] * elem_shape[i] + index[rank + i]);
+                    const auto out_dim =
+                        cnt_out_index[axis] * elem_shape[i] + index[rank + i];
+                    if (out_dim >= out_shape[axis]) {
+                        skip = true;
+                    }
+                    return cnt_out_index.template replace_at<axis>(out_dim);
                 });
-            output(out_index) = input(in_index)(elem_index);
+            if (!skip) {
+                output(out_index) = input(in_index)(elem_index);
+            }
         });
     }
 };

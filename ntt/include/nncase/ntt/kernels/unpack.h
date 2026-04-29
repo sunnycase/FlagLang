@@ -43,6 +43,7 @@ template <Tensor TIn, Tensor TOut, size_t AxesRank> class unpack_impl {
             AxesRank <= 2) {
             ntt::u_unpack(input, output, axes);
         } else {
+            const auto out_shape = output.shape();
             const auto domain = input.shape().concat(elem_shape);
             apply(domain, [&](auto index) {
                 const auto in_index = index.template slice<0, in_rank>();
@@ -50,14 +51,21 @@ template <Tensor TIn, Tensor TOut, size_t AxesRank> class unpack_impl {
                     index.template slice<in_rank, elem_rank>();
                 const auto out_index_template =
                     index.template slice<0, in_rank>();
+                bool skip = false;
                 const auto out_index = axes.aggregate(
                     out_index_template,
                     [&](const auto cnt_out_index, auto axis, auto i) {
-                        return cnt_out_index.template replace_at<axis>(
+                        const auto out_dim =
                             cnt_out_index[axis] * elem_shape[i] +
-                            index[in_rank + i]);
+                            index[in_rank + i];
+                        if (out_dim >= out_shape[axis]) {
+                            skip = true;
+                        }
+                        return cnt_out_index.template replace_at<axis>(out_dim);
                     });
-                output(out_index) = input(in_index)(elem_index);
+                if (!skip) {
+                    output(out_index) = input(in_index)(elem_index);
+                }
             });
         }
     }
