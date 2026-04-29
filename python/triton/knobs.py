@@ -192,10 +192,11 @@ class NvidiaTool:
 class env_nvidia_tool(env_base[str, NvidiaTool]):
 
     def __init__(self, binary: str) -> None:
-        binary += sysconfig.get_config_var("EXE")
+        env_binary = binary
+        binary += sysconfig.get_config_var("EXE") or ""
         self.binary = binary
         self.default_path = os.path.join(os.path.dirname(__file__), "backends", "nvidia", "bin", binary)
-        super().__init__(f"TRITON_{binary.upper()}_PATH")
+        super().__init__(f"TRITON_{env_binary.upper()}_PATH")
 
     def get(self) -> NvidiaTool:
         return self.transform(getenv(self.key))

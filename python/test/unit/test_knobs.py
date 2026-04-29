@@ -267,6 +267,15 @@ def test_nvidia_tool(fresh_knobs, tmp_path, monkeypatch):
     assert Path(fresh_knobs.nvidia.ptxas.path).resolve() == default_ptxas.resolve()
 
 
+def test_nvidia_tool_env_key_ignores_exe_suffix(monkeypatch):
+    monkeypatch.setattr(triton.knobs.sysconfig, "get_config_var", lambda name: ".exe" if name == "EXE" else None)
+
+    knob = triton.knobs.env_nvidia_tool("ptxas")
+
+    assert knob.binary == "ptxas.exe"
+    assert knob.key == "TRITON_PTXAS_PATH"
+
+
 def test_opt_bool(fresh_knobs, monkeypatch):
     assert fresh_knobs.amd.use_block_pingpong is None
     monkeypatch.setenv("TRITON_HIP_USE_BLOCK_PINGPONG", "0")
