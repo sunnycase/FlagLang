@@ -12,7 +12,7 @@ from typing import List, Tuple
 from python.build_helpers import get_base_dir
 
 extend_backends = []
-default_backends = ["nvidia", "amd"]
+default_backends = ["nvidia"]
 plugin_backends = ["cambricon", "ascend", "aipu", "tsingmicro"]
 ext_sourcedir = "triton/_C/"
 flagtree_backend = os.getenv("FLAGTREE_BACKEND", "").lower()
