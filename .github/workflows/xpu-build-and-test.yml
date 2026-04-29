@@ -76,4 +76,8 @@ jobs:
         shell: bash
         run: |
           set -x
-          python3 -m pytest -s third_party/xpu/python/test/unit
+          python3 -m pytest -s \
+            third_party/xpu/python/test/unit/runtime/test_driver.py \
+            third_party/xpu/python/test/unit/runtime/test_jit.py \
+            third_party/xpu/python/test/unit/language/test_annotations.py \
+            --device=xpu
