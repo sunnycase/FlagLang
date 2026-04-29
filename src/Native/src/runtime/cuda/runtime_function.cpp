@@ -14,7 +14,10 @@
  */
 #include "runtime_function.h"
 #include "nncase/runtime/buffer.h"
+#include <algorithm>
 #include <cstdint>
+#include <cuda_runtime_api.h>
+#include <iostream>
 #include <nncase/llm/paged_attention_kv_cache.h>
 #include <nncase/ntt/arch/cuda/runtime.h>
 #include <nncase/runtime/allocator.h>
@@ -23,6 +26,8 @@
 #include <nncase/runtime/runtime_op_utility.h>
 #include <nncase/runtime/util.h>
 #include <nncase/type.h>
+#include <span>
+#include <utility>
 
 using namespace nncase;
 using namespace nncase::runtime;
@@ -38,10 +43,175 @@ typedef struct {
     uint64_t block_local_data_pool_size;
 } kernel_desc_header;
 
+namespace {
+result<void> check_cuda_status(cudaError_t status,
+                               const char *operation) noexcept {
+    if (status == cudaSuccess) {
+        return ok();
+    }
+
+    std::cerr << "CUDA error during " << operation << " - "
+              << cudaGetErrorString(status) << std::endl;
+    return err(std::errc::io_error);
+}
+
+class cuda_device_allocation {
+  public:
+    cuda_device_allocation() noexcept = default;
+
+    cuda_device_allocation(cuda_device_allocation &&other) noexcept
+        : data_(std::exchange(other.data_, nullptr)),
+          size_(std::exchange(other.size_, 0)) {}
+
+    cuda_device_allocation(const cuda_device_allocation &) = delete;
+
+    ~cuda_device_allocation() { reset(); }
+
+    cuda_device_allocation &operator=(cuda_device_allocation &&other) noexcept {
+        if (this != &other) {
+            reset();
+            data_ = std::exchange(other.data_, nullptr);
+            size_ = std::exchange(other.size_, 0);
+        }
+
+        return *this;
+    }
+
+    cuda_device_allocation &operator=(const cuda_device_allocation &) = delete;
+
+    result<void> allocate(size_t size) noexcept {
+        reset();
+        size_ = size;
+        if (!size_) {
+            return ok();
+        }
+
+        void *data = nullptr;
+        try_(check_cuda_status(cudaMalloc(&data, size_), "cudaMalloc"));
+        data_ = static_cast<std::byte *>(data);
+        return ok();
+    }
+
+    result<void> copy_from(std::span<const std::byte> source) noexcept {
+        CHECK_WITH_ERR(source.size_bytes() == size_,
+                       std::errc::invalid_argument);
+        if (source.empty()) {
+            return ok();
+        }
+
+        CHECK_WITH_ERR(data_ != nullptr, std::errc::invalid_argument);
+        return check_cuda_status(cudaMemcpy(data_, source.data(),
+                                            source.size_bytes(),
+                                            cudaMemcpyHostToDevice),
+                                 "cudaMemcpyHostToDevice");
+    }
+
+    result<void> copy_to(std::span<std::byte> destination) const noexcept {
+        CHECK_WITH_ERR(destination.size_bytes() == size_,
+                       std::errc::invalid_argument);
+        if (destination.empty()) {
+            return ok();
+        }
+
+        CHECK_WITH_ERR(data_ != nullptr, std::errc::invalid_argument);
+        return check_cuda_status(cudaMemcpy(destination.data(), data_,
+                                            destination.size_bytes(),
+                                            cudaMemcpyDeviceToHost),
+                                 "cudaMemcpyDeviceToHost");
+    }
+
+    std::byte *data() const noexcept { return data_; }
+    size_t size() const noexcept { return size_; }
+
+  private:
+    void reset() noexcept {
+        if (!data_) {
+            size_ = 0;
+            return;
+        }
+
+        auto status = cudaFree(data_);
+        if (status != cudaSuccess) {
+            std::cerr << "CUDA error during cudaFree - "
+                      << cudaGetErrorString(status) << std::endl;
+        }
+
+        data_ = nullptr;
+        size_ = 0;
+    }
+
+  private:
+    std::byte *data_ = nullptr;
+    size_t size_ = 0;
+};
+
+struct staged_mapped_buffer {
+    staged_mapped_buffer(mapped_buffer host_map,
+                         cuda_device_allocation device_data,
+                         bool copy_back) noexcept
+        : host_map(std::move(host_map)),
+          device_data(std::move(device_data)),
+          copy_back(copy_back) {}
+
+    staged_mapped_buffer(staged_mapped_buffer &&) noexcept = default;
+    staged_mapped_buffer(const staged_mapped_buffer &) = delete;
+    staged_mapped_buffer &operator=(staged_mapped_buffer &&) noexcept = default;
+    staged_mapped_buffer &operator=(const staged_mapped_buffer &) = delete;
+
+    mapped_buffer host_map;
+    cuda_device_allocation device_data;
+    bool copy_back;
+};
+
+template <class T>
+result<void> stage_array(cuda_device_allocation &allocation,
+                         std::span<const T> source) noexcept {
+    try_(allocation.allocate(source.size_bytes()));
+    return allocation.copy_from(std::as_bytes(source));
+}
+
+template <class T>
+result<void> copy_array_from_device(const cuda_device_allocation &allocation,
+                                    std::span<T> destination) noexcept {
+    return allocation.copy_to(std::as_writable_bytes(destination));
+}
+
+bool contains_address_range(std::byte *base, size_t size, std::byte *data,
+                            size_t data_size) noexcept {
+    auto base_addr = reinterpret_cast<uintptr_t>(base);
+    auto data_addr = reinterpret_cast<uintptr_t>(data);
+    return data_addr >= base_addr && data_size <= size &&
+           data_addr - base_addr <= size - data_size;
+}
+} // namespace
+
 cuda_runtime_function::cuda_runtime_function(runtime_module &rt_module)
     : runtime_function(rt_module), block_entry_(nullptr) {}
 
-cuda_runtime_function::~cuda_runtime_function() {}
+cuda_runtime_function::~cuda_runtime_function() {
+    for (size_t cid = 0; cid < thread_local_datas_.size(); cid++) {
+        auto status = cudaSetDevice(cid);
+        if (status != cudaSuccess) {
+            std::cerr << "CUDA error during cudaSetDevice - "
+                      << cudaGetErrorString(status) << std::endl;
+            continue;
+        }
+
+        auto free_device_span = [](std::span<std::byte> span) noexcept {
+            if (span.data()) {
+                auto free_status = cudaFree(span.data());
+                if (free_status != cudaSuccess) {
+                    std::cerr << "CUDA error during cudaFree - "
+                              << cudaGetErrorString(free_status) << std::endl;
+                }
+            }
+        };
+
+        free_device_span(thread_local_datas_[cid]);
+        free_device_span(warp_local_datas_[cid]);
+        free_device_span(block_local_datas_[cid]);
+    }
+}
 
 cuda_runtime_module &cuda_runtime_function::module() const noexcept {
     return static_cast<cuda_runtime_module &>(runtime_function::module());
@@ -119,6 +289,7 @@ result<void> cuda_runtime_function::initialize_core(
             .size = 0,
             .shape = output_shapes_[i].data(),
             .strides = output_strides_[i].data(),
+            .rank = output_shapes_[i].size(),
         };
     }
 
@@ -143,12 +314,59 @@ result<void> cuda_runtime_function::initialize_core(
 result<value_t> cuda_runtime_function::invoke_core(
     std::span<value_t> parameters,
     [[maybe_unused]] value_t return_value) noexcept {
+    CHECK_WITH_ERR(module().cdim() == 1, std::errc::not_supported);
+    CHECK_CUDA(cudaSetDevice(0));
+
     size_t input_id = 0;
-    std::vector<thread_paged_attention_kv_cache_desc *> inout_paged_kvcaches;
+    std::vector<thread_inout_desc> input_descs(input_descs_.size());
+    std::vector<thread_inout_desc> output_descs(output_descs_.size());
+    std::vector<staged_mapped_buffer> staged_buffers;
+    std::vector<cuda_device_allocation> input_shape_buffers;
+    std::vector<cuda_device_allocation> input_stride_buffers;
+    std::vector<cuda_device_allocation> output_shape_buffers;
+    std::vector<cuda_device_allocation> output_stride_buffers;
+    std::vector<cuda_device_allocation> paged_kv_cache_desc_buffers;
+
+    auto stage_tensor_buffer = [&](const tensor &source, map_access_t access,
+                                   bool copy_back, std::byte **device_data,
+                                   size_t *device_size) -> result<void> {
+        try_var(host_buffer, source->buffer().as_host());
+        try_var(mapped, host_buffer.map(access));
+        cuda_device_allocation device_buffer;
+        try_(device_buffer.allocate(mapped.buffer().size_bytes()));
+        try_(device_buffer.copy_from(mapped.buffer()));
+        *device_data = device_buffer.data();
+        *device_size = device_buffer.size();
+        staged_buffers.emplace_back(std::move(mapped), std::move(device_buffer),
+                                    copy_back);
+        return ok();
+    };
+
+    auto stage_tensor_shape =
+        [](const tensor &source, cuda_device_allocation &shape_buffer,
+           cuda_device_allocation &stride_buffer, size_t **device_shape,
+           size_t **device_strides) -> result<void> {
+        auto shape = source->shape();
+        auto strides = source->strides();
+        try_(stage_array(shape_buffer,
+                         std::span<const size_t>(shape.data(), shape.size())));
+        try_(stage_array(stride_buffer, std::span<const size_t>(
+                                            strides.data(), strides.size())));
+        *device_shape = reinterpret_cast<size_t *>(shape_buffer.data());
+        *device_strides = reinterpret_cast<size_t *>(stride_buffer.data());
+        return ok();
+    };
+
     for (auto arg : parameters) {
         try_var(t, arg.as<tensor>());
-        try_var(hb, t->buffer().as_host());
-        try_var(m, hb.map(map_read_write));
+        cuda_device_allocation shape_buffer;
+        cuda_device_allocation stride_buffer;
+        size_t *device_shape;
+        size_t *device_strides;
+        try_(stage_tensor_shape(t, shape_buffer, stride_buffer, &device_shape,
+                                &device_strides));
+        input_shape_buffers.emplace_back(std::move(shape_buffer));
+        input_stride_buffers.emplace_back(std::move(stride_buffer));
 
         if (t->dtype().is_a<reference_type_t>()) {
             auto rt = t->dtype().as<reference_type_t>().expect(
@@ -156,10 +374,12 @@ result<value_t> cuda_runtime_function::invoke_core(
             auto vt = rt->elemtype().as<value_type_t>().expect(
                 "now only support reference value type!");
             if (vt->uuid() == datatype_t::paged_attention_kv_cache->uuid()) {
+                try_var(hb, t->buffer().as_host());
+                try_var(m, hb.map(map_read));
                 auto refspan =
                     as_span<llm::paged_attention_kv_cache_node *>(m.buffer());
-                thread_paged_attention_kv_cache_desc *descs =
-                    new thread_paged_attention_kv_cache_desc[refspan.size()];
+                std::vector<thread_paged_attention_kv_cache_desc> descs(
+                    refspan.size());
                 for (size_t i = 0; i < refspan.size(); i++) {
                     auto &node = refspan[i];
                     auto &desc = descs[i];
@@ -167,27 +387,36 @@ result<value_t> cuda_runtime_function::invoke_core(
                         desc.num_seqs = node->num_seqs();
                         desc.num_tokens = node->num_tokens();
                         {
-                            try_var(hbf,
-                                    node->context_lens()->buffer().as_host());
-                            try_var(mbf, hbf.map(map_read));
-                            desc.context_lens = (int64_t *)mbf.buffer().data();
+                            std::byte *device_data;
+                            size_t device_size;
+                            try_(stage_tensor_buffer(
+                                node->context_lens(), map_read, false,
+                                &device_data, &device_size));
+                            desc.context_lens =
+                                reinterpret_cast<int64_t *>(device_data);
                             desc.context_lens_size =
-                                mbf.buffer().size_bytes() / sizeof(int64_t);
+                                device_size / sizeof(int64_t);
                         }
                         {
-                            try_var(hbf, node->seq_lens()->buffer().as_host());
-                            try_var(mbf, hbf.map(map_read));
-                            desc.seq_lens = (int64_t *)mbf.buffer().data();
-                            desc.seq_lens_size =
-                                mbf.buffer().size_bytes() / sizeof(int64_t);
+                            std::byte *device_data;
+                            size_t device_size;
+                            try_(stage_tensor_buffer(node->seq_lens(), map_read,
+                                                     false, &device_data,
+                                                     &device_size));
+                            desc.seq_lens =
+                                reinterpret_cast<int64_t *>(device_data);
+                            desc.seq_lens_size = device_size / sizeof(int64_t);
                         }
 
                         // Paged attention specific parameters
                         {
-                            try_var(hbf,
-                                    node->block_tables()->buffer().as_host());
-                            try_var(mbf, hbf.map(map_read));
-                            desc.block_table = (int64_t *)mbf.buffer().data();
+                            std::byte *device_data;
+                            size_t device_size;
+                            try_(stage_tensor_buffer(
+                                node->block_tables(), map_read, false,
+                                &device_data, &device_size));
+                            desc.block_table =
+                                reinterpret_cast<int64_t *>(device_data);
                             desc.block_table_shape[0] =
                                 node->block_tables()->shape()[0];
                             desc.block_table_shape[1] =
@@ -196,10 +425,13 @@ result<value_t> cuda_runtime_function::invoke_core(
                                 node->block_tables()->shape()[2];
                         }
                         {
-                            try_var(hbf,
-                                    node->slot_mapping()->buffer().as_host());
-                            try_var(mbf, hbf.map(map_read));
-                            desc.slot_mapping = (int64_t *)mbf.buffer().data();
+                            std::byte *device_data;
+                            size_t device_size;
+                            try_(stage_tensor_buffer(
+                                node->slot_mapping(), map_read, false,
+                                &device_data, &device_size));
+                            desc.slot_mapping =
+                                reinterpret_cast<int64_t *>(device_data);
                             desc.slot_mapping_shape[0] =
                                 node->slot_mapping()->shape()[0];
                             desc.slot_mapping_shape[1] =
@@ -207,74 +439,138 @@ result<value_t> cuda_runtime_function::invoke_core(
                         }
 
                         {
+                            CHECK_WITH_ERR(!node->kv_caches().empty(),
+                                           std::errc::invalid_argument);
                             auto &kv_cache = node->kv_caches()[0];
                             if (kv_cache->dtype().equals(datatype_t::int64)) {
-                                // FIXME: TP is not supported yet
-                                CHECK_WITH_ERR(node->kv_caches().size() == 1,
-                                               std::errc::not_supported);
-                                // 1. kv_cache is addresses of kv cache buffers
-                                try_var(hbf, kv_cache->buffer().as_host());
-                                try_var(mbf, hbf.map(map_read));
-                                auto kv_cache_addrs_span =
-                                    runtime::as_span<const intptr_t>(
-                                        mbf.buffer());
-                                std::copy(kv_cache_addrs_span.begin(),
-                                          kv_cache_addrs_span.end(),
-                                          desc.kv_cache_addrs.begin());
+                                // Host address tables do not carry the storage
+                                // extents needed to recreate device buffers.
+                                return err(std::errc::not_supported);
                             } else {
                                 // 2. kv_cache is kv cache buffers
-                                size_t i = 0;
-                                for (auto kv_cache : node->kv_caches()) {
-                                    try_var(hbf, kv_cache->buffer().as_host());
-                                    try_var(mbf, hbf.map(map_read));
-                                    desc.kv_cache_addrs[i++] =
-                                        reinterpret_cast<intptr_t>(
-                                            mbf.buffer().data());
+                                size_t kv_cache_id = 0;
+                                for (auto kv_cache_tensor : node->kv_caches()) {
+                                    CHECK_WITH_ERR(
+                                        kv_cache_id <
+                                            desc.kv_cache_addrs.size(),
+                                        std::errc::invalid_argument);
+                                    std::byte *device_data;
+                                    size_t device_size;
+                                    try_(stage_tensor_buffer(
+                                        kv_cache_tensor, map_read_write, true,
+                                        &device_data, &device_size));
+                                    desc.kv_cache_addrs[kv_cache_id++] =
+                                        reinterpret_cast<intptr_t>(device_data);
                                 }
                             }
                         }
                     }
                 }
-                inout_paged_kvcaches.push_back(descs);
-                input_descs_[input_id++] = thread_inout_desc{
-                    .data = (std::byte *)descs,
+                cuda_device_allocation desc_buffer;
+                try_(stage_array(
+                    desc_buffer,
+                    std::span<const thread_paged_attention_kv_cache_desc>(
+                        descs.data(), descs.size())));
+                input_descs[input_id++] = thread_inout_desc{
+                    .data = desc_buffer.data(),
                     .size = sizeof(thread_paged_attention_kv_cache_desc) *
                             refspan.size(),
-                    .shape = const_cast<size_t *>(t->shape().data()),
-                    .strides = const_cast<size_t *>(t->strides().data()),
+                    .shape = device_shape,
+                    .strides = device_strides,
+                    .rank = t->shape().size(),
                 };
+                paged_kv_cache_desc_buffers.emplace_back(
+                    std::move(desc_buffer));
             } else {
                 return err(std::errc::not_supported);
             }
         } else {
-            input_descs_[input_id++] = thread_inout_desc{
-                .data = m.buffer().data(),
-                .size = m.buffer().size(),
-                .shape = const_cast<size_t *>(t->shape().data()),
-                .strides = const_cast<size_t *>(t->strides().data()),
+            std::byte *device_data;
+            size_t device_size;
+            try_(stage_tensor_buffer(t, map_read_write, true, &device_data,
+                                     &device_size));
+            input_descs[input_id++] = thread_inout_desc{
+                .data = device_data,
+                .size = device_size,
+                .shape = device_shape,
+                .strides = device_strides,
+                .rank = t->shape().size(),
             };
         }
-        m.release();
     }
+    CHECK_WITH_ERR(input_id == input_descs.size(), std::errc::invalid_argument);
 
     try_var(mapped_output, output_buffer_->map(map_read_write));
-    auto output_data = mapped_output.buffer().data();
+    cuda_device_allocation output_data_buffer;
+    try_(output_data_buffer.allocate(mapped_output.buffer().size_bytes()));
 
-    try_(run(output_data));
+    for (size_t i = 0; i < output_descs.size(); i++) {
+        std::fill(output_shapes_[i].begin(), output_shapes_[i].end(), 0);
+        std::fill(output_strides_[i].begin(), output_strides_[i].end(), 0);
+
+        cuda_device_allocation shape_buffer;
+        cuda_device_allocation stride_buffer;
+        try_(stage_array(shape_buffer,
+                         std::span<const size_t>(output_shapes_[i].data(),
+                                                 output_shapes_[i].size())));
+        try_(stage_array(stride_buffer,
+                         std::span<const size_t>(output_strides_[i].data(),
+                                                 output_strides_[i].size())));
+
+        output_descs[i] = thread_inout_desc{
+            .data = nullptr,
+            .size = 0,
+            .shape = reinterpret_cast<size_t *>(shape_buffer.data()),
+            .strides = reinterpret_cast<size_t *>(stride_buffer.data()),
+            .rank = output_shapes_[i].size(),
+        };
+        output_shape_buffers.emplace_back(std::move(shape_buffer));
+        output_stride_buffers.emplace_back(std::move(stride_buffer));
+    }
+
+    cuda_device_allocation input_descs_buffer;
+    cuda_device_allocation output_descs_buffer;
+    try_(stage_array(input_descs_buffer,
+                     std::span<const thread_inout_desc>(input_descs.data(),
+                                                        input_descs.size())));
+    try_(stage_array(output_descs_buffer,
+                     std::span<const thread_inout_desc>(output_descs.data(),
+                                                        output_descs.size())));
+
+    auto input_descs_device =
+        reinterpret_cast<const thread_inout_desc *>(input_descs_buffer.data());
+    auto output_descs_device =
+        reinterpret_cast<thread_inout_desc *>(output_descs_buffer.data());
+    auto output_data = output_data_buffer.data();
+    try_(run(input_descs_device, output_descs_device, output_data));
+
+    try_(copy_array_from_device(output_descs_buffer,
+                                std::span<thread_inout_desc>(
+                                    output_descs.data(), output_descs.size())));
+    for (size_t i = 0; i < output_descs.size(); i++) {
+        try_(copy_array_from_device(
+            output_shape_buffers[i],
+            std::span<size_t>(output_shapes_[i].data(),
+                              output_shapes_[i].size())));
+        try_(copy_array_from_device(
+            output_stride_buffers[i],
+            std::span<size_t>(output_strides_[i].data(),
+                              output_strides_[i].size())));
+    }
+    try_(output_data_buffer.copy_to(mapped_output.buffer()));
+    for (auto &staged_buffer : staged_buffers) {
+        if (staged_buffer.copy_back) {
+            try_(staged_buffer.device_data.copy_to(
+                staged_buffer.host_map.buffer()));
+        }
+    }
+
+    input_descs_ = std::move(input_descs);
+    output_descs_ = std::move(output_descs);
 
     std::vector<value_t> outputs(return_size());
     for (size_t i = 0; i < outputs.size(); i++) {
         try_set(outputs[i], create_output_tensor(i, parameters, output_data));
-    }
-
-    for (auto arg : parameters) {
-        try_var(t, arg.as<tensor>());
-        try_var(hb, t->buffer().as_host());
-        try_(hb.unmap());
-    }
-
-    for (auto ptrs : inout_paged_kvcaches) {
-        delete[] ptrs;
     }
 
     auto output_value = outputs.size() == 1
@@ -289,27 +585,27 @@ cuda_runtime_function::create_output_tensor(size_t output_id,
                                             std::byte *output_data) noexcept {
     auto &output_desc = output_descs_[output_id];
     buffer_slice buffer;
-    intptr_t offset;
+    size_t offset = 0;
     // 1. Find in inputs
     for (size_t i = 0; i < input_descs_.size(); i++) {
         auto &candidate_desc = input_descs_[i];
-        if (candidate_desc.data <= output_desc.data &&
-            candidate_desc.data + candidate_desc.size >=
-                output_desc.data + output_desc.size) {
+        if (contains_address_range(candidate_desc.data, candidate_desc.size,
+                                   output_desc.data, output_desc.size)) {
             try_var(t, parameters[i].as<tensor>());
             buffer = t->buffer();
-            offset = output_desc.data - candidate_desc.data;
+            offset = reinterpret_cast<uintptr_t>(output_desc.data) -
+                     reinterpret_cast<uintptr_t>(candidate_desc.data);
             break;
         }
     }
 
     // 2. Find in output buffer
     if (buffer.buffer().empty()) {
-        if (output_data <= output_desc.data &&
-            output_data + output_buffer_->size_bytes() >=
-                output_desc.data + output_desc.size) {
+        if (contains_address_range(output_data, output_buffer_->size_bytes(),
+                                   output_desc.data, output_desc.size)) {
             buffer = buffer_slice(output_buffer_);
-            offset = output_desc.data - output_data;
+            offset = reinterpret_cast<uintptr_t>(output_desc.data) -
+                     reinterpret_cast<uintptr_t>(output_data);
         }
     }
 

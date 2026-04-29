@@ -70,7 +70,9 @@ class cuda_runtime_function final : public runtime_function {
                                 value_t return_value) noexcept override;
 
   private:
-    result<void> run(std::byte *output_data) noexcept;
+    result<void> run(const ntt::runtime::thread_inout_desc *input_descs,
+                     ntt::runtime::thread_inout_desc *output_descs,
+                     std::byte *output_data) noexcept;
     result<tensor> create_output_tensor(size_t output_id,
                                         std::span<value_t> parameters,
                                         std::byte *output_data) noexcept;
