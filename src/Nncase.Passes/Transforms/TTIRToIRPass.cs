@@ -3,15 +3,9 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reactive;
-using System.Text;
 using System.Threading.Tasks;
-using Nncase.Diagnostics;
 using Nncase.IR;
-using Nncase.IR.F;
-using Nncase.IR.Triton;
-using Nncase.Passes.Rules;
 using Nncase.TIR;
 
 namespace Nncase.Passes.Transforms;
@@ -44,11 +38,6 @@ public sealed class TTIRToIRPass : FunctionPass
 
     private static BaseExpr BuildReturnBody(Sequential body, IReadOnlyList<Return> returns)
     {
-        if (returns.Count == 0)
-        {
-            return new IR.Tuple();
-        }
-
         if (!IsTopLevelReturnBody(body))
         {
             throw new InvalidOperationException("Triton helper return conversion requires the PrimFunction body to contain only top-level return statements.");
