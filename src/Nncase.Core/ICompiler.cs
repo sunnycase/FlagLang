@@ -55,7 +55,10 @@ public interface ICompiler
     /// Compile module.
     /// </summary>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task CompileAsync(IProgress<int>? progress = null, CancellationToken token = default);
+    Task CompileAsync(
+        IProgress<int>? progress = null,
+        bool enableAutoDistributed = true,
+        CancellationToken token = default);
 
     /// <summary>
     /// Generate code to stream.

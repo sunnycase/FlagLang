@@ -127,7 +127,8 @@ public static unsafe partial class CApi
         var nncaseModule = RunNativeCudaImportPass(session, compiler.Module);
         var importedAbi = DescribeNativeCudaEntryAbi(nncaseModule);
         compiler.ImportIRModule(nncaseModule);
-        compiler.CompileAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+        compiler.CompileAsync(enableAutoDistributed: request.EnableAutoDist)
+            .ConfigureAwait(false).GetAwaiter().GetResult();
         var compiledModule = compiler.Module;
         EnsureNoTritonLoadStore(compiledModule, "after CompileAsync");
 
@@ -158,7 +159,7 @@ public static unsafe partial class CApi
             ["cuda_compiler"] = request.CudaCompiler,
             ["cuobjdump"] = request.Cuobjdump,
             ["cuda_arch"] = request.Arch,
-            ["enable_auto_dist"] = true,
+            ["enable_auto_dist"] = request.EnableAutoDist,
             ["dump_dir"] = dumpDir,
             ["cubin_path"] = cubinPath,
             ["pass_dumps"] = passDumps,

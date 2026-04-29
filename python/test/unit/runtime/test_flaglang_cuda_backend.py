@@ -876,13 +876,13 @@ def test_native_cuda_vector_add_forced_compile_dump_regression(monkeypatch):
         "QuantizePass",
         "AutoVectorizePass",
         "AutoPackingPass",
-        "AutoDistributedPass",
         "TIRPass",
         "TargetDependentBeforeCodeGen",
     ]
     pass_dump_text = _dump_text(dump_dir, "pass_dumps")
     for pass_name in required_passes:
         assert pass_name in pass_dump_text
+    assert "AutoDistributedPass" not in pass_dump_text
 
     native_stage_files = [path for path in Path(dump_dir).rglob("*") if path.is_file() and "CodeGen" not in path.parts]
     for forbidden_suffix in (".ttir", ".ttgir", ".llir", ".ptx"):

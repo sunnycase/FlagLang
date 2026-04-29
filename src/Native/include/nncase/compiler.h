@@ -329,7 +329,7 @@ typedef struct {
 
     clr_object_handle_t (*program_id)(int axis);
     clr_object_handle_t (*scalar_int32)(int value);
-    clr_object_handle_t (*scalar_int64)(long value);
+    clr_object_handle_t (*scalar_int64)(int64_t value);
     clr_object_handle_t (*scalar_float16)(float value);
     clr_object_handle_t (*scalar_float32)(float value);
     clr_object_handle_t (*scalar_float64)(double value);
@@ -796,7 +796,7 @@ class tensor_const : public expr {
         return {std::in_place, nncase_clr_api()->scalar_int32(value)};
     }
 
-    static tensor_const scalar(long value) {
+    static tensor_const scalar(int64_t value) {
         return {std::in_place, nncase_clr_api()->scalar_int64(value)};
     }
 

@@ -374,7 +374,10 @@ public class Compiler : ICompiler
         });
     }
 
-    public async Task CompileAsync(IProgress<int>? progress = null, CancellationToken token = default)
+    public async Task CompileAsync(
+        IProgress<int>? progress = null,
+        bool enableAutoDistributed = true,
+        CancellationToken token = default)
     {
         Task RunPassAsync(Action<IPassManager> register, string name)
         {
@@ -393,7 +396,10 @@ public class Compiler : ICompiler
 
         await RunPassAsync(AutoVectorizePass, "AutoVectorizePass");
         await RunPassAsync(AutoPackingPass, "AutoPackingPass");
-        await RunPassAsync(AutoDistributedPass, "AutoDistributedPass");
+        if (enableAutoDistributed)
+        {
+            await RunPassAsync(AutoDistributedPass, "AutoDistributedPass");
+        }
 
         // await RunPassAsync(AutoTilingPass, "AutoTilingPass");
         await RunPassAsync(TIRPass, "TIRPass");
