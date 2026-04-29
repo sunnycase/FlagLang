@@ -55,6 +55,40 @@ public class UnitTestAffine
     }
 
     [Fact]
+    public void TestAffineMapInverseKeepsMappedRangeWhenLaterResultIsConstant()
+    {
+        var map = AffineMap.FromCallable(
+            (dims, syms) => new AffineRange[]
+            {
+                new(dims[1].Offset, dims[1].Extent),
+                new(0, 1),
+            },
+            2,
+            0);
+
+        var inverse = AffineUtility.Inverse(map, 7, 11);
+
+        Assert.Equal(new AffineConstant(0), inverse.Results[0].Offset);
+        Assert.Equal(new AffineConstant(7), inverse.Results[0].Extent);
+        Assert.Equal(new AffineDim(0), inverse.Results[1].Offset);
+        Assert.Equal(new AffineExtent(0), inverse.Results[1].Extent);
+    }
+
+    [Fact]
+    public void TestAffineInverseMulIsOperandOrderIndependent()
+    {
+        var target = new AffineDim(0);
+        var lhsVariable = AffineUtility.Inverse<AffineDim>(new AffineDim(0) * new AffineConstant(2), target, out var lhsIndependentVar);
+        var rhsVariable = AffineUtility.Inverse<AffineDim>(new AffineConstant(2) * new AffineDim(0), target, out var rhsIndependentVar);
+
+        Assert.Equal(new AffineDim(0), lhsIndependentVar);
+        Assert.Equal(new AffineDim(0), rhsIndependentVar);
+        Assert.Equal(lhsVariable, rhsVariable);
+        var div = Assert.IsType<AffineDivBinary>(rhsVariable);
+        Assert.Equal(AffineDivBinaryOp.FloorDiv, div.BinaryOp);
+    }
+
+    [Fact]
     public void TestAffineMapApply()
     {
         // [(d0,t0)] -> [(0, 64)] apply [(d0,t0)] -> [(4*d0, 4*t0)]

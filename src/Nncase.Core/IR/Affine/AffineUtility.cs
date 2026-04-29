@@ -41,7 +41,6 @@ public static class AffineUtility
                     ranges[dim.Position] = new(offset, extent);
                     break;
                 case (null, null) when offset is AffineConstant && extent is AffineConstant:
-                    ranges[i] = new(0, bounds[i]);
                     break;
                 default:
                     throw new System.Diagnostics.UnreachableException();
