@@ -1,4 +1,5 @@
 import hashlib
+import time
 import tempfile
 import sysconfig
 
@@ -352,6 +353,31 @@ class CPUUtils(object):
                 )
 
 
+def _do_cpu_bench(fn, *, quantiles=None, warmup=25, rep=100, grad_to_none=None, return_mode="mean"):
+    from triton.testing import _summarize_statistics
+
+    if return_mode not in ["min", "max", "mean", "median", "all"]:
+        raise ValueError(f"Unsupported return_mode: {return_mode}")
+    if warmup < 0 or rep < 0:
+        raise ValueError("warmup and rep must be non-negative millisecond budgets")
+
+    warmup_deadline = time.perf_counter() + (warmup / 1000)
+    while time.perf_counter() < warmup_deadline:
+        fn()
+
+    times = []
+    repeat_deadline = time.perf_counter() + (rep / 1000)
+    while time.perf_counter() < repeat_deadline or not times:
+        if grad_to_none is not None:
+            for x in grad_to_none:
+                x.grad = None
+        start = time.perf_counter()
+        fn()
+        times.append((time.perf_counter() - start) * 1000)
+
+    return _summarize_statistics(times, quantiles, return_mode)
+
+
 class CPUDriver(DriverBase):
 
     def __init__(self):
@@ -387,6 +413,13 @@ class CPUDriver(DriverBase):
 
     def get_current_target(self):
         return GPUTarget("cpu", 0, 0)
+
+    def get_active_torch_device(self):
+        import torch
+        return torch.device("cpu")
+
+    def get_benchmarker(self):
+        return _do_cpu_bench
 
     def assemble_tensormap_to_arg(self, tensormaps_info, args):
         return args
