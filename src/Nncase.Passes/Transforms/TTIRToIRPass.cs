@@ -33,11 +33,8 @@ public sealed class TTIRToIRPass : FunctionPass
     {
         if (pre is PrimFunction pf)
         {
-            var stores = StoreCollector.Collect(pf.Body);
             var returns = ReturnCollector.Collect(pf.Body);
-            var body = stores.Count > 0
-                ? stores.Count == 1 ? stores[0] : new IR.Tuple(stores.ToArray())
-                : BuildReturnBody(returns);
+            var body = returns.Count == 0 ? pf.Body : BuildReturnBody(pf.Body, returns);
             var newBody = new IRBlock(body, pf.Parameters);
             return Task.FromResult<BaseFunction>(new Function(pf.Name, newBody));
         }
@@ -45,11 +42,16 @@ public sealed class TTIRToIRPass : FunctionPass
         return Task.FromResult(pre);
     }
 
-    private static BaseExpr BuildReturnBody(IReadOnlyList<Return> returns)
+    private static BaseExpr BuildReturnBody(Sequential body, IReadOnlyList<Return> returns)
     {
         if (returns.Count == 0)
         {
             return new IR.Tuple();
+        }
+
+        if (!IsTopLevelReturnBody(body))
+        {
+            throw new InvalidOperationException("Triton helper return conversion requires the PrimFunction body to contain only top-level return statements.");
         }
 
         if (returns.Count != 1)
@@ -66,24 +68,22 @@ public sealed class TTIRToIRPass : FunctionPass
         };
     }
 
-    private sealed class StoreCollector : ExprWalker<List<BaseExpr>>
+    private static bool IsTopLevelReturnBody(Sequential body)
     {
-        public static IReadOnlyList<BaseExpr> Collect(BaseExpr expr)
+        if (body.Count == 0)
         {
-            var stores = new List<BaseExpr>();
-            new StoreCollector().Visit(expr, stores);
-            return stores;
+            return false;
         }
 
-        protected override Unit VisitLeafCall(Call expr, List<BaseExpr> context)
+        foreach (var field in body.Fields)
         {
-            if (expr.Target is IR.Triton.Store)
+            if (field is not Return)
             {
-                context.Add(expr);
+                return false;
             }
-
-            return base.VisitLeafCall(expr, context);
         }
+
+        return true;
     }
 
     private sealed class ReturnCollector : ExprWalker<List<Return>>
