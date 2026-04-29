@@ -224,6 +224,40 @@ public class UnitTestEvaluatorMath : TestClassBase {
     }
 
     [Fact]
+    public void TestBinaryInt64VectorTensorFloorCeilDivPreservesPrecision() {
+        var vectorType = new VectorType(DataTypes.Int64, 4);
+        var lhs = Tensor.From(
+            new[] {
+                Vector4<long>.Create(
+                    [9007199254740997L, -7L, 7L, 10L])
+            },
+            new long[] { 1 });
+        var rhs = Tensor.From(new[] { 3L }, new long[] { 1 });
+
+        var floor = IR.F.Math.Binary(BinaryOp.FloorDiv, lhs, rhs);
+        CompilerServices.InferenceType(floor);
+        var floorTensor = floor.Evaluate().AsTensor();
+        Assert.Equal(vectorType, floorTensor.ElementType);
+        Assert.Equal(
+            new[] {
+                Vector4<long>.Create(
+                    [3002399751580332L, -3L, 2L, 3L])
+            },
+            floorTensor.ToArray<Vector4<long>>());
+
+        var ceil = IR.F.Math.Binary(BinaryOp.CeilDiv, lhs, rhs);
+        CompilerServices.InferenceType(ceil);
+        var ceilTensor = ceil.Evaluate().AsTensor();
+        Assert.Equal(vectorType, ceilTensor.ElementType);
+        Assert.Equal(
+            new[] {
+                Vector4<long>.Create(
+                    [3002399751580333L, -2L, 3L, 4L])
+            },
+            ceilTensor.ToArray<Vector4<long>>());
+    }
+
+    [Fact]
     public void TestBinaryScalarTensor() {
         var ops = new BinaryOp[] {
             BinaryOp.Add,        BinaryOp.Sub,        BinaryOp.Mul,

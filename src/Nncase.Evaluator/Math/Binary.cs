@@ -514,6 +514,8 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
     private Tensor EvaluateIntegralDivision(BinaryOp op, Tensor lhs,
                                             Tensor rhs, DataType dataType) =>
         dataType switch {
+            VectorType vectorType =>
+                EvaluateIntegralVectorDivision(op, lhs, rhs, vectorType),
             _ when dataType == DataTypes.Int8 =>
                 EvaluateIntegralBinary<sbyte>(
                     lhs, rhs, op, FloorDivSigned, CeilDivSigned),
@@ -541,6 +543,65 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
             _ => throw new NotSupportedException(
                 $"Integral {op} does not support data type {dataType}."),
         };
+
+    private Tensor EvaluateIntegralVectorDivision(BinaryOp op, Tensor lhs,
+                                                  Tensor rhs,
+                                                  VectorType vectorType) {
+        if (!vectorType.ElemType.IsIntegral()) {
+            throw new NotSupportedException(
+                $"Integral {op} does not support vector element type {vectorType.ElemType}.");
+        }
+
+        var expandedLhs = ExpandIntegralVectorOperand(lhs, vectorType);
+        var expandedRhs = ExpandIntegralVectorOperand(rhs, vectorType);
+        var expandedResult =
+            EvaluateIntegralDivision(op, expandedLhs, expandedRhs,
+                                     vectorType.ElemType);
+        return RepackIntegralVectorResult(expandedResult, vectorType);
+    }
+
+    private Tensor ExpandIntegralVectorOperand(Tensor tensor,
+                                               VectorType resultVectorType) {
+        if (tensor.ElementType is VectorType operandVectorType) {
+            var expandedShape = tensor.Dimensions.ToArray()
+                                      .Concat(operandVectorType.Lanes
+                                                  .Select(lane => (long)lane))
+                                      .ToArray();
+            return tensor.CastTo(operandVectorType.ElemType,
+                                 CastMode.Reinterpret, expandedShape);
+        }
+
+        if (tensor.ElementType != resultVectorType.ElemType) {
+            throw new InvalidOperationException(
+                $"Cannot evaluate vector integral binary with operand type {tensor.ElementType} and vector element type {resultVectorType.ElemType}.");
+        }
+
+        var broadcastShape = tensor.Dimensions.ToArray()
+                                   .Concat(Enumerable.Repeat(
+                                       1L, resultVectorType.Lanes.Count))
+                                   .ToArray();
+        return tensor.Reshape(broadcastShape);
+    }
+
+    private Tensor RepackIntegralVectorResult(Tensor expandedResult,
+                                              VectorType vectorType) {
+        var expandedShape = expandedResult.Dimensions.ToArray();
+        var laneRank = vectorType.Lanes.Count;
+        if (expandedShape.Length < laneRank) {
+            throw new InvalidOperationException(
+                $"Cannot repack scalar shape [{string.Join(", ", expandedShape)}] into vector type {vectorType}.");
+        }
+
+        var laneShape = expandedShape[^laneRank..];
+        if (!laneShape.SequenceEqual(vectorType.Lanes.Select(l => (long)l))) {
+            throw new InvalidOperationException(
+                $"Cannot repack scalar lane shape [{string.Join(", ", laneShape)}] into vector type {vectorType}.");
+        }
+
+        var tensorShape = expandedShape[..^laneRank];
+        return expandedResult.CastTo(vectorType, CastMode.Reinterpret,
+                                     tensorShape);
+    }
 
     private Tensor EvaluateIntegralBinary<T>(
         Tensor lhsTensor, Tensor rhsTensor, BinaryOp op, Func<T, T, T> floor,

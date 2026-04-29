@@ -141,6 +141,18 @@ def test_cuda_aot_templates_return_error_for_empty_grid():
         assert "return CUDA_ERROR_INVALID_VALUE;" in source
 
 
+def test_cuda_backend_aot_compile_scripts_use_abi_scalar_types():
+    compile_paths = [
+        REPO_ROOT / "third_party" / "mthreads" / "python" / "triton" / "tools" / "compile.py",
+        REPO_ROOT / "third_party" / "iluvatar" / "python" / "triton" / "tools" / "compile.py",
+    ]
+
+    for compile_path in compile_paths:
+        source = compile_path.read_text()
+        assert "ty_to_abi_cpp as ty_to_cpp" in source
+        assert "ty_to_cpp(ty)" in source
+
+
 def gen_kernel_library(dir, libname):
     c_files = glob.glob(os.path.join(dir, "*.c"))
     subprocess.run(
