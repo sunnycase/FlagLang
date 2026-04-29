@@ -108,17 +108,28 @@ public sealed partial class QuantizerMatmul : IRewriteRule
         var qScaleB = 1 / deqScaleB;
         var qInput = Nncase.IR.F.Math.Binary(Nncase.BinaryOp.Mul, inputA, qScaleA);
         qInput = Nncase.IR.F.Tensors.Cast(qInput, DataTypes.Float8E5M2);
-        var weights = ((TensorConst)inputB).Value.ToArray<float>();
-        var qWeights = new Float8E5M2[weights.Length];
-        for (int i = 0; i < weights.Length; i++)
+        if (inputB is TensorConst)
         {
-            qWeights[i] = (Float8E5M2)(weights[i] * qScaleB);
-        }
+            var weights = ((TensorConst)inputB).Value.ToArray<float>();
+            var qWeights = new Float8E5M2[weights.Length];
+            for (int i = 0; i < weights.Length; i++)
+            {
+                qWeights[i] = (Float8E5M2)(weights[i] * qScaleB);
+            }
 
-        var qWeightsConst = Tensor.From<Float8E5M2>(qWeights, inputB.CheckedShape.ToValueArray());
-        var qMatmul = Nncase.IR.F.Math.MatMul(qInput, qWeightsConst).With(metadata: metadata);
-        qMatmul = Nncase.IR.F.Math.Binary(Nncase.BinaryOp.Mul, qMatmul, deqScaleA * deqScaleB);
-        return qMatmul;
+            var qWeightsConst = Tensor.From<Float8E5M2>(qWeights, inputB.CheckedShape.ToValueArray());
+            var qMatmul = Nncase.IR.F.Math.MatMul(qInput, qWeightsConst).With(metadata: metadata);
+            qMatmul = Nncase.IR.F.Math.Binary(Nncase.BinaryOp.Mul, qMatmul, deqScaleA * deqScaleB);
+            return qMatmul;
+        }
+        else
+        {
+            var qInputB = Nncase.IR.F.Math.Binary(Nncase.BinaryOp.Mul, inputB, qScaleB);
+            qInputB = Nncase.IR.F.Tensors.Cast(qInputB, DataTypes.Float8E5M2);
+            var qMatmul = Nncase.IR.F.Math.MatMul(qInput, qInputB).With(metadata: metadata);
+            qMatmul = Nncase.IR.F.Math.Binary(Nncase.BinaryOp.Mul, qMatmul, deqScaleA * deqScaleB);
+            return qMatmul;
+        }
     }
 
     private Expr? QuantMatmulInt8(Expr inputA, TensorConst scaleA, Expr inputB, TensorConst scaleB, IRMetadata metadata)

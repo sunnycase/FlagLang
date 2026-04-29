@@ -33,7 +33,7 @@ public struct Float8E4M3 : IEquatable<Float8E4M3>, IComparable<Float8E4M3>, INum
 
     public static Float8E4M3 MaxNormal => FromRaw(0b1111110);
 
-    public static Float8E4M3 MinNormal => FromRaw(0b0010000);
+    public static Float8E4M3 MinNormal => FromRaw(0x08);
 
     public static Float8E4M3 MaxSubnormal => FromRaw(0b0000111);
 
@@ -539,30 +539,48 @@ public struct Float8E4M3 : IEquatable<Float8E4M3>, IComparable<Float8E4M3>, INum
 }
 
 /// <summary>
-/// Float8E4M3.
+/// Float8E5M2.
 /// </summary>
-public struct Float8E5M2 : IEquatable<Float8E5M2>, IComparable<Float8E5M2>
+public struct Float8E5M2 : IEquatable<Float8E5M2>, IComparable<Float8E5M2>, INumberBase<Float8E5M2>
 {
     /// <summary>
-    /// FP8 E4M3 representation bits.
+    /// FP8 E5M2 representation bits.
     /// </summary>
     public byte _value;
 
-    public static Float8E5M2 NaN => FromRaw(0b1111111);
+    public static Float8E5M2 NaN => FromRaw(0x7f);
 
-    public static Float8E5M2 Infinity => NaN;
+    public static Float8E5M2 Infinity => FromRaw(0x7c);
 
-    public static Float8E5M2 NegInfinity => NaN;
+    public static Float8E5M2 NegInfinity => FromRaw(0xfc);
 
-    public static Float8E5M2 Zero => FromRaw(0b0000000);
+    public static Float8E5M2 Zero => FromRaw(0x00);
 
-    public static Float8E5M2 MaxNormal => FromRaw(0b1111110);
+    public static Float8E5M2 MaxNormal => FromRaw(0x7b);
 
-    public static Float8E5M2 MinNormal => FromRaw(0b0010000);
+    public static Float8E5M2 MinNormal => FromRaw(0x04);
 
-    public static Float8E5M2 MaxSubnormal => FromRaw(0b0000111);
+    public static Float8E5M2 MaxSubnormal => FromRaw(0x03);
 
-    public static Float8E5M2 MinSubnormal => FromRaw(0b0000001);
+    public static Float8E5M2 MinSubnormal => FromRaw(0x01);
+
+    public static Float8E5M2 One => FromRaw(0x3c);
+
+    public static int Radix => 2;
+
+    public static Float8E5M2 AdditiveIdentity => Zero;
+
+    public static Float8E5M2 MultiplicativeIdentity => One;
+
+    static Float8E5M2 INumberBase<Float8E5M2>.One => One;
+
+    static int INumberBase<Float8E5M2>.Radix => Radix;
+
+    static Float8E5M2 INumberBase<Float8E5M2>.Zero => Zero;
+
+    static Float8E5M2 IAdditiveIdentity<Float8E5M2, Float8E5M2>.AdditiveIdentity => AdditiveIdentity;
+
+    static Float8E5M2 IMultiplicativeIdentity<Float8E5M2, Float8E5M2>.MultiplicativeIdentity => MultiplicativeIdentity;
 
     /// <summary>
     /// Implicit conversion from Float8E5M2 to float.
@@ -800,6 +818,94 @@ public struct Float8E5M2 : IEquatable<Float8E5M2>, IComparable<Float8E5M2>
         return left.CompareTo(right) >= 0;
     }
 
+    public static Float8E5M2 operator +(Float8E5M2 left, Float8E5M2 right) => throw new NotImplementedException();
+
+    public static Float8E5M2 operator --(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static Float8E5M2 operator /(Float8E5M2 left, Float8E5M2 right) => throw new NotImplementedException();
+
+    public static Float8E5M2 operator ++(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static Float8E5M2 operator *(Float8E5M2 left, Float8E5M2 right) => throw new NotImplementedException();
+
+    public static Float8E5M2 operator -(Float8E5M2 left, Float8E5M2 right) => throw new NotImplementedException();
+
+    public static Float8E5M2 operator -(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static Float8E5M2 operator +(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static Float8E5M2 Abs(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsCanonical(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsComplexNumber(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsEvenInteger(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsFinite(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsImaginaryNumber(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsInfinity(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsInteger(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsNaN(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsNegative(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsNegativeInfinity(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsNormal(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsOddInteger(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsPositive(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsPositiveInfinity(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsRealNumber(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsSubnormal(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static bool IsZero(Float8E5M2 value) => throw new NotImplementedException();
+
+    public static Float8E5M2 MaxMagnitude(Float8E5M2 x, Float8E5M2 y) => throw new NotImplementedException();
+
+    public static Float8E5M2 MaxMagnitudeNumber(Float8E5M2 x, Float8E5M2 y) => throw new NotImplementedException();
+
+    public static Float8E5M2 MinMagnitude(Float8E5M2 x, Float8E5M2 y) => throw new NotImplementedException();
+
+    public static Float8E5M2 MinMagnitudeNumber(Float8E5M2 x, Float8E5M2 y) => throw new NotImplementedException();
+
+    public static Float8E5M2 Parse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider) => throw new NotImplementedException();
+
+    public static Float8E5M2 Parse(string s, NumberStyles style, IFormatProvider? provider) => throw new NotImplementedException();
+
+    public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider, [MaybeNullWhen(false)] out Float8E5M2 result) => throw new NotImplementedException();
+
+    public static bool TryParse([NotNullWhen(true)] string? s, NumberStyles style, IFormatProvider? provider, [MaybeNullWhen(false)] out Float8E5M2 result) => throw new NotImplementedException();
+
+    public static Float8E5M2 Parse(ReadOnlySpan<char> s, IFormatProvider? provider) => throw new NotImplementedException();
+
+    public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider? provider, [MaybeNullWhen(false)] out Float8E5M2 result) => throw new NotImplementedException();
+
+    public static Float8E5M2 Parse(string s, IFormatProvider? provider) => throw new NotImplementedException();
+
+    public static bool TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, [MaybeNullWhen(false)] out Float8E5M2 result) => throw new NotImplementedException();
+
+    static bool INumberBase<Float8E5M2>.TryConvertFromChecked<TOther>(TOther value, out Float8E5M2 result) => throw new NotImplementedException();
+
+    static bool INumberBase<Float8E5M2>.TryConvertFromSaturating<TOther>(TOther value, out Float8E5M2 result) => throw new NotImplementedException();
+
+    static bool INumberBase<Float8E5M2>.TryConvertFromTruncating<TOther>(TOther value, out Float8E5M2 result) => throw new NotImplementedException();
+
+    static bool INumberBase<Float8E5M2>.TryConvertToChecked<TOther>(Float8E5M2 value, out TOther result) => throw new NotImplementedException();
+
+    static bool INumberBase<Float8E5M2>.TryConvertToSaturating<TOther>(Float8E5M2 value, out TOther result) => throw new NotImplementedException();
+
+    static bool INumberBase<Float8E5M2>.TryConvertToTruncating<TOther>(Float8E5M2 value, out TOther result) => throw new NotImplementedException();
+
     /// <summary>
     /// Reinterpret cast <see cref="byte"/> to <see cref="Float8E5M2"/>.
     /// </summary>
@@ -848,4 +954,10 @@ public struct Float8E5M2 : IEquatable<Float8E5M2>, IComparable<Float8E5M2>
     {
         return ((float)this).CompareTo((float)other);
     }
+
+    public int CompareTo(object? obj) => throw new NotImplementedException();
+
+    public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider? provider) => throw new NotImplementedException();
+
+    public string ToString(string? format, IFormatProvider? formatProvider) => throw new NotImplementedException();
 }
