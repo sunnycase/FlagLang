@@ -1,6 +1,5 @@
 ﻿// Copyright (c) SunnyCase. All rights reserved.
-// Licensed under the Apache license. See LICENSE file in the project root for
-// full license information.
+// Licensed under the Apache license. See LICENSE file in the project root for full license information.
 
 using System;
 using System.Collections.Generic;
@@ -27,8 +26,11 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
                                        ICostEvaluator<Binary>,
                                        IOpPrinter<Binary>,
                                        IMetricEvaluator<Binary> {
-    public static IRType CheckSBP(BinaryOp op, TensorType tensorType,
-                                  DistributedType a, DistributedType b) {
+    public static IRType CheckSBP(
+        BinaryOp op,
+        TensorType tensorType,
+        DistributedType a,
+        DistributedType b) {
         // assume broadcast shapes are left algin
         var padA = tensorType.Shape.Rank - a.TensorType.Shape.Rank;
         var padB = tensorType.Shape.Rank - b.TensorType.Shape.Rank;
@@ -52,9 +54,9 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
                 break;
             case (SBPSplit sa, SBPBroadCast):
                 // invalid (S, B) if B is not broacast
-                if (b.TensorType.Shape[i - padB] is { IsFixed : false } ||
+                if (b.TensorType.Shape[i - padB] is { IsFixed: false } ||
                     (b.TensorType.Shape[i - padB]
-                     is { IsFixed : true, FixedValue : var fb } &&
+                     is { IsFixed: true, FixedValue: var fb } &&
                      fb != 1)) {
                     return new InvalidType($"lhs rhs sbp at {i} not broadcast");
                 }
@@ -63,9 +65,9 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
                 break;
             case (SBPBroadCast, SBPSplit sb):
                 // invalid (B, S) if A is not broacast
-                if (a.TensorType.Shape[i - padA] is { IsFixed : false } ||
+                if (a.TensorType.Shape[i - padA] is { IsFixed: false } ||
                     (a.TensorType.Shape[i - padA]
-                     is { IsFixed : true, FixedValue : var fa } &&
+                     is { IsFixed: true, FixedValue: var fa } &&
                      fa != 1)) {
                     return new InvalidType($"lhs rhs sbp at {i} not broadcast");
                 }
@@ -108,34 +110,40 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         if (lhs.Shape.IsScalar && rhs.Shape.IsScalar) {
             if (lhs.ElementType == DataTypes.Int32 &&
                 rhs.ElementType == DataTypes.Int32) {
-                result = Value.FromTensor(Tensor.FromScalar(
-                    Compute(binary.BinaryOp, lhs.ToScalar<int>(),
-                            rhs.ToScalar<int>())));
+                result = Value.FromTensor(Tensor.FromScalar(Compute(
+                    binary.BinaryOp,
+                    lhs.ToScalar<int>(),
+                    rhs.ToScalar<int>())));
             } else if (lhs.ElementType == DataTypes.Int64 &&
                        rhs.ElementType == DataTypes.Int64) {
-                result = Value.FromTensor(Tensor.FromScalar(
-                    Compute(binary.BinaryOp, lhs.ToScalar<long>(),
-                            rhs.ToScalar<long>())));
+                result = Value.FromTensor(Tensor.FromScalar(Compute(
+                    binary.BinaryOp,
+                    lhs.ToScalar<long>(),
+                    rhs.ToScalar<long>())));
             } else if (lhs.ElementType == DataTypes.Float32 &&
                        rhs.ElementType == DataTypes.Float32) {
-                result = Value.FromTensor(Tensor.FromScalar(
-                    Compute(binary.BinaryOp, lhs.ToScalar<float>(),
-                            rhs.ToScalar<float>())));
+                result = Value.FromTensor(Tensor.FromScalar(Compute(
+                    binary.BinaryOp,
+                    lhs.ToScalar<float>(),
+                    rhs.ToScalar<float>())));
             } else if (lhs.ElementType == DataTypes.Boolean &&
                        rhs.ElementType == DataTypes.Boolean) {
-                result = Value.FromTensor(Tensor.FromScalar(
-                    Compute(binary.BinaryOp, lhs.ToScalar<bool>(),
-                            rhs.ToScalar<bool>())));
+                result = Value.FromTensor(Tensor.FromScalar(Compute(
+                    binary.BinaryOp,
+                    lhs.ToScalar<bool>(),
+                    rhs.ToScalar<bool>())));
             } else if (lhs.ElementType == DataTypes.UInt32 &&
                        rhs.ElementType == DataTypes.UInt32) {
-                result = Value.FromTensor(Tensor.FromScalar(
-                    Compute(binary.BinaryOp, lhs.ToScalar<uint>(),
-                            rhs.ToScalar<uint>())));
+                result = Value.FromTensor(Tensor.FromScalar(Compute(
+                    binary.BinaryOp,
+                    lhs.ToScalar<uint>(),
+                    rhs.ToScalar<uint>())));
             } else if (lhs.ElementType == DataTypes.UInt64 &&
                        rhs.ElementType == DataTypes.UInt64) {
-                result = Value.FromTensor(Tensor.FromScalar(
-                    Compute(binary.BinaryOp, lhs.ToScalar<ulong>(),
-                            rhs.ToScalar<ulong>())));
+                result = Value.FromTensor(Tensor.FromScalar(Compute(
+                    binary.BinaryOp,
+                    lhs.ToScalar<ulong>(),
+                    rhs.ToScalar<ulong>())));
             } else {
                 result = Value.FromTensor(
                     Ort_compute(binary, lhs, rhs, originDtype));
@@ -395,8 +403,11 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         return result;
     }
 
-    private Tensor EvaluatePointerBinary(Binary binary, Tensor lhs, Tensor rhs,
-                                         TensorType resultType) {
+    private Tensor EvaluatePointerBinary(
+        Binary binary,
+        Tensor lhs,
+        Tensor rhs,
+        TensorType resultType) {
         if (resultType.DType is not PointerType pointerType) {
             throw new InvalidOperationException(
                 "Pointer binary expects a pointer return type");
@@ -450,8 +461,11 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
 
             var pointerOffset = GetBroadcastOffset(
                 outIndices, pointerShape, pointerStrides, pointerIndices);
-            var indexOffset = GetBroadcastOffset(outIndices, offsetShape,
-                                                 offsetStrides, offsetIndices);
+            var indexOffset = GetBroadcastOffset(
+                outIndices,
+                offsetShape,
+                offsetStrides,
+                offsetIndices);
             var byteOffset = checked(offsetSpan[(int)indexOffset] * elemSize);
             if (binary.BinaryOp == BinaryOp.Sub) {
                 byteOffset = checked(-byteOffset);
@@ -493,8 +507,11 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         }
     }
 
-    private long GetBroadcastOffset(long[] outIndices, long[] operandShape,
-                                    long[] operandStrides, long[] scratch) {
+    private long GetBroadcastOffset(
+        long[] outIndices,
+        long[] operandShape,
+        long[] operandStrides,
+        long[] scratch) {
         if (operandShape.Length == 0) {
             return 0;
         }
@@ -513,8 +530,11 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         return TensorUtilities.GetLinearOffset(operandStrides, scratch);
     }
 
-    private Tensor EvaluateIntegralDivision(BinaryOp op, Tensor lhs,
-                                            Tensor rhs, DataType dataType) =>
+    private Tensor EvaluateIntegralDivision(
+        BinaryOp op,
+        Tensor lhs,
+        Tensor rhs,
+        DataType dataType) =>
         dataType switch {
             VectorType vectorType =>
                 EvaluateIntegralVectorDivision(op, lhs, rhs, vectorType),
@@ -546,9 +566,11 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
                 $"Integral {op} does not support data type {dataType}."),
         };
 
-    private Tensor EvaluateIntegralVectorDivision(BinaryOp op, Tensor lhs,
-                                                  Tensor rhs,
-                                                  VectorType vectorType) {
+    private Tensor EvaluateIntegralVectorDivision(
+        BinaryOp op,
+        Tensor lhs,
+        Tensor rhs,
+        VectorType vectorType) {
         if (!vectorType.ElemType.IsIntegral()) {
             throw new NotSupportedException(
                 $"Integral {op} does not support vector element type {vectorType.ElemType}.");
@@ -557,20 +579,26 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         var expandedLhs = ExpandIntegralVectorOperand(lhs, vectorType);
         var expandedRhs = ExpandIntegralVectorOperand(rhs, vectorType);
         var expandedResult =
-            EvaluateIntegralDivision(op, expandedLhs, expandedRhs,
-                                     vectorType.ElemType);
+            EvaluateIntegralDivision(
+                op,
+                expandedLhs,
+                expandedRhs,
+                vectorType.ElemType);
         return RepackIntegralVectorResult(expandedResult, vectorType);
     }
 
-    private Tensor ExpandIntegralVectorOperand(Tensor tensor,
-                                               VectorType resultVectorType) {
+    private Tensor ExpandIntegralVectorOperand(
+        Tensor tensor,
+        VectorType resultVectorType) {
         if (tensor.ElementType is VectorType operandVectorType) {
             var expandedShape = tensor.Dimensions.ToArray()
                                       .Concat(operandVectorType.Lanes
                                                   .Select(lane => (long)lane))
                                       .ToArray();
-            return tensor.CastTo(operandVectorType.ElemType,
-                                 CastMode.Reinterpret, expandedShape);
+            return tensor.CastTo(
+                operandVectorType.ElemType,
+                CastMode.Reinterpret,
+                expandedShape);
         }
 
         if (tensor.ElementType != resultVectorType.ElemType) {
@@ -585,8 +613,9 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         return tensor.Reshape(broadcastShape);
     }
 
-    private Tensor RepackIntegralVectorResult(Tensor expandedResult,
-                                              VectorType vectorType) {
+    private Tensor RepackIntegralVectorResult(
+        Tensor expandedResult,
+        VectorType vectorType) {
         var expandedShape = expandedResult.Dimensions.ToArray();
         var laneRank = vectorType.Lanes.Count;
         if (expandedShape.Length < laneRank) {
@@ -601,12 +630,17 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         }
 
         var tensorShape = expandedShape[..^laneRank];
-        return expandedResult.CastTo(vectorType, CastMode.Reinterpret,
-                                     tensorShape);
+        return expandedResult.CastTo(
+            vectorType,
+            CastMode.Reinterpret,
+            tensorShape);
     }
 
     private Tensor EvaluateIntegralBinary<T>(
-        Tensor lhsTensor, Tensor rhsTensor, BinaryOp op, Func<T, T, T> floor,
+        Tensor lhsTensor,
+        Tensor rhsTensor,
+        BinaryOp op,
+        Func<T, T, T> floor,
         Func<T, T, T> ceil)
         where T : unmanaged, IBinaryInteger<T>, IEquatable<T> {
         var lhs = (Tensor<T>)lhsTensor;
@@ -642,9 +676,9 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
                 outIndices, lhsShape, lhsStrides, lhsIndices);
             var rhsOffset = GetBroadcastOffset(
                 outIndices, rhsShape, rhsStrides, rhsIndices);
-            resultSpan[checked((int)linear)] =
-                compute(lhs.Buffer.Span[checked((int)lhsOffset)],
-                        rhs.Buffer.Span[checked((int)rhsOffset)]);
+            resultSpan[checked((int)linear)] = compute(
+                lhs.Buffer.Span[checked((int)lhsOffset)],
+                rhs.Buffer.Span[checked((int)rhsOffset)]);
         }
 
         return result;
@@ -671,14 +705,18 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
         return resultShape;
     }
 
-    private OrtDataType GetFloatDivisionType(OrtKISharp.Tensor lhs,
-                                             OrtKISharp.Tensor rhs) =>
+    private OrtDataType GetFloatDivisionType(
+        OrtKISharp.Tensor lhs,
+        OrtKISharp.Tensor rhs) =>
         lhs.DataType == OrtDataType.Double || rhs.DataType == OrtDataType.Double
             ? OrtDataType.Double
             : OrtDataType.Float;
 
-    private Tensor Ort_compute(Binary binary, Tensor lhs, Tensor rhs,
-                               DataType dataType) {
+    private Tensor Ort_compute(
+        Binary binary,
+        Tensor lhs,
+        Tensor rhs,
+        DataType dataType) {
         if (binary.BinaryOp is BinaryOp.FloorDiv or BinaryOp.CeilDiv &&
             dataType.IsIntegral()) {
             return EvaluateIntegralDivision(
@@ -755,7 +793,7 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
                 "The Binary Logical Only Accept The Boolean Datatype.");
         }
 
-        if (lhs is { DType : PointerType }) {
+        if (lhs is { DType: PointerType }) {
             if (rhs.DType.IsIntegral() &&
                 target.BinaryOp is BinaryOp.Add or BinaryOp.Sub) {
                 return TypeInference.BroadcastType(lhs.DType, lhs, rhs);
@@ -765,7 +803,7 @@ public partial class BinaryEvaluator : IEvaluator<Binary>,
                 $"The Binary Lhs {CompilerServices.Print(lhs)} != Rhs {CompilerServices.Print(rhs)}");
         }
 
-        if (rhs is { DType : PointerType }) {
+        if (rhs is { DType: PointerType }) {
             if (lhs.DType.IsIntegral() && target.BinaryOp == BinaryOp.Add) {
                 return TypeInference.BroadcastType(rhs.DType, lhs, rhs);
             }

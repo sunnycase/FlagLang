@@ -100,6 +100,7 @@ if(BUILD_PYTHON_BINDING)
             ${CMAKE_CURRENT_LIST_DIR}/src/Nncase.Compiler/Nncase.Compiler.csproj
             -c ${FLAGLANG_DOTNET_CONFIGURATION}
             -o ${FLAGLANG_MANAGED_COMPILER_DIR}
+            --no-restore
             --no-self-contained
             -nr:false
             -m:1
