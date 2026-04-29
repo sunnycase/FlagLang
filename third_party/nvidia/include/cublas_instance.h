@@ -40,7 +40,7 @@ class CublasLtInstance {
         const cublasLtMatrixLayout_t, void *, const cublasLtMatrixLayout_t,
         const cublasLtMatmulAlgo_t *, void *, size_t, cudaStream_t);
 
-    static constexpr const char *name = "libcublas.so";
+    static constexpr const char *name = "libcublasLt.so";
 
     cublasLtCreate_t cublasLtCreate;
     cublasLtDestroy_t cublasLtDestroy;
@@ -126,7 +126,8 @@ class CublasLtInstance {
 
     // Simple wrapper around the cublasLtMatmul function
     void gemm_impl(int m, int n, int k, uint64_t A, uint64_t B, uint64_t C,
-                   uint64_t D, cudaDataType_t dtype, float alpha, float beta) {
+                   uint64_t D, cudaDataType_t dtype, cudaDataType_t c_dtype,
+                   float alpha, float beta) {
         cublasLtMatmulDesc_t matmulDesc = NULL;
 
         cublasOperation_t transa = CUBLAS_OP_T;
@@ -157,7 +158,6 @@ class CublasLtInstance {
                 sizeof(fastAccum)));
         }
 
-        auto c_dtype = dtype == CUDA_R_8F_E4M3 ? CUDA_R_16F : dtype;
         successOrExit(cublasLtMatrixLayoutCreate(&Adesc, dtype, k, m, k));
         successOrExit(cublasLtMatrixLayoutCreate(&Bdesc, dtype, k, n, k));
         successOrExit(cublasLtMatrixLayoutCreate(&Cdesc, c_dtype, m, n, m));
@@ -215,12 +215,12 @@ class CublasLtInstance {
                 cudaDataType_t dtype) {
         // CUDA is column-major, while triton is row-major, therefore we need to
         // reverse the order of the matrices ( A * B = (B^T * A^T)^T ).
-        gemm_impl(n, m, k, B, A, 0, C, dtype, 1.0f, 0.0f);
+        gemm_impl(n, m, k, B, A, 0, C, dtype, dtype, 1.0f, 0.0f);
     }
 
     void gemm(int m, int n, int k, uint64_t A, uint64_t B, uint64_t C,
               uint64_t D, cudaDataType_t dtype, float alpha, float beta) {
-        gemm_impl(n, m, k, B, A, C, D, dtype, alpha, beta);
+        gemm_impl(n, m, k, B, A, C, D, dtype, CUDA_R_16F, alpha, beta);
     }
 };
 

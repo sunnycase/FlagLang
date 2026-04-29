@@ -1,6 +1,27 @@
+from pathlib import Path
+
 import pytest
 import torch
 from triton._internal_testing import is_cuda
+
+
+def _cublas_instance_header():
+    return Path(__file__).resolve().parents[4] / "third_party" / "nvidia" / "include" / "cublas_instance.h"
+
+
+def test_cublaslt_wrapper_loads_cublaslt_library():
+    source = _cublas_instance_header().read_text()
+
+    assert 'static constexpr const char *name = "libcublasLt.so";' in source
+    assert 'static constexpr const char *name = "libcublas.so";' not in source
+
+
+def test_cublaslt_gemm_describes_c_operand_as_float16():
+    source = _cublas_instance_header().read_text()
+
+    assert "gemm_impl(n, m, k, B, A, 0, C, dtype, dtype, 1.0f, 0.0f);" in source
+    assert "gemm_impl(n, m, k, B, A, C, D, dtype, CUDA_R_16F, alpha, beta);" in source
+    assert "auto c_dtype = dtype == CUDA_R_8F_E4M3 ? CUDA_R_16F : dtype;" not in source
 
 
 @pytest.mark.parametrize("m, n, k", [(16, 16, 16), (32, 16, 16), (16, 32, 16), (16, 16, 32)])
