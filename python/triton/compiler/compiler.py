@@ -504,12 +504,11 @@ def compile(src, target=None, options=None, _env_vars=None):
 
     codegen_fns = _get_backend_codegen_implementation(backend, options)
     module_map = backend.get_module_map()
-    module = src.make_ir(target, options, codegen_fns, module_map, context)
-    # try:
-    #     module = src.make_ir(target, options, codegen_fns, module_map, context)
-    # except Exception as e:
-    #     filter_traceback(e)
-    #     raise
+    try:
+        module = src.make_ir(target, options, codegen_fns, module_map, context)
+    except Exception as e:
+        filter_traceback(e)
+        raise
 
     if ir_source:
         ir_filename = f"{file_name}.{src.ext}"

@@ -36,7 +36,11 @@ public abstract class VectorizeRule : RewriteRule<Pattern>
 
     public int Rank { get; }
 
-    public override BaseExpr? GetReplace(IMatchResult result, RunPassContext options) => GetReplaceCandidates(result, options)[0];
+    public override BaseExpr? GetReplace(IMatchResult result, RunPassContext options)
+    {
+        var candidates = GetReplaceCandidates(result, options);
+        return candidates.Count == 0 ? null : candidates[0];
+    }
 
     public IEnumerable<int[]> GenerateVectorizeAxes(Shape shape)
     {

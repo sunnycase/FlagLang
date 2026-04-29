@@ -3,13 +3,39 @@
 
 using Nncase.IR;
 using Nncase.IR.NN;
+using Nncase.Passes;
 using Nncase.Passes.Rules.NTT;
+using Nncase.Tests.TestFixture;
 using Xunit;
 
 namespace Nncase.Tests.Rules.NeutralTest;
 
-public sealed class UnitTestVectorizeReduceRule
+[AutoSetupTestMethod(InitSession = true)]
+public sealed class UnitTestVectorizeReduceRule : TestClassBase
 {
+    [Fact]
+    public void TestVectorizeRuleReturnsNullWhenMatchHasNoCandidate()
+    {
+        var input = new Var(new TensorType(DataTypes.Float32, new long[] { 1, 4, 8, 8 }));
+        var weights = new Var(new TensorType(DataTypes.Float32, new long[] { 4, 4, 3, 3 }));
+        var bias = new Var(new TensorType(DataTypes.Float32, new long[] { 4 }));
+        var conv = IR.F.NN.Conv2D(
+            input,
+            weights,
+            bias,
+            new long[] { 1, 1 },
+            new long[,] { { 0, 0 }, { 0, 0 } },
+            new long[] { 1, 1 },
+            PadMode.Constant,
+            1);
+        var rule = new VectorizeConv2D(1, 32);
+
+        Assert.True(CompilerServices.InferenceType(conv), CompilerServices.Print(conv));
+        Assert.True(CompilerServices.TryMatch(conv, rule.Pattern, out var result));
+        Assert.Empty(rule.GetReplaceCandidates(result!, new RunPassContext()));
+        Assert.Null(rule.GetReplace(result!, new RunPassContext()));
+    }
+
     [Fact]
     public void TestVectorizeReduceRejectsMeanOnVectorizedReduceAxis()
     {
