@@ -6,7 +6,14 @@ import triton
 import triton.language as tl
 from triton.language.extra import libdevice
 
-from triton._C.libtriton import llvm
+try:
+    from triton._C.libtriton import llvm
+except ImportError:
+    pytest.skip(
+        "test_link exercises the legacy Triton LLVM/NVVM lowering path; "
+        "FlagLang native libtriton does not export libtriton.llvm.",
+        allow_module_level=True,
+    )
 
 
 @triton.jit(noinline=True)
