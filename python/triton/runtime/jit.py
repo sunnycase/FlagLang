@@ -187,12 +187,12 @@ class DependenciesFinder(ast.NodeVisitor):
             return None
 
         def name_lookup(name):
-            val = self.globals.get(name, None)
-            if val is not None:
-                return val, self.globals
-            val = self.nonlocals.get(name, None)
-            if val is not None:
+            val = self.nonlocals.get(name, _MISSING)
+            if val is not _MISSING:
                 return val, self.nonlocals
+            val = self.globals.get(name, _MISSING)
+            if val is not _MISSING:
+                return val, self.globals
             return None, None
 
         val, var_dict = name_lookup(node.id)
@@ -387,7 +387,7 @@ def create_specialize_impl(specialize_extra):
 
     def specialize_impl(arg, is_const=False, specialize_value=True, align=True):
         if arg is None:
-            return ("constexpr", None)
+            return ("*i8", None)
         elif isinstance(arg, bool):
             return ("u1", None)
         elif isinstance(arg, int):

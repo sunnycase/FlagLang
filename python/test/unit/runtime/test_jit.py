@@ -4,7 +4,25 @@ import torch
 
 import triton
 import triton.language as tl
-from triton.runtime.jit import MockTensor, compute_cache_key
+from triton.runtime.jit import MockTensor, create_function_from_signature, compute_cache_key
+
+_CLOSURE_SHADOW_VALUE = 7
+
+
+class _FakeBackend:
+
+    def get_arg_specialization(self, _arg, _kind, **_kwargs):
+        return None
+
+    def parse_options(self, _kwargs):
+
+        class Options:
+            pass
+
+        return Options()
+
+    def parse_attr(self, attr):
+        return attr
 
 
 def test_compute_cache_key_normalizes_unhashable_constexprs():
@@ -26,6 +44,45 @@ def test_mock_tensor_stride_matches_contiguous_layout():
     assert MockTensor(torch.float32, shape=[2, 3]).stride() == (3, 1)
     assert MockTensor(torch.float32, shape=[2, 3, 4]).stride() == (12, 4, 1)
     assert MockTensor(torch.float32, shape=[2, 3, 4, 5]).stride() == (60, 20, 5, 1)
+
+
+def test_dependency_finder_resolves_nonlocals_before_globals():
+
+    def make_kernel():
+        _CLOSURE_SHADOW_VALUE = 11
+
+        @triton.jit
+        def kernel():
+            return _CLOSURE_SHADOW_VALUE
+
+        return kernel
+
+    kernel = make_kernel()
+    _ = kernel.cache_key
+
+    used_values = {name: value for (name, _), (value, _) in kernel.used_global_vals.items()}
+    assert used_values["_CLOSURE_SHADOW_VALUE"] == 11
+
+
+def test_none_non_constexpr_argument_remains_runtime_null_pointer():
+
+    @triton.jit
+    def kernel(ptr, block: tl.constexpr):
+        return ptr
+
+    backend = _FakeBackend()
+    binder = create_function_from_signature(kernel.signature, kernel.params, backend)
+
+    bound_args, specialization, options = binder(None, block=8)
+    _options, signature, constexprs, attrs = kernel._pack_args(backend, {"block": 8}, bound_args, specialization,
+                                                               options)
+    runtime_args = tuple(arg for arg, spec in zip(bound_args.values(), specialization) if spec[0] != "constexpr")
+
+    assert specialization == [("*i8", None), ("constexpr", 8)]
+    assert signature == {"ptr": "*i8", "block": "constexpr"}
+    assert constexprs == {(1, ): 8}
+    assert attrs == {}
+    assert runtime_args == (None, )
 
 
 def test_pre_call_hooks(device):

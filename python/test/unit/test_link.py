@@ -31,7 +31,10 @@ def add_one_indirect(x_ptr, SQRT: tl.constexpr) -> None:
 
 @pytest.mark.parametrize("use_libdevice", (False, True))
 @pytest.mark.parametrize("kernel", (add_one, add_one_indirect))
-def test_link_extern_libs(use_libdevice, kernel):
+def test_link_extern_libs(use_libdevice, kernel, device):
+    if device != "cuda" or not torch.cuda.is_available():
+        pytest.skip("test_link requires a CUDA runner with a legacy libtriton.llvm binding")
+
     link_called: bool = False
 
     def callback(frame, event, arg):
@@ -39,7 +42,7 @@ def test_link_extern_libs(use_libdevice, kernel):
         if event == "c_call" and arg is llvm.link_extern_libs:
             link_called = True
 
-    x = torch.ones((1, ), device="cuda")
+    x = torch.ones((1, ), device=device)
     prior_callback = sys.getprofile()
     try:
         sys.setprofile(callback)
