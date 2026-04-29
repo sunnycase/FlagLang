@@ -219,7 +219,7 @@ class ASTSource:
     def hash(self):
         sorted_sig = [v for k, v in sorted(self.signature.items())]
         get_key = lambda x: x.cache_key if hasattr(x, 'cache_key') else str(x)
-        constants_key = '-'.join([get_key(v) for k, v in sorted(self.constants.items())])
+        constants_key = [(k, get_key(v)) for k, v in sorted(self.constants.items())]
         key = f"{self.fn.cache_key}-{self._attrs_key}-{sorted_sig}-{constants_key}"
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 

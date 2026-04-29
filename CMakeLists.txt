@@ -96,6 +96,13 @@ if(BUILD_PYTHON_BINDING)
     add_custom_target(flaglang-managed-compiler ALL
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${FLAGLANG_MANAGED_COMPILER_DIR}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${FLAGLANG_MANAGED_COMPILER_DIR}
+        COMMAND ${DOTNET_EXECUTABLE} restore
+            ${CMAKE_CURRENT_LIST_DIR}/src/Nncase.Compiler/Nncase.Compiler.csproj
+            --locked-mode
+            -p:Configuration=${FLAGLANG_DOTNET_CONFIGURATION}
+            -p:NuGetAudit=false
+            -nr:false
+            -m:1
         COMMAND ${DOTNET_EXECUTABLE} publish
             ${CMAKE_CURRENT_LIST_DIR}/src/Nncase.Compiler/Nncase.Compiler.csproj
             -c ${FLAGLANG_DOTNET_CONFIGURATION}

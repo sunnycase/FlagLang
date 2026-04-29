@@ -8,6 +8,11 @@ def _compat_kernel(a, b, n: tl.constexpr):
 
 
 @triton.jit
+def _two_constexpr_kernel(a, m: tl.constexpr, n: tl.constexpr):
+    return
+
+
+@triton.jit
 def _bool_compat_kernel(a, flag):
     return
 
@@ -40,6 +45,23 @@ def test_ast_source_accepts_legacy_string_signature_and_constants_alias():
 
     assert src.signature == {"a": "*fp32", "b": "i32"}
     assert src.constants == {(2, ): 64}
+
+
+def test_ast_source_hash_includes_constant_paths():
+    left = triton.compiler.ASTSource(
+        fn=_two_constexpr_kernel,
+        signature={0: "*fp32"},
+        constants={"m": 1},
+    )
+    right = triton.compiler.ASTSource(
+        fn=_two_constexpr_kernel,
+        signature={0: "*fp32"},
+        constants={"n": 1},
+    )
+
+    assert left.constants == {(1, ): 1}
+    assert right.constants == {(2, ): 1}
+    assert left.hash() != right.hash()
 
 
 def test_attrs_descriptor_equal_to_1_specializes_constants():
