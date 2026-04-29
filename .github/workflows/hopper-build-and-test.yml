@@ -15,7 +15,6 @@ concurrency:
 jobs:
   hopper-build-and-test:
     runs-on: hopper
-    if: ${{ github.repository == 'FlagTree/flagtree' || github.repository == 'flagos-ai/flagtree' }}
     steps:
       - name: Setup environment
         shell: bash
