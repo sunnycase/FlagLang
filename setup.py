@@ -422,7 +422,8 @@ class CMakeBuild(build_ext):
                                "build or install triton._C.libproton. Set TRITON_BUILD_PROTON=OFF or add libproton "
                                "build/install support before enabling profiler packaging.")
 
-        download_and_copy_dependencies()
+        if should_download_nvidia_dependencies():
+            download_and_copy_dependencies()
 
         try:
             out = subprocess.check_output(["cmake", "--version"])
@@ -570,6 +571,10 @@ def download_and_copy_dependencies():
         url_func=lambda system, arch, version:
         f"https://developer.download.nvidia.com/compute/cuda/redist/cuda_cupti/{system}-{arch}/cuda_cupti-{system}-{arch}-{version}-archive.tar.xz",
     )
+
+
+def should_download_nvidia_dependencies():
+    return any(backend.name == "nvidia" for backend in backends)
 
 
 if helper.flagtree_backend:

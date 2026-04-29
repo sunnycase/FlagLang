@@ -219,12 +219,14 @@ std::optional<ColumnAction> regPermForDivide(const LinearLayout &A,
     const auto &ARegBases = A.getBases().lookup(kReg);
     const auto &BRegBases = BBroadcast.getBases().lookup(kReg);
 
-    llvm::DenseMap<StringAttr, unsigned> log2QuotSize;
+    llvm::DenseMap<StringAttr, int64_t> log2QuotSize;
     for (StringAttr out : A.getOutDimNames()) {
-        log2QuotSize[out] =
-            A.getOutDimSizeLog2(out) - BBroadcast.getOutDimSizeLog2(out);
-        if (log2QuotSize[out] < 0)
+        int64_t log2Quot =
+            static_cast<int64_t>(A.getOutDimSizeLog2(out)) -
+            static_cast<int64_t>(BBroadcast.getOutDimSizeLog2(out));
+        if (log2Quot < 0)
             return std::nullopt;
+        log2QuotSize[out] = log2Quot;
     }
 
     auto multiplyByTileSize =
@@ -233,7 +235,8 @@ std::optional<ColumnAction> regPermForDivide(const LinearLayout &A,
         size_t idx = 0;
         assert(bBasis.size() == A.getNumOutDims());
         for (auto [dim, b] : llvm::zip(A.getOutDimNames(), bBasis)) {
-            result.push_back(b << log2QuotSize.lookup(dim));
+            result.push_back(
+                b << static_cast<unsigned>(log2QuotSize.lookup(dim)));
         }
         return result;
     };

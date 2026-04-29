@@ -71,10 +71,12 @@ include_directories(${FLAGLANG_INCLUDE_DIR})
 
 add_subdirectory(src/Native/include/nncase)
 add_subdirectory(src/Native/src)
-add_subdirectory(ntt)
 
 if(BUILD_TESTING)
+    enable_testing()
 endif()
+
+add_subdirectory(ntt)
 
 # Python binding
 if(BUILD_PYTHON_BINDING)
