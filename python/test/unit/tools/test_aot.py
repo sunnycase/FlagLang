@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import pytest
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,7 @@ from types import SimpleNamespace
 import numpy as np
 
 import triton
+import triton.tools.compile as compile_tool
 from triton.backends.compiler import GPUTarget
 from triton.backends.nvidia.driver import include_dirs, library_dirs
 from triton._internal_testing import is_cuda, is_hip
@@ -151,6 +153,63 @@ def test_cuda_backend_aot_compile_scripts_use_abi_scalar_types():
         source = compile_path.read_text()
         assert "ty_to_abi_cpp as ty_to_cpp" in source
         assert "ty_to_cpp(ty)" in source
+
+
+def test_aot_stub_uses_compiled_entry_name(monkeypatch):
+
+    class FakeBackend:
+        binary_ext = "cubin"
+
+        @staticmethod
+        def parse_options(kwargs):
+            return SimpleNamespace(**kwargs)
+
+    def fake_compile(src, target, options):
+        return SimpleNamespace(
+            asm={"cubin": b"0123456789abcdef"},
+            metadata=SimpleNamespace(
+                name="native_entry",
+                shared=0,
+                global_scratch_size=0,
+                profile_scratch_size=0,
+            ),
+        )
+
+    output_dir = REPO_ROOT / "dump" / "tests_output" / "test_aot" / "test_aot_stub_uses_compiled_entry_name"
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
+    kernel_path = output_dir / "kernel.py"
+    kernel_path.write_text("""
+class Kernel:
+    arg_names = ["x"]
+
+
+python_kernel = Kernel()
+""")
+
+    monkeypatch.setattr(compile_tool.triton.compiler, "ASTSource", lambda **kwargs: SimpleNamespace(**kwargs))
+    monkeypatch.setattr(compile_tool.triton.compiler, "make_backend", lambda target: FakeBackend())
+    monkeypatch.setattr(compile_tool.triton, "compile", fake_compile)
+    monkeypatch.setattr(compile_tool, "_type_mapper_for_target", lambda target: lambda ty: "void*"
+                        if ty.startswith("*") else "int32_t")
+
+    compile_tool.compile_kernel(
+        compile_tool.CompileArgs(
+            path=str(kernel_path),
+            kernel_name="python_kernel",
+            signature="*fp32",
+            grid="1,1,1",
+            target="cuda:80:32",
+            out_name="aot_kernel",
+            out_path=output_dir / "aot_kernel",
+        ))
+
+    c_file = next(output_dir.glob("aot_kernel.*.c"))
+    c_stub = c_file.read_text()
+    assert 'cuModuleGetFunction(&aot_kernel' in c_stub
+    assert '"native_entry"' in c_stub
+    assert '"python_kernel"' not in c_stub
 
 
 def gen_kernel_library(dir, libname):

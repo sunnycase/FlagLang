@@ -190,7 +190,7 @@ def compile_kernel(args: CompileArgs):
 
     params = {
         "kernel_name": func_name,
-        "triton_kernel_name": args.kernel_name,
+        "triton_kernel_name": ccinfo.metadata.name,
         "bin_size": len(asm),
         "bin_data": ", ".join([f"0x{x}{y}" for x, y in zip(hex_[::2], hex_[1::2])]),
         "signature": ", ".join([f"{ty_to_cpp(ty)} {name}" for name, ty in zip(arg_names_not_1, arg_types_not_1)]),
