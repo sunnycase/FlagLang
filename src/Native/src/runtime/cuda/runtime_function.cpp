@@ -176,6 +176,16 @@ result<void> copy_array_from_device(const cuda_device_allocation &allocation,
     return allocation.copy_to(std::as_writable_bytes(destination));
 }
 
+result<std::span<std::byte>> allocate_device_span(size_t size) noexcept {
+    if (!size) {
+        return ok(std::span<std::byte>{});
+    }
+
+    void *data = nullptr;
+    try_(check_cuda_status(cudaMalloc(&data, size), "cudaMalloc"));
+    return ok(std::span<std::byte>(static_cast<std::byte *>(data), size));
+}
+
 bool contains_address_range(std::byte *base, size_t size, std::byte *data,
                             size_t data_size) noexcept {
     auto base_addr = reinterpret_cast<uintptr_t>(base);
@@ -244,25 +254,19 @@ result<void> cuda_runtime_function::initialize_core(
                 CHECK_CUDA(cudaSetDevice(cid));
 
                 // Allocate thread local datas
-                std::byte *thread_local_data_dev_ptr;
-                CHECK_CUDA(cudaMalloc((void **)&thread_local_data_dev_ptr,
-                                      thread_local_data_size));
-                thread_local_datas_.emplace_back(thread_local_data_dev_ptr,
-                                                 thread_local_data_size);
+                try_var(thread_local_data,
+                        allocate_device_span(thread_local_data_size));
+                thread_local_datas_.emplace_back(thread_local_data);
 
                 // Allocate warp local datas
-                std::byte *warp_local_data_dev_ptr;
-                CHECK_CUDA(cudaMalloc((void **)&warp_local_data_dev_ptr,
-                                      warp_local_data_size));
-                warp_local_datas_.emplace_back(warp_local_data_dev_ptr,
-                                               warp_local_data_size);
+                try_var(warp_local_data,
+                        allocate_device_span(warp_local_data_size));
+                warp_local_datas_.emplace_back(warp_local_data);
 
                 // Allocate block local datas
-                std::byte *block_local_data_dev_ptr;
-                CHECK_CUDA(cudaMalloc((void **)&block_local_data_dev_ptr,
-                                      block_local_data_size));
-                block_local_datas_.emplace_back(block_local_data_dev_ptr,
-                                                block_local_data_size);
+                try_var(block_local_data,
+                        allocate_device_span(block_local_data_size));
+                block_local_datas_.emplace_back(block_local_data);
             }
             return ok();
         }));

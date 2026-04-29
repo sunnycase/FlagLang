@@ -156,6 +156,22 @@ public class UnitTestEvaluatorMath : TestClassBase {
     }
 
     [Fact]
+    public void TestBinaryFloat32ScalarFloorCeilDiv() {
+        Assert.Equal(
+            -3f,
+            IR.F.Math.Binary(BinaryOp.FloorDiv, -7f, 3f)
+                .Evaluate()
+                .AsTensor()
+                .ToScalar<float>());
+        Assert.Equal(
+            -2f,
+            IR.F.Math.Binary(BinaryOp.CeilDiv, -7f, 3f)
+                .Evaluate()
+                .AsTensor()
+                .ToScalar<float>());
+    }
+
+    [Fact]
     public void TestBinaryInt64ScalarMathPreservesPrecision() {
         Assert.Equal(
             3002399751580332L,
