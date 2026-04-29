@@ -1,5 +1,6 @@
 import glob
 import os
+from pathlib import Path
 import pytest
 import re
 import subprocess
@@ -14,6 +15,8 @@ from triton.backends.compiler import GPUTarget
 from triton.backends.nvidia.driver import include_dirs, library_dirs
 from triton._internal_testing import is_cuda, is_hip
 from triton.tools.compile import _type_mapper_for_target
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 kernel_utils_src = """
 import triton
@@ -122,6 +125,20 @@ def test_aot_type_mapper_uses_requested_target_backend(monkeypatch):
     ty_to_cpp = _type_mapper_for_target(GPUTarget("requested", "offline", 1))
 
     assert ty_to_cpp("*fp32") == "requested:*fp32"
+
+
+def test_cuda_aot_templates_return_error_for_empty_grid():
+    template_paths = [
+        REPO_ROOT / "third_party" / "nvidia" / "tools" / "cuda" / "compile.c",
+        REPO_ROOT / "third_party" / "mthreads" / "python" / "triton" / "tools" / "compile.c",
+        REPO_ROOT / "third_party" / "iluvatar" / "python" / "triton" / "tools" / "compile.c",
+        REPO_ROOT / "third_party" / "xpu" / "python" / "triton" / "tools" / "compile.c",
+    ]
+
+    for template_path in template_paths:
+        source = template_path.read_text()
+        assert "return cuLaunchKernel(" in source
+        assert "return CUDA_ERROR_INVALID_VALUE;" in source
 
 
 def gen_kernel_library(dir, libname):

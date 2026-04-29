@@ -23,7 +23,7 @@ BEGIN_NS_NNCASE_RT_MODULE(cuda)
 class cuda_runtime_module : public runtime_module {
   public:
     cuda_runtime_module() noexcept;
-    virtual ~cuda_runtime_module() = default;
+    ~cuda_runtime_module() override;
 
     result<uintptr_t> native_handle(uint32_t flags) const noexcept override;
 
@@ -95,6 +95,8 @@ class cuda_runtime_module : public runtime_module {
     result<std::span<const std::byte>>
     initialize_section(runtime_module_init_context &context,
                        const char *name) noexcept;
+    static void
+    release_device_section(std::span<const std::byte> &section) noexcept;
 
   private:
     uint64_t tdim_;

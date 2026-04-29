@@ -15,6 +15,7 @@
 #include "runtime_module.h"
 #include "nncase/runtime/host_buffer.h"
 #include "runtime_function.h"
+#include <iostream>
 #include <nncase/ntt/arch/cuda/runtime.h>
 #include <nncase/runtime/dbg.h>
 #include <nncase/runtime/interpreter.h>
@@ -36,6 +37,13 @@ typedef struct {
 
 cuda_runtime_module::cuda_runtime_module() noexcept
     : tdim_(0), wdim_(0), bdim_(0), cdim_(0) {}
+
+cuda_runtime_module::~cuda_runtime_module() {
+    release_device_section(rdata_);
+    release_device_section(thread_local_rdata_);
+    release_device_section(warp_local_rdata_);
+    release_device_section(block_local_rdata_);
+}
 
 result<void> cuda_runtime_module::initialize_before_functions(
     runtime_module_init_context &context) noexcept {
@@ -87,11 +95,35 @@ cuda_runtime_module::initialize_section(runtime_module_init_context &context,
     } else {
         std::byte *device_ptr;
         CHECK_CUDA(cudaMalloc((void **)&device_ptr, host_span.size_bytes()));
-        CHECK_CUDA(cudaMemcpy(device_ptr, host_span.data(),
-                              host_span.size_bytes(), cudaMemcpyHostToDevice));
+        auto copy_status =
+            cudaMemcpy(device_ptr, host_span.data(), host_span.size_bytes(),
+                       cudaMemcpyHostToDevice);
+        if (copy_status != cudaSuccess) {
+            auto free_status = cudaFree(device_ptr);
+            if (free_status != cudaSuccess) {
+                std::cerr << "CUDA error during cudaFree after cudaMemcpy "
+                             "failure - "
+                          << cudaGetErrorString(free_status) << std::endl;
+            }
+            CHECK_CUDA(copy_status);
+        }
         return ok(
             std::span<const std::byte>(device_ptr, host_span.size_bytes()));
     }
+}
+
+void cuda_runtime_module::release_device_section(
+    std::span<const std::byte> &section) noexcept {
+    if (section.empty()) {
+        return;
+    }
+
+    auto status = cudaFree(const_cast<std::byte *>(section.data()));
+    if (status != cudaSuccess) {
+        std::cerr << "CUDA error during cudaFree - "
+                  << cudaGetErrorString(status) << std::endl;
+    }
+    section = {};
 }
 
 result<uintptr_t>
