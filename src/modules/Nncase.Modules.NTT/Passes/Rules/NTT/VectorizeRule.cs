@@ -147,14 +147,16 @@ public sealed class VectorizeReduce : VectorizeRule
             return rets;
         }
 
-        var vectorizeReduceAxes = axes.Intersect(vectorizedAxes) == vectorizedAxes;
-        if (vectorizeReduceAxes && op.ReduceOp == ReduceOp.Mean)
+        axes = axes.Select(x => (int)Util.PositiveIndex(x, inShape.Rank)).ToArray();
+        var reduceAxisSet = axes.ToHashSet();
+        var hasVectorizedReduceAxis = vectorizedAxes.Any(reduceAxisSet.Contains);
+        var allVectorizedAxesReduced = vectorizedAxes.All(reduceAxisSet.Contains);
+        if (hasVectorizedReduceAxis && op.ReduceOp == ReduceOp.Mean)
         {
             return rets;
         }
 
-        axes = axes.Select(x => (int)Util.PositiveIndex(x, inShape.Rank)).ToArray();
-        var padValue = vectorizeReduceAxes ? op.ReduceOp switch
+        var padValue = hasVectorizedReduceAxis ? op.ReduceOp switch
         {
             ReduceOp.Mean => 0f,
             ReduceOp.Min => float.MaxValue,
@@ -167,7 +169,7 @@ public sealed class VectorizeReduce : VectorizeRule
         Call reduce = IR.F.NTT.VectorizedReduce(vectorizedInput, op.ReduceOp, axes, initValue, keepDims, vectorizedAxes, new RankedShape(padsInput));
 
         var (outVectorizeAxes, outPadNums, outLanes, outShape) = IR.NTT.VectorizedReduce.ComputeOutputInfo((IR.NTT.VectorizedReduce)reduce.Target, padsInput, inShape, lanes);
-        var post = vectorizeReduceAxes ? reduce : VectorizeUtility.SliceForVectorize(IR.F.Tensors.Unpack(reduce, outLanes, outVectorizeAxes), outShape, outPadNums);
+        var post = allVectorizedAxesReduced ? reduce : VectorizeUtility.SliceForVectorize(IR.F.Tensors.Unpack(reduce, outLanes, outVectorizeAxes), outShape, outPadNums);
 
         if (post.CheckedType is not InvalidType)
         {
