@@ -398,6 +398,11 @@ public static class LayoutVerifier
         {
             throw new InvalidOperationException($"{context}: layout {layout.Kind} cannot prove finite inverse composition {layout.OwnerLocalToGlobal.Name}({layout.GlobalToOwnerLocal.Name}(.)): {reason}.");
         }
+
+        if (!TryVerifyForwardInverseComposition(layout.OwnerLocalToGlobal, layout.GlobalToOwnerLocal, context, requireProof, out reason) && requireProof)
+        {
+            throw new InvalidOperationException($"{context}: layout {layout.Kind} cannot prove finite reverse composition {layout.GlobalToOwnerLocal.Name}({layout.OwnerLocalToGlobal.Name}(.)): {reason}.");
+        }
     }
 
     private static bool TryVerifyForwardInverseComposition(
@@ -759,6 +764,10 @@ public sealed record DistributionLayout(
         var threadsPerCTA = layout.ThreadsPerWarp * layout.WarpsPerCTA;
         var elementsPerCTA = layout.SizePerThread * threadsPerCTA;
         var localShape = new RankedShape(layout.SizePerThread);
+        var ctaDomain = tensorShape[0].IsFixed
+            ? $"0<=cta<{CeilDiv(tensorShape[0].FixedValue, elementsPerCTA)}"
+            : "0<=cta";
+        var ownerLocalDomain = $"{ctaDomain} && 0<=warp<{layout.WarpsPerCTA} && 0<=lane<{layout.ThreadsPerWarp} && 0<=elem<{layout.SizePerThread}";
         return new DistributionLayout(
             "TritonBlocked",
             new IndexMapDescriptor(
@@ -766,14 +775,14 @@ public sealed record DistributionLayout(
                 Enumerable.Range(0, tensorShape.Rank).Select(i => $"g{i}").ToArray(),
                 BuildTritonBlockedOwnerLocalOutputs(layout, threadsPerCTA, elementsPerCTA),
                 BuildShapeDomain("g", tensorShape, tensorShape.Rank),
-                [$"0<=cta && 0<=warp<{layout.WarpsPerCTA} && 0<=lane<{layout.ThreadsPerWarp} && 0<=elem<{layout.SizePerThread}"],
+                [ownerLocalDomain],
                 $"0<=lane<{layout.ThreadsPerWarp} && 0<=warp<{layout.WarpsPerCTA} && 0<=elem<{layout.SizePerThread}",
                 "OwnerLocalToGlobal"),
             new IndexMapDescriptor(
                 "OwnerLocalToGlobal",
                 ["cta", "warp", "lane", "elem"],
                 BuildTritonBlockedGlobalOutputs(layout, threadsPerCTA, elementsPerCTA),
-                [$"0<=cta && 0<=warp<{layout.WarpsPerCTA} && 0<=lane<{layout.ThreadsPerWarp} && 0<=elem<{layout.SizePerThread}"],
+                [ownerLocalDomain],
                 BuildShapeDomain("g", tensorShape, tensorShape.Rank),
                 $"0<=lane<{layout.ThreadsPerWarp} && 0<=warp<{layout.WarpsPerCTA} && 0<=elem<{layout.SizePerThread}",
                 "GlobalToOwnerLocal"),
@@ -889,6 +898,16 @@ public sealed record DistributionLayout(
         Enumerable.Range(0, placement.Rank).Select(axis => $"0<=owner{axis}<{placement.Hierarchy[axis]}")
             .Concat(Enumerable.Range(0, rank).Select(dim => $"0<=l{dim}<{FormatDimension(localShape[dim])}"))
             .ToArray();
+
+    private static long CeilDiv(long value, long divisor)
+    {
+        if (divisor <= 0)
+        {
+            throw new InvalidOperationException($"CeilDiv requires a positive divisor, got {divisor}.");
+        }
+
+        return (value + divisor - 1) / divisor;
+    }
 
     private static string FormatDimension(Dimension dimension) => dimension.IsFixed ? dimension.FixedValue.ToString(CultureInfo.InvariantCulture) : dimension.ToString();
 

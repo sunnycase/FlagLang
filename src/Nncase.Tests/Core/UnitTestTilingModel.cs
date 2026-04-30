@@ -4,6 +4,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Nncase.CodeGen.NTT;
 using Nncase.IR;
 using Nncase.IR.Affine;
 using Nncase.IR.Shapes;
@@ -307,6 +308,22 @@ public sealed class UnitTestTilingModel : TestClassBase
     }
 
     [Fact]
+    public void ExplicitDistributionLayoutVerifierRejectsReverseOwnerLocalAliasing()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(8));
+        var placement = new Placement([2], "t");
+        var invalidLayout = CreateExplicitSplitLayout(
+            tensorType.Shape,
+            ownerOutput: IndexExpr.Const(0),
+            localOutput: IndexExpr.Var("g0"),
+            globalOutput: IndexExpr.Var("l0"),
+            localExtent: 8);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => DistributedType.FromLayouts(tensorType, placement, invalidLayout));
+        Assert.Contains("reverse composition", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExplicitDistributionLayoutVerifierRejectsOwnerExpressionOutsidePlacement()
     {
         var tensorType = new TensorType(DataTypes.Float32, new RankedShape(256));
@@ -359,6 +376,54 @@ public sealed class UnitTestTilingModel : TestClassBase
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
         Assert.Contains("direct affine tiling", ex.Message, StringComparison.Ordinal);
         Assert.Contains("inverse composition", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NttShardingCodegenRejectsExplicitLayoutWithIncompatibleAxisPolicies()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(16));
+        var placement = new Placement([2], "t");
+        var explicitSplit = CreateExplicitSplitLayout(
+            tensorType.Shape,
+            ownerOutput: IndexExpr.FloorDiv(IndexExpr.Var("g0"), IndexExpr.Const(8)),
+            localOutput: IndexExpr.Mod(IndexExpr.Var("g0"), IndexExpr.Const(8)),
+            globalOutput: IndexExpr.Add(IndexExpr.Mul(IndexExpr.Var("owner0"), IndexExpr.Const(8)), IndexExpr.Var("l0")));
+        var distributedType = new DistributedType(
+            tensorType,
+            [SBP.B],
+            placement,
+            ExplicitDistributionLayout: explicitSplit,
+            ExplicitStorageLayout: StorageLayout.Identity(explicitSplit.LocalShape));
+
+        var ex = Assert.Throws<NotSupportedException>(() => KernelUtility.ShardingToC(distributedType));
+        Assert.Contains("NTT C++ sharding codegen", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("ExplicitSplit", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("AxisPolicies=(B)", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NttShardingCodegenRejectsExplicitTritonBlockedLayout()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(1024));
+        var layout = DistributionLayout.TritonBlocked(
+            tensorType.Shape,
+            new TritonBlockedLayout(
+                SizePerThread: 2,
+                ThreadsPerWarp: 32,
+                WarpsPerCTA: 4,
+                Order: [0],
+                CTAsPerCGA: [1],
+                CTASplitNum: [1],
+                CTAOrder: [0],
+                ThreadElementOrder: TritonThreadElementOrder.Strided));
+        var distributedType = DistributedType.FromLayouts(
+            tensorType,
+            new Placement([1, 4, 32], "cwl"),
+            layout);
+
+        var ex = Assert.Throws<NotSupportedException>(() => KernelUtility.ShardingToC(distributedType));
+        Assert.Contains("TritonBlocked", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("legacy AxisPolicies", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

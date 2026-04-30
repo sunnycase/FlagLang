@@ -132,12 +132,12 @@ public sealed class DirectAffineTilingPass : FunctionPass
                 resolvedPlacement = distributed.Placement;
             }
 
-            return storage.PhysicalLocation is PhysicalMemorySpace.Register && string.Equals(_moduleKind, "cuda", StringComparison.Ordinal)
-                ? GetCudaRegisterDistributionLayout(tensorType, layout, axisPolicies, resolvedPlacement, opKind)
+            return (storage.PhysicalLocation is PhysicalMemorySpace.Register or PhysicalMemorySpace.SMem) && string.Equals(_moduleKind, "cuda", StringComparison.Ordinal)
+                ? GetCudaThreadDistributedLayout(tensorType, layout, axisPolicies, resolvedPlacement, opKind)
                 : layout;
         }
 
-        private DistributionLayout GetCudaRegisterDistributionLayout(
+        private DistributionLayout GetCudaThreadDistributedLayout(
             TensorType tensorType,
             DistributionLayout layout,
             IRArray<SBP> axisPolicies,
@@ -151,29 +151,29 @@ public sealed class DirectAffineTilingPass : FunctionPass
 
             if (tensorType.Shape is not { IsUnranked: false, Rank: 1 } || !tensorType.Shape[0].IsFixed)
             {
-                throw new NotSupportedException($"{opKind} CUDA register tiling requires a fixed rank-1 distributed tile shape, got {tensorType.Shape}.");
+                throw new NotSupportedException($"{opKind} CUDA thread-distributed tiling requires a fixed rank-1 distributed tile shape, got {tensorType.Shape}.");
             }
 
             if (axisPolicies.Count != 1 || axisPolicies[0] is not SBPSplit { Axes: var splitAxes } || splitAxes.Count != 1 || splitAxes[0] != 0)
             {
-                throw new NotSupportedException($"{opKind} CUDA register tiling requires a rank-1 thread split policy S(0), got ({string.Join(',', axisPolicies)}).");
+                throw new NotSupportedException($"{opKind} CUDA thread-distributed tiling requires a rank-1 thread split policy S(0), got ({string.Join(',', axisPolicies)}).");
             }
 
             if (placement.Rank != 1 || placement.Name != "t")
             {
-                throw new NotSupportedException($"{opKind} CUDA register tiling requires a single thread placement [t:N], got {placement}.");
+                throw new NotSupportedException($"{opKind} CUDA thread-distributed tiling requires a single thread placement [t:N], got {placement}.");
             }
 
             var threadsPerCTA = placement.Hierarchy[0];
             if (threadsPerCTA <= 0 || threadsPerCTA % CudaWarpLanes != 0)
             {
-                throw new NotSupportedException($"{opKind} CUDA register tiling requires thread count to be a positive multiple of {CudaWarpLanes}, got {threadsPerCTA} in placement {placement}.");
+                throw new NotSupportedException($"{opKind} CUDA thread-distributed tiling requires thread count to be a positive multiple of {CudaWarpLanes}, got {threadsPerCTA} in placement {placement}.");
             }
 
             var blockExtent = tensorType.Shape[0].FixedValue;
             if (blockExtent % threadsPerCTA != 0)
             {
-                throw new NotSupportedException($"{opKind} CUDA register tiling requires block extent {blockExtent} to be divisible by thread count {threadsPerCTA}; add a masked uneven TritonBlocked owner map before enabling this shape.");
+                throw new NotSupportedException($"{opKind} CUDA thread-distributed tiling requires block extent {blockExtent} to be divisible by thread count {threadsPerCTA}; add a masked uneven TritonBlocked owner map before enabling this shape.");
             }
 
             var blocked = new TritonBlockedLayout(

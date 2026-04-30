@@ -46,6 +46,7 @@ public static class KernelUtility
     public static string ShardingToC(DistributedType distributedType)
     {
         LayoutVerifier.Verify(distributedType, "NTT C++ sharding codegen");
+        ValidateExplicitLayoutRepresentableBySbp(distributedType, "NTT C++ sharding codegen");
         var placement = distributedType.Placement;
         var ndSBP = distributedType.AxisPolicies;
 
@@ -73,6 +74,53 @@ public static class KernelUtility
 
         sb.Append(')');
         return sb.ToString();
+    }
+
+    private static void ValidateExplicitLayoutRepresentableBySbp(DistributedType distributedType, string context)
+    {
+        if (distributedType.ExplicitDistributionLayout is null)
+        {
+            return;
+        }
+
+        DistributionLayout sbpLayout;
+        try
+        {
+            sbpLayout = DistributionLayout.FromAxisPolicies(distributedType.TensorType, distributedType.AxisPolicies, distributedType.Placement);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
+        {
+            throw CreateExplicitLayoutCodegenException(distributedType, context, $"failed to derive SBP layout from AxisPolicies: {ex.Message}", ex);
+        }
+
+        if (!IsEquivalentSbpLayout(distributedType.ExplicitDistributionLayout, sbpLayout))
+        {
+            throw CreateExplicitLayoutCodegenException(distributedType, context, "explicit DistributionLayout is not exactly representable by the existing make_sharding(... SBP ...) codegen API");
+        }
+    }
+
+    private static bool IsEquivalentSbpLayout(DistributionLayout explicitLayout, DistributionLayout sbpLayout) =>
+        explicitLayout.Kind == "SBP" &&
+        explicitLayout.LocalShape == sbpLayout.LocalShape &&
+        explicitLayout.ValidPredicate == sbpLayout.ValidPredicate &&
+        MapsEqual(explicitLayout.GlobalToOwnerLocal, sbpLayout.GlobalToOwnerLocal) &&
+        MapsEqual(explicitLayout.OwnerLocalToGlobal, sbpLayout.OwnerLocalToGlobal);
+
+    private static bool MapsEqual(IndexMapDescriptor lhs, IndexMapDescriptor rhs) =>
+        lhs.Name == rhs.Name &&
+        lhs.Predicate == rhs.Predicate &&
+        lhs.Inverse == rhs.Inverse &&
+        lhs.Inputs.SequenceEqual(rhs.Inputs) &&
+        lhs.InputDomain.SequenceEqual(rhs.InputDomain) &&
+        lhs.OutputDomain.SequenceEqual(rhs.OutputDomain) &&
+        lhs.Outputs.Select(output => output.ToString()).SequenceEqual(rhs.Outputs.Select(output => output.ToString()));
+
+    private static NotSupportedException CreateExplicitLayoutCodegenException(DistributedType distributedType, string context, string reason, Exception? inner = null)
+    {
+        var axisPolicies = string.Join(',', distributedType.AxisPolicies);
+        return new NotSupportedException(
+            $"{context} cannot lower explicit DistributionLayout through legacy AxisPolicies sharding: {reason}. Layout={distributedType.DistributionLayout.Kind}, Shape={distributedType.TensorType.Shape}, Placement={distributedType.Placement}, AxisPolicies=({axisPolicies}).",
+            inner);
     }
 
     private static string DimensionsToC(string typeName, bool isFixed, ReadOnlySpan<CSymbol> dimensions, bool isType)
