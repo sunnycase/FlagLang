@@ -43,6 +43,17 @@ public class UnitTestEvaluatorTensors : TestClassBase
         Assert.Equal(expect, expr.Evaluate().AsTensor().ToArray<float>());
     }
 
+    [Fact]
+    public void BitcastRejectsNonDivisibleByteSize()
+    {
+        var input = new Var("input", new TensorType(DataTypes.Int8, new RankedShape(3)));
+        var bitcast = IR.F.Tensors.Bitcast(input, DataTypes.Int32);
+
+        Assert.False(CompilerServices.InferenceType(bitcast));
+        var invalidType = Assert.IsType<InvalidType>(bitcast.CheckedType);
+        Assert.Contains("requires the last dimension byte size 3 to be divisible by 4", invalidType.Reason, StringComparison.Ordinal);
+    }
+
     [Fact(Skip = "OnnxBug")]
     public void TestBinary()
     {

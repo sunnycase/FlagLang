@@ -47,6 +47,33 @@ public class BitcastEvaluator : IEvaluator<Bitcast>, ITypeInferencer<Bitcast>, I
         return new();
     }
 
+    private static bool TryScaleLastDimensionForBitcast(Dimension elementCount, int srcSize, int destSize, out Dimension scaledLastDim, out string reason)
+    {
+        scaledLastDim = Dimension.Unknown;
+        reason = string.Empty;
+        if (elementCount.IsFixed)
+        {
+            var totalBytes = checked(elementCount.FixedValue * srcSize);
+            if (totalBytes % destSize != 0)
+            {
+                reason = $"Bitcast from {srcSize}-byte elements to {destSize}-byte elements requires the last dimension byte size {totalBytes} to be divisible by {destSize}.";
+                return false;
+            }
+
+            scaledLastDim = totalBytes / destSize;
+            return true;
+        }
+
+        if (srcSize % destSize == 0)
+        {
+            scaledLastDim = elementCount * (srcSize / destSize);
+            return true;
+        }
+
+        reason = $"Bitcast from {srcSize}-byte elements to {destSize}-byte elements requires a statically divisible last dimension when widening element size.";
+        return false;
+    }
+
     private IRType Visit(Bitcast target, TensorType input)
     {
         if (input.Shape is not RankedShape rankedInShape)
@@ -60,13 +87,19 @@ public class BitcastEvaluator : IEvaluator<Bitcast>, ITypeInferencer<Bitcast>, I
 
         if (srcSize != destSize)
         {
-            if (newDimensions.Rank == 0)
+            var elementCount = newDimensions.Length == 0 ? Dimension.One : newDimensions[^1];
+            if (!TryScaleLastDimensionForBitcast(elementCount, srcSize, destSize, out var scaledLastDim, out var reason))
             {
-                newDimensions = [srcSize / destSize];
+                return new InvalidType(reason);
+            }
+
+            if (newDimensions.Length == 0)
+            {
+                newDimensions = [scaledLastDim];
             }
             else
             {
-                newDimensions[^1] = newDimensions[^1] * srcSize / destSize;
+                newDimensions[^1] = scaledLastDim;
             }
         }
 

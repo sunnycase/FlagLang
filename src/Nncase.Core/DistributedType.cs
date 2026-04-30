@@ -435,8 +435,8 @@ public static class LayoutVerifier
 
     private static void VerifyOwnerBounds(DistributionLayout layout, Placement placement, string context)
     {
-        var forwardOutputBounds = ParseDomainBounds(layout.GlobalToOwnerLocal.OutputDomain, $"{context} map {layout.GlobalToOwnerLocal.Name} output domain", failOnUnsupported: true);
-        var inverseInputBounds = ParseDomainBounds(layout.OwnerLocalToGlobal.InputDomain, $"{context} map {layout.OwnerLocalToGlobal.Name} input domain", failOnUnsupported: true);
+        var forwardOutputBounds = ParseDomainBounds(layout.GlobalToOwnerLocal.OutputDomain, $"{context} map {layout.GlobalToOwnerLocal.Name} output domain", failOnUnsupported: false);
+        var inverseInputBounds = ParseDomainBounds(layout.OwnerLocalToGlobal.InputDomain, $"{context} map {layout.OwnerLocalToGlobal.Name} input domain", failOnUnsupported: false);
         foreach (var owner in layout.GlobalToOwnerLocal.Outputs.Where(output => output.Name.StartsWith("owner", StringComparison.Ordinal)))
         {
             var ownerAxisText = owner.Name["owner".Length..];

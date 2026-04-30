@@ -3,6 +3,7 @@
 
 using System;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Nncase.CodeGen.NTT;
 using Nncase.IR;
@@ -339,6 +340,35 @@ public sealed class UnitTestTilingModel : TestClassBase
             new RankedShape(8));
 
         Assert.Throws<InvalidOperationException>(() => DistributedType.FromLayouts(tensorType, placement, invalidLayout));
+    }
+
+    [Fact]
+    public void ExplicitDistributionOwnerBoundsAllowSymbolicLocalDomains()
+    {
+        var localExtent = new DimVar("n");
+        localExtent.Metadata.Range = new(1, 1024);
+        var layout = new DistributionLayout(
+            "DynamicLocalOwnerBounds",
+            new IndexMapDescriptor(
+                "GlobalToOwnerLocal",
+                ["g0"],
+                [new IndexMapBinding("owner0", IndexExpr.FloorDiv(IndexExpr.Var("g0"), IndexExpr.Var("n"))), new IndexMapBinding("l0", IndexExpr.Mod(IndexExpr.Var("g0"), IndexExpr.Var("n")))],
+                ["0<=g0<N"],
+                ["0<=owner0<2", "0<=l0<n"],
+                Inverse: "OwnerLocalToGlobal"),
+            new IndexMapDescriptor(
+                "OwnerLocalToGlobal",
+                ["owner0", "l0"],
+                [new IndexMapBinding("g0", IndexExpr.Add(IndexExpr.Mul(IndexExpr.Var("owner0"), IndexExpr.Var("n")), IndexExpr.Var("l0")))],
+                ["0<=owner0<2", "0<=l0<n"],
+                ["0<=g0<N"],
+                Inverse: "GlobalToOwnerLocal"),
+            new RankedShape(localExtent));
+        var verifyOwnerBounds = typeof(LayoutVerifier).GetMethod("VerifyOwnerBounds", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        var ex = Record.Exception(() => verifyOwnerBounds.Invoke(null, new object[] { layout, new Placement([2], "t"), "unit test" }));
+
+        Assert.Null(ex);
     }
 
     [Fact]
