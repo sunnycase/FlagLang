@@ -318,8 +318,7 @@ public static class LayoutVerifier
 
     public static void VerifyEquivalentForBitcast(DistributedType input, DistributedType output, string context)
     {
-        Verify(input, $"{context} input");
-        Verify(output, $"{context} output");
+        VerifyBitcastLayout(input, output, input, context, "input");
 
         if (input.TensorType.DType.SizeInBytes != output.TensorType.DType.SizeInBytes)
         {
@@ -334,6 +333,8 @@ public static class LayoutVerifier
         {
             ThrowBitcastCompatibility(input, output, context, $"logical shapes differ: input={input.TensorType.Shape}, output={output.TensorType.Shape}");
         }
+
+        VerifyBitcastLayout(input, output, output, context, "output");
 
         if (GetViewCompatibilityReason(input, output) is { } reason)
         {
@@ -757,6 +758,18 @@ public static class LayoutVerifier
             $"InputDType={input.TensorType.DType}, OutputDType={output.TensorType.DType}, " +
             $"InputShape={input.TensorType.Shape}, OutputShape={output.TensorType.Shape}. " +
             $"Input={FormatDistributedTypeForView(input)}; Output={FormatDistributedTypeForView(output)}");
+
+    private static void VerifyBitcastLayout(DistributedType input, DistributedType output, DistributedType type, string context, string role)
+    {
+        try
+        {
+            Verify(type, $"{context} {role}");
+        }
+        catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
+        {
+            ThrowBitcastCompatibility(input, output, context, $"{role} layout verification failed: {ex.Message}");
+        }
+    }
 
     private static string? GetViewCompatibilityReason(DistributedType input, DistributedType output)
     {

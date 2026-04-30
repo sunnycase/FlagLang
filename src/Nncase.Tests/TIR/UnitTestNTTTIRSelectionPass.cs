@@ -310,6 +310,33 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
     }
 
     [Fact]
+    public async Task BitcastRejectsElementSizeChangingExplicitStorageOnlyLayoutWithBitcastDiagnostic()
+    {
+        var inputShape = new RankedShape(128);
+        var outputShape = new RankedShape(512);
+        var inputType = CreateExplicitStorageOnlySbpDistributedType(
+            inputShape,
+            DataTypes.Float32,
+            localShape => CreateReverseRegisterStorageLayout(localShape));
+        var outputType = CreateExplicitStorageOnlySbpDistributedType(
+            outputShape,
+            DataTypes.UInt8,
+            localShape => CreateReverseRegisterStorageLayout(localShape));
+        var inferredInput = new Var("inferred_input", inputType);
+        var inferredBitcast = Nncase.IR.F.Tensors.Bitcast(inferredInput, DataTypes.UInt8);
+        var inferredFunction = new Function("inferred", CUDATarget.Kind, new IRBlock(inferredBitcast, inferredInput));
+
+        Assert.False(CompilerServices.InferenceType(inferredFunction));
+        var invalidType = Assert.IsType<InvalidType>(inferredBitcast.CheckedType);
+        AssertBitcastDiagnostic(invalidType.Reason, "IR.Tensors.Bitcast");
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => RunBitcastSelectionAsync(CompileOptions, inputType, outputType));
+
+        AssertBitcastDiagnostic(ex.Message, "GenerateBitcast");
+    }
+
+    [Fact]
     public async Task RegisterDirectAffineLowersUnaryCastWhereWithoutAddressableIntermediates()
     {
         const int blockSize = 256;
@@ -725,6 +752,23 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
             ExplicitStorageLayout: storageLayoutFactory?.Invoke(distributionLayout.LocalShape) ?? StorageLayout.Identity(distributionLayout.LocalShape));
     }
 
+    private static DistributedType CreateExplicitStorageOnlySbpDistributedType(
+        Shape shape,
+        DataType dataType,
+        Func<Shape, StorageLayout> storageLayoutFactory)
+    {
+        var tensorType = new TensorType(dataType, shape);
+        var axisPolicies = new IRArray<SBP>(new SBP[] { SBP.S(0) });
+        var placement = new Placement([4], "t");
+        var distributionLayout = DistributionLayout.FromAxisPolicies(tensorType, axisPolicies, placement);
+
+        return new DistributedType(
+            tensorType,
+            axisPolicies,
+            placement,
+            ExplicitStorageLayout: storageLayoutFactory(distributionLayout.LocalShape));
+    }
+
     private static async Task<PrimFunction> RunReshapeSelectionAsync(CompileOptions compileOptions, DistributedType inputType, DistributedType outputType)
     {
         var input = new Var("input", inputType.TensorType);
@@ -747,6 +791,17 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         var function = new Function("main", CUDATarget.Kind, new IRBlock(bitcast, input));
 
         return Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(compileOptions, CUDATarget.Kind).RunAsync(function, new()));
+    }
+
+    private static void AssertBitcastDiagnostic(string message, string context)
+    {
+        Assert.Contains(context, message, StringComparison.Ordinal);
+        Assert.Contains("InputDType", message, StringComparison.Ordinal);
+        Assert.Contains("OutputDType", message, StringComparison.Ordinal);
+        Assert.Contains("InputShape", message, StringComparison.Ordinal);
+        Assert.Contains("OutputShape", message, StringComparison.Ordinal);
+        Assert.Contains("ReverseLocal", message, StringComparison.Ordinal);
+        Assert.Contains("element sizes differ", message, StringComparison.Ordinal);
     }
 
     private static Dimension GetSingleBufferIndex(Call bufferAccess, ParameterInfo indicesParameter)
