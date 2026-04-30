@@ -71,19 +71,33 @@ public enum MemoryLocation
 public sealed class PhysicalBuffer : BaseExpr
 {
     public PhysicalBuffer(int alignment, Dimension size, MemoryLocation location, int hierarchy = 0)
-        : base([None.Default, size])
+        : this(alignment, None.Default, size, location, hierarchy, BufferStorage.FromLegacy(location, hierarchy))
     {
-        Alignment = alignment;
-        Location = location;
-        Hierarchy = hierarchy;
     }
 
     public PhysicalBuffer(int alignment, Expr start, Dimension size, MemoryLocation location, int hierarchy = 0)
+        : this(alignment, start, size, location, hierarchy, BufferStorage.FromLegacy(location, hierarchy))
+    {
+    }
+
+    public PhysicalBuffer(int alignment, Dimension size, BufferStorage storage)
+        : this(alignment, None.Default, size, ToAddressableLegacyMemoryLocation(storage), storage.Hierarchy, storage with { Alignment = alignment })
+    {
+    }
+
+    public PhysicalBuffer(int alignment, Expr start, Dimension size, BufferStorage storage)
+        : this(alignment, start, size, ToAddressableLegacyMemoryLocation(storage), storage.Hierarchy, storage with { Alignment = alignment })
+    {
+    }
+
+    private PhysicalBuffer(int alignment, Expr start, Dimension size, MemoryLocation location, int hierarchy, BufferStorage storage)
         : base([start, size])
     {
+        storage.ValidateAddressable();
         Alignment = alignment;
         Location = location;
         Hierarchy = hierarchy;
+        Storage = storage.Alignment == alignment ? storage : storage with { Alignment = alignment };
     }
 
     /// <summary>
@@ -111,12 +125,32 @@ public sealed class PhysicalBuffer : BaseExpr
     /// </summary>
     public int Hierarchy { get; }
 
+    /// <summary>
+    /// Gets the orthogonal storage description.
+    /// </summary>
+    public BufferStorage Storage { get; }
+
     /// <inheritdoc/>
     public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context)
         => functor.VisitPhysicalBuffer(this, context);
 
-    public PhysicalBuffer With(int? alignment = null, Expr? start = null, Dimension? size = null, MemoryLocation? location = null, int? hierarchy = null) =>
-        new(alignment ?? Alignment, start ?? Start, size ?? Size, location ?? Location, hierarchy ?? Hierarchy);
+    public PhysicalBuffer With(int? alignment = null, Expr? start = null, Dimension? size = null, MemoryLocation? location = null, int? hierarchy = null, BufferStorage? storage = null)
+    {
+        var nextAlignment = alignment ?? Alignment;
+        var nextHierarchy = hierarchy ?? storage?.Hierarchy ?? Hierarchy;
+        var nextStorage = storage ?? (location.HasValue || hierarchy.HasValue
+            ? BufferStorage.FromLegacy(location ?? Location, nextHierarchy)
+            : Storage);
+        nextStorage = nextStorage with { Hierarchy = nextHierarchy, Alignment = nextAlignment };
+        var storageLocation = ToAddressableLegacyMemoryLocation(nextStorage);
+        var nextLocation = location ?? storageLocation;
+        if (storage is not null && location.HasValue && location.Value != storageLocation)
+        {
+            throw new InvalidOperationException($"Storage {nextStorage} maps to {storageLocation}, but requested legacy location {location.Value}.");
+        }
+
+        return new PhysicalBuffer(nextAlignment, start ?? Start, size ?? Size, nextLocation, nextHierarchy, nextStorage);
+    }
 
     /// <inheritdoc/>
     public override bool Equals(object? obj)
@@ -126,8 +160,14 @@ public sealed class PhysicalBuffer : BaseExpr
             return true;
         }
 
-        return obj is PhysicalBuffer other && GetHashCode() == other.GetHashCode() && Location == other.Location && Operands.SequenceEqual(other.Operands);
+        return obj is PhysicalBuffer other && GetHashCode() == other.GetHashCode() && Location == other.Location && Storage == other.Storage && Operands.SequenceEqual(other.Operands);
     }
 
-    protected override int GetHashCodeCore() => HashCode.Combine(Location, base.GetHashCodeCore());
+    protected override int GetHashCodeCore() => HashCode.Combine(Location, Storage, base.GetHashCodeCore());
+
+    private static MemoryLocation ToAddressableLegacyMemoryLocation(BufferStorage storage)
+    {
+        storage.ValidateAddressable();
+        return storage.ToLegacyMemoryLocation();
+    }
 }

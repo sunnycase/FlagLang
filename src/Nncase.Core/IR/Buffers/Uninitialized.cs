@@ -32,5 +32,7 @@ public sealed partial class Uninitialized : Op
     public override bool CanFoldConstCall => false;
 
     /// <inheritdoc/>
-    public override string DisplayProperty() => $"{DType.GetCSharpName()}, MemoryLocation.{MemoryLocation}, {NdSBP}, {Placement}";
+    public override string DisplayProperty() => $"{DType.GetCSharpName()}, MemoryLocation.{MemoryLocation}, Storage: {GetStorage()}, {NdSBP}, {Placement}";
+
+    public TIR.BufferStorage GetStorage() => TIR.BufferStorage.FromLegacy(MemoryLocation);
 }

@@ -41,6 +41,11 @@ public sealed class Buffer : Expr
     public MemSpan MemSpan => (MemSpan)Operands[0];
 
     /// <summary>
+    /// Gets the storage model of the backing physical buffer.
+    /// </summary>
+    public BufferStorage Storage => MemSpan.Buffer.Storage;
+
+    /// <summary>
     /// Gets the shape.
     /// </summary>
     public ReadOnlySpan<Dimension> Dimensions => SpanUtility.UnsafeCast<BaseExpr, Dimension>(Operands[1..(1 + Rank)]);

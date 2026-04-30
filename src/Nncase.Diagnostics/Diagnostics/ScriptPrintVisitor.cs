@@ -288,7 +288,7 @@ internal sealed class ScriptPrintVisitor : ExprFunctor<IPrintSymbol, string>
         var start = Visit(expr.Start);
         var size = Visit(expr.Size);
         _scope.Push();
-        _scope.Append($"PhysicalBuffer({start}, {size})@<{expr.Hierarchy}, {expr.Location}>");
+        _scope.Append($"PhysicalBuffer({start}, {size})@<{expr.Hierarchy}, {expr.Location}, {expr.Storage}>");
         doc = new(_scope.Pop().ToString());
         _exprMemo.Add(expr, doc);
         return doc;
