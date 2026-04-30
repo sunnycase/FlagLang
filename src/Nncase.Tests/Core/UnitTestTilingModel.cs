@@ -665,7 +665,7 @@ public sealed class UnitTestTilingModel : TestClassBase
     }
 
     [Fact]
-    public async Task DirectAffineTilingPassRejectsMismatchedOwnershipPolicy()
+    public async Task DirectAffineTilingPassNormalizesBroadcastPolicyForCudaThreadTile()
     {
         const int blockSize = 1024;
         var lhs = new Var("lhs", TensorType.Pointer(DataTypes.Float32));
@@ -684,9 +684,11 @@ public sealed class UnitTestTilingModel : TestClassBase
         var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, dest));
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
 
-        var ex = await Assert.ThrowsAsync<NotSupportedException>(
-            () => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
-        Assert.Contains("rank-1 thread split policy", ex.Message, StringComparison.Ordinal);
+        _ = await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new());
+
+        Assert.True(TileDecisionMetadata.TryGet(tile, out var decision));
+        Assert.Equal("TritonBlocked", decision.DistributionLayout!.Kind);
+        Assert.Equal(new long[] { 8 }, decision.TileShape.ToValueArray());
     }
 
     [Fact]

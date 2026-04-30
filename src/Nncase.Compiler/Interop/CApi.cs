@@ -114,6 +114,7 @@ public unsafe struct CApiMT
 
     public delegate* unmanaged<IntPtr, IntPtr, IntPtr> Tensors_BroadcastPtr;
     public delegate* unmanaged<IntPtr, IntPtr, IntPtr, IntPtr> Tensors_RangePtr;
+    public delegate* unmanaged<IntPtr, IntPtr, IntPtr> Tensors_UnsqueezePtr;
 
     public delegate* unmanaged<IntPtr*, nuint, IntPtr> TIR_ReturnPtr;
 
@@ -231,6 +232,7 @@ public static unsafe partial class CApi
 
         mt->Tensors_BroadcastPtr = &Tensors_Broadcast;
         mt->Tensors_RangePtr = &Tensors_Range;
+        mt->Tensors_UnsqueezePtr = &Tensors_Unsqueeze;
 
         mt->TIR_ReturnPtr = &TIR_Return;
 

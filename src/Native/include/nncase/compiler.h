@@ -352,6 +352,8 @@ typedef struct {
     clr_object_handle_t (*tensors_range)(clr_object_handle_t begin,
                                          clr_object_handle_t end,
                                          clr_object_handle_t step);
+    clr_object_handle_t (*tensors_unsqueeze)(clr_object_handle_t value,
+                                             clr_object_handle_t dims);
 
     clr_object_handle_t (*tir_return)(const clr_object_handle_t *value_ptrs,
                                       size_t value_count);
@@ -849,6 +851,11 @@ struct ir_builder {
         static expr range(expr begin, expr end, expr step) {
             return {std::in_place, nncase_clr_api()->tensors_range(
                                        begin.get(), end.get(), step.get())};
+        }
+
+        static expr unsqueeze(expr value, clr::shape dims) {
+            return {std::in_place, nncase_clr_api()->tensors_unsqueeze(
+                                       value.get(), dims.get())};
         }
     };
 

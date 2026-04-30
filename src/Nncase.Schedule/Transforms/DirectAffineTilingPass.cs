@@ -154,7 +154,8 @@ public sealed class DirectAffineTilingPass : FunctionPass
                 throw new NotSupportedException($"{opKind} CUDA thread-distributed tiling requires a fixed rank-1 distributed tile shape, got {tensorType.Shape}.");
             }
 
-            if (axisPolicies.Count != 1 || axisPolicies[0] is not SBPSplit { Axes: var splitAxes } || splitAxes.Count != 1 || splitAxes[0] != 0)
+            var threadAxisPolicies = NormalizeCudaThreadAxisPolicies(axisPolicies);
+            if (threadAxisPolicies.Count != 1 || threadAxisPolicies[0] is not SBPSplit { Axes: var splitAxes } || splitAxes.Count != 1 || splitAxes[0] != 0)
             {
                 throw new NotSupportedException($"{opKind} CUDA thread-distributed tiling requires a rank-1 thread split policy S(0), got ({string.Join(',', axisPolicies)}).");
             }
@@ -186,6 +187,16 @@ public sealed class DirectAffineTilingPass : FunctionPass
                 CTAOrder: [0],
                 ThreadElementOrder: TritonThreadElementOrder.Strided);
             return DistributionLayout.TritonBlocked(tensorType.Shape, blocked);
+        }
+
+        private IRArray<SBP> NormalizeCudaThreadAxisPolicies(IRArray<SBP> axisPolicies)
+        {
+            if (axisPolicies.Count == 1 && axisPolicies[0] is SBPBroadCast)
+            {
+                return new IRArray<SBP>(new SBP[] { SBP.S(0) });
+            }
+
+            return axisPolicies;
         }
 
         private TensorType GetTensorType(IRType type, string opKind) => type switch

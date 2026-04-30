@@ -486,6 +486,7 @@ void nncase::init_triton_ir(py::module &&m) {
         .def("to_text", &clr::expr::to_text)
         .def("get_loc", &clr::expr::get_location)
         .def("set_loc", &clr::expr::set_location);
+    m.attr("value") = m.attr("expr");
 
     py::class_<clr::dimension, clr::expr>(m, "dimension");
     py::class_<clr::program_id_dim, clr::dimension>(m, "program_id_dim");
@@ -677,6 +678,18 @@ void nncase::init_triton_ir(py::module &&m) {
              [](triton_op_builder &, double value) {
                  return clr::tensor_const::scalar_float64(value);
              })
+        .def("get_null_value",
+             [](triton_op_builder &self, clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     clr::tensor_const::scalar(0), target_type,
+                     nncase_cast_default));
+             })
+        .def("get_all_ones_value",
+             [](triton_op_builder &self, clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     clr::tensor_const::scalar(static_cast<int64_t>(-1)),
+                     target_type, nncase_cast_default));
+             })
 
         // Ops
         .def("get_or_insert_function",
@@ -706,6 +719,18 @@ void nncase::init_triton_ir(py::module &&m) {
                      clr::tensor_const::scalar(end),
                      clr::tensor_const::scalar(1)));
              })
+        .def("create_expand_dims",
+             [](triton_op_builder &self, clr::expr value, int axis) {
+                 std::vector<int64_t> dims{axis};
+                 return self.insert_expr(clr::ir_builder::tensors::unsqueeze(
+                     value, clr::shape::fixed(dims)));
+             })
+        .def("create_broadcast",
+             [](triton_op_builder &self, clr::expr value,
+                std::vector<int64_t> shape) {
+                 return self.insert_expr(clr::ir_builder::tensors::broadcast(
+                     value, clr::shape::fixed(shape)));
+             })
 
         // Built-in instruction
         .def("create_get_program_id",
@@ -724,6 +749,67 @@ void nncase::init_triton_ir(py::module &&m) {
                 clr::ir_type target_type, [[maybe_unused]] bool isSigned) {
                  return self.insert_expr(clr::ir_builder::cast(
                      value, target_type, nncase_cast_default));
+             })
+        .def("create_fp_to_fp",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type,
+                [[maybe_unused]] py::object rounding_mode) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_default));
+             })
+        .def("create_fp_trunc",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_default));
+             })
+        .def("create_fp_ext",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_default));
+             })
+        .def("create_fp_to_si",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_default));
+             })
+        .def("create_fp_to_ui",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_default));
+             })
+        .def("create_si_to_fp",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_default));
+             })
+        .def("create_ui_to_fp",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_default));
+             })
+        .def("create_ptr_to_int",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_reinterpret));
+             })
+        .def("create_int_to_ptr",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_reinterpret));
+             })
+        .def("create_bitcast",
+             [](triton_op_builder &self, clr::expr value,
+                clr::ir_type target_type) {
+                 return self.insert_expr(clr::ir_builder::cast(
+                     value, target_type, nncase_cast_reinterpret));
              })
         .def("create_fmul",
              [](triton_op_builder &self, clr::expr a, clr::expr b) {

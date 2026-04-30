@@ -342,6 +342,15 @@ public static unsafe partial class CApi
     }
 
     [UnmanagedCallersOnly]
+    private static IntPtr Tensors_Unsqueeze(IntPtr valuePtr, IntPtr dimsPtr)
+    {
+        var value = Get<IR.Expr>(valuePtr);
+        var dims = Get<IR.Shape>(dimsPtr);
+        var unsqueezed = IR.F.Tensors.Unsqueeze(value, dims);
+        return GCHandle.ToIntPtr(GCHandle.Alloc(unsqueezed));
+    }
+
+    [UnmanagedCallersOnly]
     private static IntPtr TIR_Return(IntPtr* valuePtrs, nuint valueCount)
     {
         var values = new IR.Expr[valueCount];
