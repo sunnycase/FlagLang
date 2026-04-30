@@ -106,6 +106,16 @@ public sealed class NTTTargetOptionsCommand : Command
             AllowMultipleArgumentsPerToken = true,
         };
         Add(MemoryBandWidthsOption);
+        RegisterTileBudgetBytesOption = new Option<long>(
+            name: "--register-tile-budget-bytes",
+            description: "Maximum bytes allowed for one thread-local register tile.",
+            getDefaultValue: () => 4096L);
+        Add(RegisterTileBudgetBytesOption);
+        SharedMemoryTileBudgetBytesOption = new Option<long>(
+            name: "--shared-memory-tile-budget-bytes",
+            description: "Maximum bytes allowed for one block-local shared-memory tile.",
+            getDefaultValue: () => 49152L);
+        Add(SharedMemoryTileBudgetBytesOption);
         DistributedSchemeOption = new Option<string>(
             name: "--distributed--scheme",
             description: "the distributed scheme path.",
@@ -144,6 +154,10 @@ public sealed class NTTTargetOptionsCommand : Command
 
     public Option<IEnumerable<int>> MemoryBandWidthsOption { get; }
 
+    public Option<long> RegisterTileBudgetBytesOption { get; }
+
+    public Option<long> SharedMemoryTileBudgetBytesOption { get; }
+
     public Option<string> DistributedSchemeOption { get; }
 
     public Option<string> CustomOpSchemeOption { get; }
@@ -175,6 +189,8 @@ public sealed class NTTTargetOptionsBinder
             HierarchyBandWidths = context.ParseResult.GetValueForOption(_cmd.HierarchyBandWidthsOption)!.ToArray(),
             MemoryCapacities = context.ParseResult.GetValueForOption(_cmd.MemoryCapacitiesOption)!.ToArray(),
             MemoryBandWidths = context.ParseResult.GetValueForOption(_cmd.MemoryBandWidthsOption)!.ToArray(),
+            RegisterTileBudgetBytes = context.ParseResult.GetValueForOption(_cmd.RegisterTileBudgetBytesOption)!,
+            SharedMemoryTileBudgetBytes = context.ParseResult.GetValueForOption(_cmd.SharedMemoryTileBudgetBytesOption)!,
             DistributedScheme = context.ParseResult.GetValueForOption(_cmd.DistributedSchemeOption)!,
             CustomOpScheme = context.ParseResult.GetValueForOption(_cmd.CustomOpSchemeOption)!,
         };

@@ -2100,6 +2100,7 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         Assert.Equal(expected, evalSecond.ToArray<float>());
         Assert.Equal(expected, rtFirst.ToArray<float>());
         Assert.Equal(expected, rtSecond.ToArray<float>());
+        AssertBlockLocalSmemArtifacts(Path.Join(CompileOptions.DumpDir, nameof(TestBlockLocalSmemSharedAffineGatherMicroKernel), "Case0"));
     }
 
     internal async Task RunCases(string dumpDir, Dictionary<IVar, IValue> feedDict, IEnumerable<BaseExpr> posts, Dictionary<IVar, IValue>? feedDictRT = null, bool enableAutoDist = true)
@@ -2209,6 +2210,76 @@ public sealed class UnitTestCUDAKernels : TestClassBase
             var cos = Comparator.CosSimilarity(outputs[i], actuals[i]);
             Assert.True(cos > 0.999, $"the {Diagnostics.DumpScope.Current.Directory} output {i} cos: {cos} ");
         }
+    }
+
+    private static void AssertBlockLocalSmemArtifacts(string caseDumpDir)
+    {
+        Assert.True(Directory.Exists(caseDumpDir), $"Missing CUDA smem microkernel dump directory: {caseDumpDir}");
+
+        var threadMain = ReadRequiredDumpFile(Path.Join(caseDumpDir, "CodeGen", "cuda", "thread_main.cu"));
+        var mainPrim = ReadRequiredDumpFile(Path.Join(caseDumpDir, "CodeGen", "cuda", "main_prim.h"));
+        var ptx = ReadRequiredDumpFile(Path.Join(caseDumpDir, "CodeGen", "cuda", "build", "thread_main.ptx"));
+        var decisions = ReadRequiredUniqueDumpFile(caseDumpDir, "direct-affine-decisions.md");
+        var blockLocalSchedule = ReadRequiredUniqueDumpFile(caseDumpDir, "BlockLocalData.py");
+
+        AssertContains("__shared__", threadMain.Text, threadMain.Path);
+        AssertContains("flaglang_block_local_data_storage[512]", threadMain.Text, threadMain.Path);
+        AssertDoesNotContain("flaglang_thread_local_data_storage[512]", threadMain.Text, threadMain.Path);
+
+        AssertContains("topology_synchronize<ntt::distributed::topology::thread>", mainPrim.Text, mainPrim.Path);
+        Assert.True(
+            CountOccurrences(mainPrim.Text, "ntt::span<std::byte, 512>(block_local_data") >= 3,
+            $"Expected {mainPrim.Path} to load the reused tile from block-local storage for both consumers.");
+        AssertDoesNotContain("ntt::span<std::byte, 512>(thread_local_data", mainPrim.Text, mainPrim.Path);
+
+        AssertContains(".shared", ptx.Text, ptx.Path);
+        AssertContains("st.shared", ptx.Text, ptx.Path);
+        AssertContains("ld.shared", ptx.Text, ptx.Path);
+
+        AssertContains("Location=SMem", decisions.Text, decisions.Path);
+        AssertContains("requires_sync: True", decisions.Text, decisions.Path);
+        AssertContains("capacity: requested=512, budget=49152, source=target-options:SharedMemoryTileBudgetBytes", decisions.Text, decisions.Path);
+        AssertContains("telemetry: reuse_count=2, estimated_traffic_bytes=1024, register_bytes=0, smem_bytes=512, allocation_slot=smem-lifetime-slot[0,2]", decisions.Text, decisions.Path);
+        AssertDoesNotContain("Location=LocalAddressable", decisions.Text, decisions.Path);
+
+        AssertContains("ScheduledBuffer('smem_tile_0'", blockLocalSchedule.Text, blockLocalSchedule.Path);
+        AssertContains("Interval(0, 512)", blockLocalSchedule.Text, blockLocalSchedule.Path);
+    }
+
+    private static (string Path, string Text) ReadRequiredDumpFile(string path)
+    {
+        Assert.True(File.Exists(path), $"Missing expected dump artifact: {path}");
+        return (path, File.ReadAllText(path));
+    }
+
+    private static (string Path, string Text) ReadRequiredUniqueDumpFile(string caseDumpDir, string fileName)
+    {
+        var matches = Directory.GetFiles(caseDumpDir, fileName, SearchOption.AllDirectories);
+        var path = Assert.Single(matches);
+        return (path, File.ReadAllText(path));
+    }
+
+    private static void AssertContains(string expected, string actual, string artifactPath)
+    {
+        Assert.True(actual.Contains(expected, StringComparison.Ordinal), $"Expected {artifactPath} to contain `{expected}`.");
+    }
+
+    private static void AssertDoesNotContain(string unexpected, string actual, string artifactPath)
+    {
+        Assert.True(!actual.Contains(unexpected, StringComparison.Ordinal), $"Expected {artifactPath} not to contain `{unexpected}`.");
+    }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+
+        return count;
     }
 
     private static bool ContainsTritonIO(BaseExpr expr)

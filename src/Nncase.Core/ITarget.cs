@@ -63,6 +63,10 @@ public interface INTTTargetOptions : ITargetOptions
 
     int[] MemoryBandWidths { get; set; }
 
+    long RegisterTileBudgetBytes { get; set; }
+
+    long SharedMemoryTileBudgetBytes { get; set; }
+
     string DistributedScheme { get; set; }
 
     string CustomOpScheme { get; set; }

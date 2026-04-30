@@ -23,6 +23,11 @@ namespace Nncase.Tests.TIRTest;
 [AutoSetupTestMethod(InitSession = true)]
 public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
 {
+    public UnitTestNTTTIRSelectionPass()
+    {
+        CompileOptions.TargetOptions = new NTTTargetOptions();
+    }
+
     [Fact]
     public async Task BroadcastSelectsNttExpandKernel()
     {
@@ -62,7 +67,7 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         var function = new Function("main", CUDATarget.Kind, new IRBlock(body, lhs, rhs, dest));
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
 
-        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new()));
+        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
         var lowered = Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(tiled, new()));
         var fields = lowered.Body.Fields.ToArray();
         var allExprs = ExprCollector.Collect(lowered.Body).ToArray();
@@ -77,6 +82,99 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         Assert.Contains(calls, call => call.Target is Nncase.TIR.Store);
         var ret = Assert.IsType<Return>(fields[^1]);
         Assert.Empty(ret.Values.ToArray());
+    }
+
+    [Fact]
+    public async Task RegisterDirectAffineLowersAllIndependentScattersInBlockOrder()
+    {
+        const int blockSize = 256;
+        var lhs0 = new Var("lhs0", TensorType.Pointer(DataTypes.Float32));
+        var rhs0 = new Var("rhs0", TensorType.Pointer(DataTypes.Float32));
+        var dest0 = new Var("dest0", TensorType.Pointer(DataTypes.Float32));
+        var lhs1 = new Var("lhs1", TensorType.Pointer(DataTypes.Float32));
+        var rhs1 = new Var("rhs1", TensorType.Pointer(DataTypes.Float32));
+        var dest1 = new Var("dest1", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var left0 = Nncase.IR.F.Affine.Gather(lhs0, relation, symbols, shape, None.Default);
+        var right0 = Nncase.IR.F.Affine.Gather(rhs0, relation, symbols, shape, None.Default);
+        var scatter0 = Nncase.IR.F.Affine.Scatter(left0 + right0, dest0, relation, symbols);
+        var left1 = Nncase.IR.F.Affine.Gather(lhs1, relation, symbols, shape, None.Default);
+        var right1 = Nncase.IR.F.Affine.Gather(rhs1, relation, symbols, shape, None.Default);
+        var scatter1 = Nncase.IR.F.Affine.Scatter(left1 + right1, dest1, relation, symbols);
+        var body = new Sequential(new Expr[] { left0, right0, scatter0, left1, right1, scatter1 });
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(body, lhs0, rhs0, dest0, lhs1, rhs1, dest1));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        var lowered = Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(tiled, new()));
+        var fields = lowered.Body.Fields.ToArray();
+        var calls = ExprCollector.Collect(lowered.Body).OfType<Call>().ToArray();
+
+        Assert.Equal(2, fields.OfType<Nncase.TIR.For>().Count());
+        Assert.Equal(2, calls.Count(call => call.Target is Nncase.TIR.Store));
+        Assert.IsType<Return>(fields[^1]);
+    }
+
+    [Fact]
+    public async Task RegisterDirectAffineRejectsUnrelatedSideEffectField()
+    {
+        const int blockSize = 256;
+        var lhs = new Var("lhs", TensorType.Pointer(DataTypes.Float32));
+        var rhs = new Var("rhs", TensorType.Pointer(DataTypes.Float32));
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var left = Nncase.IR.F.Affine.Gather(lhs, relation, symbols, shape, None.Default);
+        var right = Nncase.IR.F.Affine.Gather(rhs, relation, symbols, shape, None.Default);
+        var scatter = Nncase.IR.F.Affine.Scatter(left + right, dest, relation, symbols);
+        var unrelatedStore = T.Store(dest, Dimension.Zero, Tensor.FromScalar(0f));
+        var body = new Sequential(new Expr[] { unrelatedStore, left, right, scatter });
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(body, lhs, rhs, dest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(tiled, new()));
+        Assert.Contains("cannot preserve unrelated field", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RegisterDirectAffineRejectsMaskedGatherDefaultValue()
+    {
+        const int blockSize = 256;
+        var lhs = new Var("lhs", TensorType.Pointer(DataTypes.Float32));
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var defaultValue = Const.FromTensor(Tensor.Zeros(DataTypes.Float32, new long[] { blockSize }));
+        var left = Nncase.IR.F.Affine.Gather(lhs, relation, symbols, shape, defaultValue);
+        var scatter = Nncase.IR.F.Affine.Scatter(left, dest, relation, symbols);
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, dest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(tiled, new()));
+        Assert.Contains("default is None", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -104,7 +202,7 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         var function = new Function("main", CUDATarget.Kind, new IRBlock(body, input, cond, rhs, whereDest));
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
 
-        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new()));
+        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
         var lowered = Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(tiled, new()));
 
         AssertRegisterDirectAffineLowering(lowered);
@@ -136,7 +234,7 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, rhs, dest));
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
 
-        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new()));
+        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
         var lowered = Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(tiled, new()));
         var printed = CompilerServices.Print(lowered, PrinterFlags.Script);
 
@@ -169,7 +267,7 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         var function = new Function("main", CUDATarget.Kind, new IRBlock(body, source, firstDest, secondDest));
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
 
-        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new()));
+        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
         Assert.True(TileDecisionMetadata.TryGet(tile, out var decision));
         Assert.Equal(BufferScope.BlockLocal, decision.Storage.Scope);
         Assert.Equal(PhysicalMemorySpace.SMem, decision.Storage.PhysicalLocation);

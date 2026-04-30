@@ -88,6 +88,16 @@ public class NTTTargetOptions : INTTTargetOptions
     [CommandLine.AllowMultiplePerToken]
     public int[] MemoryBandWidths { get; set; } = new[] { 64, 8 };
 
+    [DisplayName("--register-tile-budget-bytes")]
+    [Description("Maximum bytes allowed for one thread-local register tile.")]
+    [DefaultValue(4096L)]
+    public long RegisterTileBudgetBytes { get; set; } = 4096L;
+
+    [DisplayName("--shared-memory-tile-budget-bytes")]
+    [Description("Maximum bytes allowed for one block-local shared-memory tile.")]
+    [DefaultValue(49152L)]
+    public long SharedMemoryTileBudgetBytes { get; set; } = 49152L;
+
     [DisplayName("--distributed--scheme")]
     [Description("the distributed scheme path.")]
     [DefaultValue("")]

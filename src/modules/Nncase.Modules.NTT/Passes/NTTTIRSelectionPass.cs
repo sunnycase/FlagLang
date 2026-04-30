@@ -422,53 +422,102 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
     {
         body = null!;
         var blockBody = UnwrapNestedBlock(block.Body);
-        var fields = GetBlockFields(blockBody);
+        var fields = GetRegisterBlockFields(blockBody);
         if (fields.Length == 0)
         {
             return false;
         }
 
-        var scatterCall = blockBody is Call { Target: IR.Affine.Scatter } rootScatter
-            ? rootScatter
-            : fields.OfType<Call>().LastOrDefault(call => call.Target is IR.Affine.Scatter);
-        if (scatterCall is null)
+        var lowerings = new List<RegisterScatterLowering>();
+        foreach (var field in fields)
+        {
+            if (TryBuildRegisterScatterLowering(field, out var lowering))
+            {
+                lowerings.Add(lowering);
+            }
+        }
+
+        if (lowerings.Count == 0)
         {
             return false;
         }
 
-        if (!TileDecisionMetadata.TryGet(scatterCall, out var scatterDecision) ||
-            scatterDecision.Storage.PhysicalLocation is not PhysicalMemorySpace.Register)
+        var covered = new HashSet<BaseExpr>(ReferenceEqualityComparer.Instance);
+        foreach (var lowering in lowerings)
+        {
+            covered.Add(lowering.ScatterCall);
+            foreach (var expr in lowering.CoveredCalls)
+            {
+                covered.Add(expr);
+            }
+        }
+
+        foreach (var field in fields)
+        {
+            if (!IsCoveredRegisterBlockField(field, covered))
+            {
+                throw new NotSupportedException($"Register direct affine block lowering cannot preserve unrelated field {field.GetType().Name}. Split the block or add a supported lowering for this field.");
+            }
+        }
+
+        var lowered = lowerings.Select(BuildRegisterScatterLoop).Append(T.Return()).ToArray();
+        body = new Sequential(lowered);
+        return true;
+    }
+
+    private bool TryBuildRegisterScatterLowering(Expr field, [MaybeNullWhen(false)] out RegisterScatterLowering lowering)
+    {
+        lowering = null;
+        if (field is not Call { Target: IR.Affine.Scatter scatter } scatterCall)
         {
             return false;
         }
 
-        if (scatterCall.Target is not IR.Affine.Scatter scatter)
+        if (!TileDecisionMetadata.TryGet(scatterCall, out var scatterDecision))
+        {
+            return false;
+        }
+
+        if (scatterDecision.Storage.PhysicalLocation is not PhysicalMemorySpace.Register)
         {
             return false;
         }
 
         var source = (Expr)scatterCall[IR.Affine.Scatter.Source];
         var gatherCalls = new List<Call>();
-        if (!TryCollectRegisterGathers(source, gatherCalls, new HashSet<BaseExpr>(ReferenceEqualityComparer.Instance)) ||
+        var coveredCalls = new List<Call>();
+        if (!TryCollectRegisterChain(source, coveredCalls, gatherCalls, new HashSet<BaseExpr>(ReferenceEqualityComparer.Instance)) ||
             gatherCalls.Count == 0)
         {
             throw new InvalidOperationException($"Register direct affine scatter requires a supported fused elementwise producer, got {source.GetType().Name}.");
         }
 
         ValidateRegisterAffineChain(scatterCall, scatter, gatherCalls, scatterDecision);
-
-        var sourceType = GetRegisterChainDistributedType(source, gatherCalls);
-        var globalExtent = sourceType?.TensorType.Shape[0] ?? scatterDecision.TileShape[0];
-        var tileExtent = scatterDecision.TileShape[0];
-        var symbolMap = BuildSymbolMap(scatter.Relation, scatter.Symbols);
-        var dest = (Expr)scatterCall[IR.Affine.Scatter.Dest];
-
-        var loop = T.Serial(out var lane, new TIR.Range(Dimension.Zero, tileExtent, Dimension.One), "d0")
-            .Body(BuildRegisterStoreBody(source, scatter, scatterDecision, sourceType, globalExtent, symbolMap, dest, lane))
-            .Build();
-
-        body = new Sequential(new Expr[] { loop, T.Return() });
+        lowering = new RegisterScatterLowering(scatterCall, scatter, scatterDecision, source, gatherCalls, coveredCalls);
         return true;
+    }
+
+    private Expr BuildRegisterScatterLoop(RegisterScatterLowering lowering)
+    {
+        var sourceType = GetRegisterChainDistributedType(lowering.Source, lowering.GatherCalls);
+        var globalExtent = sourceType?.TensorType.Shape[0] ?? lowering.Decision.TileShape[0];
+        var tileExtent = lowering.Decision.TileShape[0];
+        var symbolMap = BuildSymbolMap(lowering.Scatter.Relation, lowering.Scatter.Symbols);
+        var dest = (Expr)lowering.ScatterCall[IR.Affine.Scatter.Dest];
+        return T.Serial(out var lane, new TIR.Range(Dimension.Zero, tileExtent, Dimension.One), "d0")
+            .Body(BuildRegisterStoreBody(lowering.Source, lowering.Scatter, lowering.Decision, sourceType, globalExtent, symbolMap, dest, lane))
+            .Build();
+    }
+
+    private bool IsCoveredRegisterBlockField(Expr field, ISet<BaseExpr> covered)
+    {
+        if (covered.Contains(field))
+        {
+            return true;
+        }
+
+        var calls = ExprCollector.Collect(field).OfType<Call>().ToArray();
+        return calls.Length > 0 && calls.All(covered.Contains);
     }
 
     private Expr BuildRegisterStoreBody(
@@ -492,7 +541,7 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             : T.If(EvaluateConstraint(scatter.Relation.Constraint, domainValues)).Then(store).Build();
     }
 
-    private bool TryCollectRegisterGathers(Expr expr, List<Call> gatherCalls, ISet<BaseExpr> visited)
+    private bool TryCollectRegisterChain(Expr expr, List<Call> coveredCalls, List<Call> gatherCalls, ISet<BaseExpr> visited)
     {
         if (expr is TensorConst { CheckedType: TensorType { IsScalar: true } })
         {
@@ -514,12 +563,19 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             case IR.Affine.Gather:
                 RequireRegisterDecision(call, "register direct affine gather");
                 gatherCalls.Add(call);
+                coveredCalls.Add(call);
                 return true;
             case IR.Math.Unary:
             case IR.Math.Binary:
             case IR.Tensors.Cast:
                 RequireRegisterDecision(call, "register direct affine elementwise producer");
-                return call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectRegisterGathers(arg, gatherCalls, visited));
+                if (!call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectRegisterChain(arg, coveredCalls, gatherCalls, visited)))
+                {
+                    return false;
+                }
+
+                coveredCalls.Add(call);
+                return true;
             case IR.Tensors.Where where:
                 if (where.IsTfWhere)
                 {
@@ -527,11 +583,23 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
                 }
 
                 RequireRegisterDecision(call, "register direct affine where producer");
-                return call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectRegisterGathers(arg, gatherCalls, visited));
+                if (!call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectRegisterChain(arg, coveredCalls, gatherCalls, visited)))
+                {
+                    return false;
+                }
+
+                coveredCalls.Add(call);
+                return true;
             case PrimFunctionWrapper { Target: PrimFunction primFunction }:
                 RequireRegisterDecision(call, "register direct affine prim wrapper producer");
                 _ = GetPrimWrapperBinaryOp(primFunction);
-                return call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectRegisterGathers(arg, gatherCalls, visited));
+                if (!call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectRegisterChain(arg, coveredCalls, gatherCalls, visited)))
+                {
+                    return false;
+                }
+
+                coveredCalls.Add(call);
+                return true;
             default:
                 return false;
         }
@@ -655,14 +723,15 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         return body;
     }
 
-    private Expr[] GetBlockFields(BaseExpr body)
+    private Expr[] GetRegisterBlockFields(BaseExpr body)
     {
-        if (body is Sequential sequential)
+        return body switch
         {
-            return sequential.Fields.ToArray();
-        }
-
-        return ExprCollector.Collect(body).OfType<Expr>().ToArray();
+            Sequential sequential => sequential.Fields.ToArray(),
+            IR.Tuple tuple => tuple.Fields.ToArray().Select(field => (Expr)field).ToArray(),
+            Expr expr => [expr],
+            _ => throw new NotSupportedException($"Register direct affine lowering requires an expression block, got {body.GetType().Name}."),
+        };
     }
 
     private DistributedType? GetRegisterChainDistributedType(Expr source, IReadOnlyList<Call> gatherCalls)
@@ -1385,4 +1454,12 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         newCall = null;
         return false;
     }
+
+    private sealed record RegisterScatterLowering(
+        Call ScatterCall,
+        IR.Affine.Scatter Scatter,
+        TileDecision Decision,
+        Expr Source,
+        IReadOnlyList<Call> GatherCalls,
+        IReadOnlyList<Call> CoveredCalls);
 }

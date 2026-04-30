@@ -214,6 +214,66 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
     }
 
     [Fact]
+    public async Task ExplicitTritonBlockedScatterUsesLayoutDomainMap()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(8));
+        var layout = DistributionLayout.TritonBlocked(
+            tensorType.Shape,
+            new TritonBlockedLayout(
+                SizePerThread: 2,
+                ThreadsPerWarp: 2,
+                WarpsPerCTA: 1,
+                Order: [0],
+                CTAsPerCGA: [1],
+                CTASplitNum: [1],
+                CTAOrder: [0],
+                ThreadElementOrder: TritonThreadElementOrder.Strided));
+        var distributedType = DistributedType.FromLayouts(tensorType, new Placement([2], "t"), layout);
+        var source = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, "source", distributedType);
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var (relation, symbols) = CreateIdentityRelation();
+        var call = Nncase.TIR.F.NTT.AffineScatter(source, dest, relation, symbols);
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(call));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var outerLoop = Assert.IsType<Nncase.TIR.For>(Assert.Single(lowered.Body.Fields.ToArray()));
+        var storeCall = AssertSingleCall<Store>(outerLoop.Body);
+        var storeAddress = Assert.IsAssignableFrom<Dimension>(storeCall[Store.Index]);
+
+        Assert.Equal(2, EvaluateDimension(outerLoop.Domain.Stop, outerLoop.LoopVar, lane: 0, programId: 0, nElements: 0, threadId: 0));
+        AssertAddresses(storeAddress, outerLoop, programId: 0, expected: [1, 3], threadId: 1);
+        AssertAddresses(storeAddress, outerLoop, programId: 1, expected: [4, 6], threadId: 0);
+        Assert.True(CompilerServices.InferenceType(lowered));
+    }
+
+    [Fact]
+    public async Task UnsupportedExplicitDistributionLayoutFailsFast()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(4));
+        var baseLayout = DistributionLayout.TritonBlocked(
+            tensorType.Shape,
+            new TritonBlockedLayout(
+                SizePerThread: 2,
+                ThreadsPerWarp: 2,
+                WarpsPerCTA: 1,
+                Order: [0],
+                CTAsPerCGA: [1],
+                CTASplitNum: [1],
+                CTAOrder: [0]));
+        var unsupported = baseLayout with { Kind = "xor_swizzle_owner" };
+        var distributedType = DistributedType.FromLayouts(tensorType, new Placement([2], "t"), unsupported);
+        var source = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, "source", distributedType);
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var (relation, symbols) = CreateIdentityRelation();
+        var call = Nncase.TIR.F.NTT.AffineScatter(source, dest, relation, symbols);
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(call));
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        Assert.Contains("cannot evaluate explicit distribution layout xor_swizzle_owner", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SymbolPayloadMismatchIsRejected()
     {
         var source = CreateVectorBuffer("source");

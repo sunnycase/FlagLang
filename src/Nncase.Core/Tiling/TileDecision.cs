@@ -23,6 +23,12 @@ public sealed record TileCapacity(long RequestedBytes, long? BudgetBytes, string
     }
 }
 
+public sealed record TileTelemetry(int ReuseCount, long EstimatedTrafficBytes, long RegisterBytes, long SharedMemoryBytes, string AllocationSlot)
+{
+    public override string ToString() =>
+        $"reuse_count={ReuseCount.ToString(CultureInfo.InvariantCulture)}, estimated_traffic_bytes={EstimatedTrafficBytes.ToString(CultureInfo.InvariantCulture)}, register_bytes={RegisterBytes.ToString(CultureInfo.InvariantCulture)}, smem_bytes={SharedMemoryBytes.ToString(CultureInfo.InvariantCulture)}, allocation_slot={AllocationSlot}";
+}
+
 public sealed record TileDecision(
     string Id,
     string OpKind,
@@ -33,6 +39,7 @@ public sealed record TileDecision(
     TileLifetime Lifetime,
     long ByteSize,
     TileCapacity Capacity,
+    TileTelemetry Telemetry,
     bool RequiresSynchronization,
     string Reason)
 {
@@ -53,6 +60,7 @@ public sealed record TileDecision(
                 $"  lifetime: {Lifetime}",
                 $"  bytes: {ByteSize.ToString(CultureInfo.InvariantCulture)}",
                 $"  capacity: {Capacity}",
+                $"  telemetry: {Telemetry}",
                 $"  requires_sync: {RequiresSynchronization}",
                 $"  reason: {Reason}",
             ]);

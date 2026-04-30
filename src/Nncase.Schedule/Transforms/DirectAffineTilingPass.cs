@@ -19,15 +19,17 @@ namespace Nncase.Passes.Transforms;
 public sealed class DirectAffineTilingPass : FunctionPass
 {
     private const int CudaWarpLanes = 32;
-    private const long ConservativeRegisterTileBudgetBytes = 4096;
-    private const long ConservativeSmemTileBudgetBytes = 49152;
     private static readonly BufferStorage BlockLocalSmemTileStorage = new(BufferUsage.Temp, BufferScope.BlockLocal, PhysicalMemorySpace.SMem);
+    private static readonly BufferStorage DeviceOutputAbiStorage = new(BufferUsage.Output, BufferScope.Device, PhysicalMemorySpace.GMem);
     private static readonly BufferStorage ThreadAddressableTileStorage = new(BufferUsage.Temp, BufferScope.ThreadLocal, PhysicalMemorySpace.LocalAddressable);
     private static readonly BufferStorage ThreadRegisterTileStorage = new(BufferUsage.Temp, BufferScope.ThreadLocal, PhysicalMemorySpace.Register);
 
-    public DirectAffineTilingPass(string moduleKind)
+    private readonly CompileOptions _compileOptions;
+
+    public DirectAffineTilingPass(string moduleKind, CompileOptions compileOptions)
     {
         ModuleKind = moduleKind;
+        _compileOptions = compileOptions;
     }
 
     public string ModuleKind { get; }
@@ -39,7 +41,7 @@ public sealed class DirectAffineTilingPass : FunctionPass
             return Task.FromResult(input);
         }
 
-        var analyzer = new DirectAffineTileAnalyzer(ModuleKind);
+        var analyzer = new DirectAffineTileAnalyzer(ModuleKind, _compileOptions);
         if (input.ModuleKind != ModuleKind && !analyzer.ContainsDirectAffine(func.Body.Body))
         {
             return Task.FromResult(input);
@@ -79,14 +81,18 @@ public sealed class DirectAffineTilingPass : FunctionPass
         private readonly HashSet<BaseExpr> _registerEligible = new(ReferenceEqualityComparer.Instance);
         private readonly List<TileDecision> _decisions = new();
         private readonly Dictionary<BaseExpr, int> _decisionIndexes = new(ReferenceEqualityComparer.Instance);
+        private readonly CompileOptions _compileOptions;
+        private Dictionary<BaseExpr, HashSet<Call>> _callUsers = new(ReferenceEqualityComparer.Instance);
 
-        public DirectAffineTileAnalyzer(string moduleKind)
+        public DirectAffineTileAnalyzer(string moduleKind, CompileOptions compileOptions)
         {
             _moduleKind = moduleKind;
+            _compileOptions = compileOptions;
         }
 
         public IReadOnlyList<TileDecision> Analyze(BaseExpr root)
         {
+            _callUsers = BuildCallUsers(root);
             MarkBlockLocalEligible(root);
             MarkRegisterEligible(root, new HashSet<BaseExpr>(ReferenceEqualityComparer.Instance));
             Visit(root);
@@ -244,25 +250,25 @@ public sealed class DirectAffineTilingPass : FunctionPass
             switch (call.Target)
             {
                 case Gather gather:
-                    AttachGatherDecision(call, gather, GetStorage(call));
+                    AttachGatherDecision(call, gather, GetStorage(call, "Affine.Gather"));
                     break;
                 case Scatter scatter:
-                    AttachScatterDecision(call, scatter, GetStorage(call));
+                    AttachScatterDecision(call, scatter, GetStorage(call, "Affine.Scatter"));
                     break;
                 case IR.Math.Binary:
-                    AttachElementwiseDecisionIfTilingInput(call, "Binary", GetStorage(call));
+                    AttachElementwiseDecisionIfTilingInput(call, "Binary", GetStorage(call, "Binary"));
                     break;
                 case IR.Math.Unary:
-                    AttachElementwiseDecisionIfTilingInput(call, "Unary", GetStorage(call));
+                    AttachElementwiseDecisionIfTilingInput(call, "Unary", GetStorage(call, "Unary"));
                     break;
                 case IR.Tensors.Cast:
-                    AttachElementwiseDecisionIfTilingInput(call, "Cast", GetStorage(call));
+                    AttachElementwiseDecisionIfTilingInput(call, "Cast", GetStorage(call, "Cast"));
                     break;
                 case IR.Tensors.Where:
-                    AttachElementwiseDecisionIfTilingInput(call, "Where", GetStorage(call));
+                    AttachElementwiseDecisionIfTilingInput(call, "Where", GetStorage(call, "Where"));
                     break;
                 case PrimFunctionWrapper:
-                    AttachElementwiseDecisionIfTilingInput(call, "PrimFunctionWrapper", GetStorage(call));
+                    AttachElementwiseDecisionIfTilingInput(call, "PrimFunctionWrapper", GetStorage(call, "PrimFunctionWrapper"));
                     break;
             }
         }
@@ -315,6 +321,9 @@ public sealed class DirectAffineTilingPass : FunctionPass
             }
 
             var decisionIndex = _decisions.Count;
+            var reuseCount = _callUsers.TryGetValue(call, out var users) ? users.Count : 0;
+            var lifetime = new TileLifetime(decisionIndex, decisionIndex);
+            var telemetry = CreateTelemetry(storage, byteSize, reuseCount, lifetime);
             var decision = new TileDecision(
                 $"tile_{decisionIndex}",
                 opKind,
@@ -322,9 +331,10 @@ public sealed class DirectAffineTilingPass : FunctionPass
                 distributionLayout,
                 storageLayout,
                 storage,
-                new TileLifetime(decisionIndex, decisionIndex),
+                lifetime,
                 byteSize,
                 new TileCapacity(byteSize, budgetBytes, GetBudgetSource(storage)),
+                telemetry,
                 storage.Scope is BufferScope.BlockLocal,
                 reason);
             TileDecisionMetadata.Set(call, decision);
@@ -367,18 +377,41 @@ public sealed class DirectAffineTilingPass : FunctionPass
             return false;
         }
 
-        private BufferStorage GetStorage(Call call) =>
-            _blockLocalEligible.Contains(call) ? BlockLocalSmemTileStorage :
-            _registerEligible.Contains(call) ? ThreadRegisterTileStorage : ThreadAddressableTileStorage;
+        private BufferStorage GetStorage(Call call, string opKind)
+        {
+            if (_blockLocalEligible.Contains(call))
+            {
+                return BlockLocalSmemTileStorage;
+            }
+
+            if (_registerEligible.Contains(call))
+            {
+                return ThreadRegisterTileStorage;
+            }
+
+            if (IsCudaModule() && call.Target is Scatter)
+            {
+                return DeviceOutputAbiStorage;
+            }
+
+            if (IsCudaModule())
+            {
+                throw new NotSupportedException($"{opKind} direct affine CUDA tiling could not prove register or block-local SMem storage for {call.CheckedType}. Unsupported direct-affine DAGs must fail fast instead of falling back to thread-local addressable memory.");
+            }
+
+            return ThreadAddressableTileStorage;
+        }
+
+        private bool IsCudaModule() => string.Equals(_moduleKind, "cuda", StringComparison.Ordinal);
 
         private void MarkBlockLocalEligible(BaseExpr root)
         {
-            if (!string.Equals(_moduleKind, "cuda", StringComparison.Ordinal))
+            if (!IsCudaModule())
             {
                 return;
             }
 
-            foreach ((var expr, var users) in BuildCallUsers(root))
+            foreach ((var expr, var users) in _callUsers)
             {
                 if (expr is Call { Target: Gather } && users.Count >= 2)
                 {
@@ -522,19 +555,49 @@ public sealed class DirectAffineTilingPass : FunctionPass
             return true;
         }
 
+        private TileTelemetry CreateTelemetry(BufferStorage storage, long byteSize, int reuseCount, TileLifetime lifetime)
+        {
+            var registerBytes = storage.PhysicalLocation is PhysicalMemorySpace.Register ? byteSize : 0;
+            var smemBytes = storage.PhysicalLocation is PhysicalMemorySpace.SMem ? byteSize : 0;
+            var estimatedTraffic = storage.PhysicalLocation switch
+            {
+                PhysicalMemorySpace.Register => byteSize * Math.Max(1, reuseCount),
+                PhysicalMemorySpace.SMem => byteSize + (byteSize * Math.Max(0, reuseCount - 1)),
+                _ => byteSize,
+            };
+            var slot = storage.PhysicalLocation switch
+            {
+                PhysicalMemorySpace.Register => $"register-fragment[{lifetime.Start},{lifetime.End}]",
+                PhysicalMemorySpace.SMem => $"smem-lifetime-slot[{lifetime.Start},{lifetime.End}]",
+                PhysicalMemorySpace.GMem when storage.Usage is BufferUsage.Output => "output-abi",
+                _ => "addressable",
+            };
+            return new TileTelemetry(reuseCount, estimatedTraffic, registerBytes, smemBytes, slot);
+        }
+
         private long? GetBudgetBytes(BufferStorage storage) => storage.PhysicalLocation switch
         {
-            PhysicalMemorySpace.Register => ConservativeRegisterTileBudgetBytes,
-            PhysicalMemorySpace.SMem => ConservativeSmemTileBudgetBytes,
+            PhysicalMemorySpace.Register => RequireNttTargetOptions("register tile capacity").RegisterTileBudgetBytes,
+            PhysicalMemorySpace.SMem => RequireNttTargetOptions("shared-memory tile capacity").SharedMemoryTileBudgetBytes,
             _ => null,
         };
 
         private string GetBudgetSource(BufferStorage storage) => storage.PhysicalLocation switch
         {
-            PhysicalMemorySpace.Register => "cuda-default-register-tile-budget",
-            PhysicalMemorySpace.SMem => "cuda-default-smem-tile-budget",
+            PhysicalMemorySpace.Register => "target-options:RegisterTileBudgetBytes",
+            PhysicalMemorySpace.SMem => "target-options:SharedMemoryTileBudgetBytes",
             _ => "not-capacity-limited",
         };
+
+        private INTTTargetOptions RequireNttTargetOptions(string context)
+        {
+            if (_compileOptions.TargetOptions is INTTTargetOptions targetOptions)
+            {
+                return targetOptions;
+            }
+
+            throw new InvalidOperationException($"Direct affine {context} requires CompileOptions.TargetOptions to implement INTTTargetOptions; missing target options would hide capacity failures.");
+        }
 
         private long GetFixedByteSize(DataType dtype, Shape tileShape, string opKind)
         {
@@ -555,9 +618,11 @@ public sealed class DirectAffineTilingPass : FunctionPass
                 }
 
                 var producer = _decisions[producerIndex];
+                var lifetime = producer.Lifetime with { End = Math.Max(producer.Lifetime.End, consumerIndex) };
                 var extended = producer with
                 {
-                    Lifetime = producer.Lifetime with { End = Math.Max(producer.Lifetime.End, consumerIndex) },
+                    Lifetime = lifetime,
+                    Telemetry = CreateTelemetry(producer.Storage, producer.ByteSize, producer.Telemetry.ReuseCount, lifetime),
                 };
                 _decisions[producerIndex] = extended;
                 TileDecisionMetadata.Set(argument, extended);

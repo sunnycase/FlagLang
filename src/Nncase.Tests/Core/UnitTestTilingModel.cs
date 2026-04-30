@@ -19,6 +19,11 @@ namespace Nncase.Tests.Core;
 [AutoSetupTestMethod(InitSession = true)]
 public sealed class UnitTestTilingModel : TestClassBase
 {
+    public UnitTestTilingModel()
+    {
+        CompileOptions.TargetOptions = new NTTTargetOptions();
+    }
+
     [Fact]
     public void LegacyMemoryLocationMapsToOrthogonalStorage()
     {
@@ -172,7 +177,7 @@ public sealed class UnitTestTilingModel : TestClassBase
         var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, rhs, dest));
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
 
-        _ = await new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new());
+        _ = await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new());
 
         Assert.True(TileDecisionMetadata.TryGet(left, out var leftDecision));
         Assert.Equal(new long[] { 8 }, leftDecision.TileShape.ToValueArray());
@@ -254,7 +259,7 @@ public sealed class UnitTestTilingModel : TestClassBase
         var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, rhs, dest));
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
 
-        _ = await new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new());
+        _ = await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new());
 
         Assert.True(TileDecisionMetadata.TryGet(left, out var leftDecision));
         Assert.True(TileDecisionMetadata.TryGet(right, out var rightDecision));
@@ -264,7 +269,7 @@ public sealed class UnitTestTilingModel : TestClassBase
         Assert.Equal(BufferScope.ThreadLocal, sumDecision.Storage.Scope);
         Assert.Equal(blockSize * DataTypes.Float32.SizeInBytes, scatterDecision.ByteSize);
         Assert.Equal(4096, scatterDecision.Capacity.BudgetBytes);
-        Assert.Equal("cuda-default-register-tile-budget", scatterDecision.Capacity.Source);
+        Assert.Equal("target-options:RegisterTileBudgetBytes", scatterDecision.Capacity.Source);
         Assert.Equal(2, leftDecision.Lifetime.End);
         Assert.Equal(3, sumDecision.Lifetime.End);
         Assert.Contains("Affine.Gather", leftDecision.ToDumpString(), StringComparison.Ordinal);
@@ -293,7 +298,7 @@ public sealed class UnitTestTilingModel : TestClassBase
         var function = new Function("main", CUDATarget.Kind, new IRBlock(body, source, firstDest, secondDest));
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
 
-        _ = await new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new());
+        _ = await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new());
 
         Assert.True(TileDecisionMetadata.TryGet(tile, out var decision));
         Assert.Equal(BufferUsage.Temp, decision.Storage.Usage);
@@ -302,8 +307,87 @@ public sealed class UnitTestTilingModel : TestClassBase
         Assert.True(decision.RequiresSynchronization);
         Assert.Equal(blockSize * DataTypes.Float32.SizeInBytes, decision.ByteSize);
         Assert.Equal(49152, decision.Capacity.BudgetBytes);
-        Assert.Equal("cuda-default-smem-tile-budget", decision.Capacity.Source);
+        Assert.Equal("target-options:SharedMemoryTileBudgetBytes", decision.Capacity.Source);
         Assert.Equal(2, decision.Lifetime.End);
+        Assert.True(TileDecisionMetadata.TryGet(firstScatter, out var firstScatterDecision));
+        Assert.True(TileDecisionMetadata.TryGet(secondScatter, out var secondScatterDecision));
+        Assert.Equal(PhysicalMemorySpace.GMem, firstScatterDecision.Storage.PhysicalLocation);
+        Assert.Equal(BufferUsage.Output, secondScatterDecision.Storage.Usage);
+    }
+
+    [Fact]
+    public async Task DirectAffineTilingPassRejectsUnsupportedCudaDirectAffineFallback()
+    {
+        const int blockSize = 128;
+        var lhs = new Var("lhs", TensorType.Pointer(DataTypes.Float32));
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var tile = Nncase.IR.F.Affine.Gather(lhs, relation, symbols, shape, None.Default);
+        var reshaped = IR.F.Tensors.Reshape(tile, new[] { (Dimension)blockSize });
+        var scatter = Nncase.IR.F.Affine.Scatter(reshaped, dest, relation, symbols);
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, dest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        Assert.Contains("Unsupported direct-affine DAGs must fail fast", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DirectAffineTilingPassRejectsDynamicTileShape()
+    {
+        var extent = new DimVar("n");
+        extent.Metadata.Range = new(1, 1024);
+        var lhs = new Var("lhs", TensorType.Pointer(DataTypes.Float32));
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, 1023);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(extent);
+        var tile = Nncase.IR.F.Affine.Gather(lhs, relation, symbols, shape, None.Default);
+        var scatter = Nncase.IR.F.Affine.Scatter(tile, dest, relation, symbols);
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, dest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        Assert.Contains("fixed tile extent", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DirectAffineTilingPassRejectsMismatchedOwnershipPolicy()
+    {
+        const int blockSize = 1024;
+        var lhs = new Var("lhs", TensorType.Pointer(DataTypes.Float32));
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var placement = new Placement([128], "t");
+        var tile = Nncase.IR.F.Affine.Gather(lhs, relation, symbols, shape, None.Default, new IRArray<SBP>(new SBP[] { SBP.B }), placement);
+        var scatter = Nncase.IR.F.Affine.Scatter(tile, dest, relation, symbols);
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, dest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        Assert.Contains("rank-1 thread split policy", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -328,7 +412,7 @@ public sealed class UnitTestTilingModel : TestClassBase
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new()));
+            () => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
         Assert.Contains("exceeding", ex.Message, StringComparison.Ordinal);
         Assert.Contains("budget", ex.Message, StringComparison.Ordinal);
         Assert.Contains("Register", ex.Message, StringComparison.Ordinal);
@@ -351,10 +435,8 @@ public sealed class UnitTestTilingModel : TestClassBase
         var function = new Function("main", CPUTarget.Kind, new IRBlock(tile, lhs));
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
 
-        _ = await new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new());
-
-        Assert.True(TileDecisionMetadata.TryGet(tile, out var decision));
-        Assert.Equal(BufferScope.ThreadLocal, decision.Storage.Scope);
-        Assert.Equal(PhysicalMemorySpace.LocalAddressable, decision.Storage.PhysicalLocation);
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        Assert.Contains("Unsupported direct-affine DAGs must fail fast", ex.Message, StringComparison.Ordinal);
     }
 }

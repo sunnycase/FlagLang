@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
 using System.Reactive;
 using System.Threading.Tasks;
@@ -221,6 +222,11 @@ namespace Nncase.Passes
                 }
 
                 ValidateDistributedBuffer(buffer, distributedType);
+                if (distributedType.ExplicitDistributionLayout is not null)
+                {
+                    return GetExplicitIterationExtents(buffer, distributedType);
+                }
+
                 return globalExtents.Select((extent, axis) => GetLocalShardExtent(distributedType, axis, extent)).ToArray();
             }
 
@@ -232,6 +238,11 @@ namespace Nncase.Passes
                 }
 
                 ValidateDistributedBuffer(buffer, distributedType);
+                if (distributedType.ExplicitDistributionLayout is not null)
+                {
+                    return GetExplicitDomainValues(buffer, distributedType, loopVars, globalExtents);
+                }
+
                 var domainValues = new Dimension[loopVars.Count];
                 for (int axis = 0; axis < loopVars.Count; axis++)
                 {
@@ -252,6 +263,47 @@ namespace Nncase.Passes
                 {
                     throw new NotSupportedException($"Distributed buffer {buffer.Name} has rank {buffer.Rank}, but its distributed type has tensor rank {distributedType.TensorType.Shape.Rank} and {distributedType.AxisPolicies.Count} axis policies.");
                 }
+
+                if (distributedType.ExplicitDistributionLayout is not null)
+                {
+                    LayoutVerifier.Verify(distributedType.DistributionLayout, distributedType.StorageLayout);
+                    if (distributedType.DistributionLayout.LocalShape.Rank != buffer.Rank)
+                    {
+                        throw new NotSupportedException($"Distributed buffer {buffer.Name} has rank {buffer.Rank}, but explicit layout {distributedType.DistributionLayout.Kind} has local shape {distributedType.DistributionLayout.LocalShape}.");
+                    }
+                }
+            }
+
+            private Dimension[] GetExplicitIterationExtents(TIR.Buffer buffer, DistributedType distributedType)
+            {
+                var layout = distributedType.DistributionLayout;
+                return layout.Kind switch
+                {
+                    "SBP" => layout.LocalShape.ToArray(),
+                    "TritonBlocked" => RequireRankOneExplicitLayout(buffer, layout).LocalShape.ToArray(),
+                    _ => throw new NotSupportedException($"Affine IO lowering cannot evaluate explicit distribution layout {layout.Kind} for buffer {buffer.Name}. Add a DistributionLayout evaluator for this map instead of falling back to AxisPolicies."),
+                };
+            }
+
+            private Dimension[] GetExplicitDomainValues(TIR.Buffer buffer, DistributedType distributedType, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> globalExtents)
+            {
+                var layout = distributedType.DistributionLayout;
+                return layout.Kind switch
+                {
+                    "SBP" => loopVars.Select((loopVar, axis) => (Dimension)(loopVar + GetShardOffset(distributedType, axis, globalExtents[axis]))).ToArray(),
+                    "TritonBlocked" => [GetTritonBlockedDomainValue(RequireRankOneExplicitLayout(buffer, layout), loopVars[0])],
+                    _ => throw new NotSupportedException($"Affine IO lowering cannot evaluate explicit distribution layout {layout.Kind} for buffer {buffer.Name}. Add a DistributionLayout evaluator for this map instead of falling back to AxisPolicies."),
+                };
+            }
+
+            private DistributionLayout RequireRankOneExplicitLayout(TIR.Buffer buffer, DistributionLayout layout)
+            {
+                if (layout.LocalShape is not { IsUnranked: false, Rank: 1 })
+                {
+                    throw new NotSupportedException($"Affine IO lowering supports explicit {layout.Kind} layout only for rank-1 buffers, got {layout.LocalShape} on {buffer.Name}.");
+                }
+
+                return layout;
             }
 
             private Dimension GetLocalShardExtent(DistributedType distributedType, int tensorAxis, Dimension globalExtent)
@@ -329,6 +381,91 @@ namespace Nncase.Passes
                     'b' => IR.F.Distributed.ProgramId(0),
                     var name => throw new NotSupportedException($"Affine IO lowering only supports thread ('t') and block ('b') mesh axes, got '{name}' in placement {placement}."),
                 };
+            }
+
+            private Dimension GetTritonBlockedDomainValue(DistributionLayout distributionLayout, DimVar elem)
+            {
+                var layout = ParseTritonBlockedLayout(distributionLayout);
+                if (distributionLayout.LocalShape[0] != layout.SizePerThread)
+                {
+                    throw new NotSupportedException($"TritonBlocked affine IO lowering requires LocalShape=[sizePerThread], got LocalShape={distributionLayout.LocalShape}, sizePerThread={layout.SizePerThread}.");
+                }
+
+                var threadId = IR.F.Distributed.ThreadId();
+                var threadsPerCTA = (Dimension)(layout.ThreadsPerWarp * layout.WarpsPerCTA);
+                var ctaElements = (Dimension)(layout.SizePerThread * layout.ThreadsPerWarp * layout.WarpsPerCTA);
+                var ctaBase = IR.F.Distributed.ProgramId(0) * ctaElements;
+                var local = layout.ThreadElementOrder switch
+                {
+                    TritonThreadElementOrder.Contiguous => (threadId * layout.SizePerThread) + elem,
+                    TritonThreadElementOrder.Strided => threadId + (elem * threadsPerCTA),
+                    _ => throw new NotSupportedException($"Unsupported TritonBlocked thread element order {layout.ThreadElementOrder}."),
+                };
+                return ctaBase + local;
+            }
+
+            private TritonBlockedLayout ParseTritonBlockedLayout(DistributionLayout distributionLayout)
+            {
+                if (distributionLayout.Attributes is null)
+                {
+                    throw new NotSupportedException("TritonBlocked affine IO lowering requires layout attributes.");
+                }
+
+                return new TritonBlockedLayout(
+                    SizePerThread: RequireTritonBlockedIntAttribute(distributionLayout, "sizePerThread"),
+                    ThreadsPerWarp: RequireTritonBlockedIntAttribute(distributionLayout, "threadsPerWarp"),
+                    WarpsPerCTA: RequireTritonBlockedIntAttribute(distributionLayout, "warpsPerCTA"),
+                    Order: RequireTritonBlockedIntListAttribute(distributionLayout, "order"),
+                    CTAsPerCGA: RequireTritonBlockedIntListAttribute(distributionLayout, "ctasPerCGA"),
+                    CTASplitNum: RequireTritonBlockedIntListAttribute(distributionLayout, "ctaSplitNum"),
+                    CTAOrder: RequireTritonBlockedIntListAttribute(distributionLayout, "ctaOrder"),
+                    ThreadElementOrder: RequireTritonBlockedThreadOrderAttribute(distributionLayout));
+            }
+
+            private int RequireTritonBlockedIntAttribute(DistributionLayout distributionLayout, string name)
+            {
+                var value = RequireTritonBlockedAttribute(distributionLayout, name);
+                return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
+                    ? parsed
+                    : throw new NotSupportedException($"TritonBlocked layout attribute {name} must be an integer, got '{value}'.");
+            }
+
+            private IRArray<int> RequireTritonBlockedIntListAttribute(DistributionLayout distributionLayout, string name)
+            {
+                var value = RequireTritonBlockedAttribute(distributionLayout, name);
+                if (!value.StartsWith("[", StringComparison.Ordinal) || !value.EndsWith("]", StringComparison.Ordinal))
+                {
+                    throw new NotSupportedException($"TritonBlocked layout attribute {name} must be an integer list, got '{value}'.");
+                }
+
+                var body = value[1..^1];
+                if (string.IsNullOrWhiteSpace(body))
+                {
+                    return Array.Empty<int>();
+                }
+
+                return body.Split(',', StringSplitOptions.TrimEntries)
+                    .Select(item => int.TryParse(item, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
+                        ? parsed
+                        : throw new NotSupportedException($"TritonBlocked layout attribute {name} contains non-integer item '{item}'."))
+                    .ToArray();
+            }
+
+            private TritonThreadElementOrder RequireTritonBlockedThreadOrderAttribute(DistributionLayout distributionLayout)
+            {
+                var value = RequireTritonBlockedAttribute(distributionLayout, "threadElementOrder");
+                return Enum.TryParse<TritonThreadElementOrder>(value, ignoreCase: false, out var parsed)
+                    ? parsed
+                    : throw new NotSupportedException($"TritonBlocked layout has unsupported threadElementOrder '{value}'.");
+            }
+
+            private string RequireTritonBlockedAttribute(DistributionLayout distributionLayout, string name)
+            {
+                var prefix = name + "=";
+                var matches = distributionLayout.Attributes!.Value.Where(attr => attr.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+                return matches.Length == 1
+                    ? matches[0][prefix.Length..]
+                    : throw new NotSupportedException($"TritonBlocked layout must provide exactly one {name} attribute, got {matches.Length}.");
             }
 
             private Dimension EvaluateAddress(AffineRelation relation, IReadOnlyList<Dimension> domainValues, IReadOnlyList<Dimension> extents, IReadOnlyDictionary<int, Dimension>? symbolMap)
@@ -500,14 +637,17 @@ namespace Nncase.Passes
                         DistributedType { TensorType: TensorType { Shape: RankedShape } tt } dt => (tt, dt),
                         _ => throw new NotSupportedException($"{role} must be a ranked tensor or buffer."),
                     };
-                    var storage = TileDecisionMetadata.TryGet(sourceExpr, out var tileDecision)
-                        ? tileDecision.Storage
-                        : DefaultTileSourceStorage;
-                    if (storage.PhysicalLocation is PhysicalMemorySpace.Register)
+                    if (TileDecisionMetadata.TryGet(sourceExpr, out var tileDecision))
                     {
-                        throw new InvalidOperationException($"{role} has register tile decision {storage}; affine IO lowering must consume it as SSA/register values instead of materializing an addressable buffer.");
+                        if (tileDecision.Storage.PhysicalLocation is PhysicalMemorySpace.Register)
+                        {
+                            throw new InvalidOperationException($"{role} has register tile decision {tileDecision.Storage}; affine IO lowering must consume it as SSA/register values instead of materializing an addressable buffer.");
+                        }
+
+                        throw new NotSupportedException($"{role} has tile decision {tileDecision.Storage}; affine IO lowering cannot materialize tiled direct-affine values through an addressable temporary. Add a storage-specific lowering for this tile.");
                     }
 
+                    var storage = DefaultTileSourceStorage;
                     var sourceBuffer = T.CreateBuffer(tensorType, storage, out _, $"{bufferNamePrefix}_{_bufferIndex++}", distributedType);
                     return (sourceBuffer, T.Memcopy(sourceBuffer, sourceExpr));
                 }
