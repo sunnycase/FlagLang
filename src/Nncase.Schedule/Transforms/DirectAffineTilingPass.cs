@@ -289,7 +289,8 @@ public sealed class DirectAffineTilingPass : FunctionPass
             var tensorType = GetTensorType(source.CheckedType, "Affine.Scatter source");
             ValidateOneDimensionalDirectAffine(scatter.Relation, tensorType.Shape, scatter.Symbols, "Affine.Scatter");
             var distributionLayout = GetDistributionLayout(source.CheckedType, new IRArray<SBP>(), new Placement([], string.Empty), storage, tensorType, "Affine.Scatter");
-            AttachDecision(call, "Affine.Scatter", tensorType, distributionLayout, storage, "direct affine scatter tile terminator");
+            var decision = AttachDecision(call, "Affine.Scatter", tensorType, distributionLayout, storage, "direct affine scatter tile terminator");
+            ValidateTiledInputLayoutAgreement(call, "Affine.Scatter", decision);
         }
 
         private void AttachElementwiseDecisionIfTilingInput(Call call, string opKind, BufferStorage storage)
@@ -302,10 +303,11 @@ public sealed class DirectAffineTilingPass : FunctionPass
             var tensorType = GetTensorType(call.CheckedType, opKind);
             ValidateOneDimensionalShape(tensorType.Shape, opKind);
             var distributionLayout = GetDistributionLayout(call.CheckedType, new IRArray<SBP>(), new Placement([], string.Empty), storage, tensorType, opKind);
-            AttachDecision(call, opKind, tensorType, distributionLayout, storage, "producer consumes direct affine tile");
+            var decision = AttachDecision(call, opKind, tensorType, distributionLayout, storage, "producer consumes direct affine tile");
+            ValidateTiledInputLayoutAgreement(call, opKind, decision);
         }
 
-        private void AttachDecision(Call call, string opKind, TensorType tensorType, DistributionLayout? distributionLayout, BufferStorage storage, string reason)
+        private TileDecision AttachDecision(Call call, string opKind, TensorType tensorType, DistributionLayout? distributionLayout, BufferStorage storage, string reason)
         {
             var ownerLocalShape = distributionLayout?.LocalShape ?? tensorType.Shape;
             var storageLayout = GetStorageLayout(tensorType.Shape, ownerLocalShape, distributionLayout, storage);
@@ -344,6 +346,158 @@ public sealed class DirectAffineTilingPass : FunctionPass
             _decisionExprs.Add(call);
             _decisionIndexes.Add(call, decisionIndex);
             ExtendInputLifetimes(call, decisionIndex);
+            return decision;
+        }
+
+        private void ValidateTiledInputLayoutAgreement(Call consumer, string opKind, TileDecision consumerDecision)
+        {
+            foreach (var input in consumer.Arguments.ToArray().OfType<Expr>())
+            {
+                if (!TileDecisionMetadata.TryGet(input, out var producerDecision))
+                {
+                    continue;
+                }
+
+                if (!RequiresSameStorageDomain(producerDecision, consumerDecision))
+                {
+                    continue;
+                }
+
+                if (!IsSameDistributionLayout(producerDecision.DistributionLayout, consumerDecision.DistributionLayout))
+                {
+                    throw CreateLayoutMismatchException(
+                        "distribution",
+                        opKind,
+                        input,
+                        consumer,
+                        producerDecision,
+                        consumerDecision,
+                        $"producer layout {FormatDistributionLayout(producerDecision.DistributionLayout)} does not match consumer layout {FormatDistributionLayout(consumerDecision.DistributionLayout)}");
+                }
+
+                if (!IsSameStorageLayout(producerDecision.StorageLayout, consumerDecision.StorageLayout))
+                {
+                    throw CreateLayoutMismatchException(
+                        "storage",
+                        opKind,
+                        input,
+                        consumer,
+                        producerDecision,
+                        consumerDecision,
+                        $"producer storage {FormatStorageLayout(producerDecision.StorageLayout)} does not match consumer storage {FormatStorageLayout(consumerDecision.StorageLayout)}");
+                }
+            }
+        }
+
+        private bool RequiresSameStorageDomain(TileDecision producerDecision, TileDecision consumerDecision) =>
+            producerDecision.Storage.Scope == consumerDecision.Storage.Scope &&
+            producerDecision.Storage.PhysicalLocation == consumerDecision.Storage.PhysicalLocation;
+
+        private NotSupportedException CreateLayoutMismatchException(
+            string layoutKind,
+            string opKind,
+            Expr producer,
+            Call consumer,
+            TileDecision producerDecision,
+            TileDecision consumerDecision,
+            string reason) =>
+            new(
+                $"{opKind} direct affine tiling requires producer/consumer {layoutKind} layout agreement for tiled intermediates, but {reason}. " +
+                $"Producer={FormatExpr(producer)}, {FormatDecision(producerDecision)}; " +
+                $"Consumer={FormatExpr(consumer)}, {FormatDecision(consumerDecision)}. " +
+                "Insert an explicit reshard/redistribute before consuming incompatible tile layouts.");
+
+        private string FormatExpr(Expr expr) =>
+            expr is Call call ? call.Target.GetType().Name : expr.GetType().Name;
+
+        private string FormatDecision(TileDecision decision) =>
+            $"Decision={decision.Id}, Op={decision.OpKind}, Shape={decision.TileShape}, Distribution={FormatDistributionLayout(decision.DistributionLayout)}, Storage={FormatStorageLayout(decision.StorageLayout)}, BufferStorage={decision.Storage}";
+
+        private string FormatDistributionLayout(DistributionLayout? layout) =>
+            layout is null
+                ? "<none>"
+                : $"{layout.Kind}, LocalShape={layout.LocalShape}, OwnerDomain=[{string.Join("; ", layout.OwnerLocalToGlobal.InputDomain)}], Map={layout.OwnerLocalToGlobal}";
+
+        private string FormatStorageLayout(StorageLayout layout) =>
+            $"{layout.Kind}, LogicalShape={layout.LogicalShape}, Map={layout.LogicalToPhysical}";
+
+        private bool IsSameDistributionLayout(DistributionLayout? lhs, DistributionLayout? rhs)
+        {
+            if (lhs is null || rhs is null)
+            {
+                return lhs is null && rhs is null;
+            }
+
+            return lhs.Kind == rhs.Kind &&
+                lhs.LocalShape == rhs.LocalShape &&
+                lhs.ValidPredicate == rhs.ValidPredicate &&
+                IsSameStringArray(lhs.Attributes, rhs.Attributes) &&
+                IsSameIndexMap(lhs.GlobalToOwnerLocal, rhs.GlobalToOwnerLocal) &&
+                IsSameIndexMap(lhs.OwnerLocalToGlobal, rhs.OwnerLocalToGlobal);
+        }
+
+        private bool IsSameStorageLayout(StorageLayout lhs, StorageLayout rhs) =>
+            lhs.Kind == rhs.Kind &&
+            lhs.LogicalShape == rhs.LogicalShape &&
+            lhs.ValidPredicate == rhs.ValidPredicate &&
+            IsSameStringArray(lhs.Attributes, rhs.Attributes) &&
+            IsSameIndexMap(lhs.LogicalToPhysical, rhs.LogicalToPhysical) &&
+            IsSameNullableIndexMap(lhs.ViewMap, rhs.ViewMap);
+
+        private bool IsSameNullableIndexMap(IndexMapDescriptor? lhs, IndexMapDescriptor? rhs)
+        {
+            if (lhs is null || rhs is null)
+            {
+                return lhs is null && rhs is null;
+            }
+
+            return IsSameIndexMap(lhs, rhs);
+        }
+
+        private bool IsSameIndexMap(IndexMapDescriptor lhs, IndexMapDescriptor rhs) =>
+            lhs.Name == rhs.Name &&
+            lhs.Predicate == rhs.Predicate &&
+            lhs.Inverse == rhs.Inverse &&
+            IsSameStringArray(lhs.Inputs, rhs.Inputs) &&
+            IsSameStringArray(lhs.InputDomain, rhs.InputDomain) &&
+            IsSameStringArray(lhs.OutputDomain, rhs.OutputDomain) &&
+            lhs.Outputs.Count == rhs.Outputs.Count &&
+            lhs.Outputs.ToArray().Zip(rhs.Outputs.ToArray()).All(pair =>
+                pair.First.Name == pair.Second.Name && IsSameIndexExpr(pair.First.Expr, pair.Second.Expr));
+
+        private bool IsSameStringArray(IRArray<string>? lhs, IRArray<string>? rhs)
+        {
+            if (lhs is null || rhs is null)
+            {
+                return lhs is null && rhs is null;
+            }
+
+            return lhs.Value.SequenceEqual(rhs.Value);
+        }
+
+        private bool IsSameIndexExpr(IndexExpr lhs, IndexExpr rhs)
+        {
+            if (lhs.GetType() != rhs.GetType())
+            {
+                return false;
+            }
+
+            return (lhs, rhs) switch
+            {
+                (IndexVar l, IndexVar r) => l.Name == r.Name,
+                (IndexConst l, IndexConst r) => l.Value == r.Value,
+                (IndexAny, IndexAny) => true,
+                (IndexAdd l, IndexAdd r) => l.Terms.Count == r.Terms.Count &&
+                    l.Terms.ToArray().Zip(r.Terms.ToArray()).All(pair => IsSameIndexExpr(pair.First, pair.Second)),
+                (IndexMul l, IndexMul r) => l.Factors.Count == r.Factors.Count &&
+                    l.Factors.ToArray().Zip(r.Factors.ToArray()).All(pair => IsSameIndexExpr(pair.First, pair.Second)),
+                (IndexFloorDiv l, IndexFloorDiv r) => IsSameIndexExpr(l.Value, r.Value) && IsSameIndexExpr(l.Divisor, r.Divisor),
+                (IndexMod l, IndexMod r) => IsSameIndexExpr(l.Value, r.Value) && IsSameIndexExpr(l.Divisor, r.Divisor),
+                (IndexNamedPrimitive l, IndexNamedPrimitive r) => l.Name == r.Name &&
+                    l.Arguments.Count == r.Arguments.Count &&
+                    l.Arguments.ToArray().Zip(r.Arguments.ToArray()).All(pair => IsSameIndexExpr(pair.First, pair.Second)),
+                _ => false,
+            };
         }
 
         private StorageLayout GetStorageLayout(Shape tensorShape, Shape ownerLocalShape, DistributionLayout? distributionLayout, BufferStorage storage)

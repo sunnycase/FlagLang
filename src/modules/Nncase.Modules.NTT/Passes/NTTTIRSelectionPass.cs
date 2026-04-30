@@ -680,7 +680,7 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             throw new InvalidOperationException($"Register direct affine scatter requires a supported fused elementwise producer, got {source.GetType().Name}.");
         }
 
-        ValidateRegisterAffineChain(scatterCall, scatter, gatherCalls, scatterDecision);
+        ValidateRegisterAffineChain(scatterCall, scatter, gatherCalls, coveredCalls, scatterDecision);
         lowering = new RegisterScatterLowering(scatterCall, scatter, scatterDecision, source, gatherCalls, coveredCalls);
         return true;
     }
@@ -840,9 +840,30 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         return ((TIR.NTT.VectorizedBinary)vectorizedBinaryCalls[0].Target).BinaryOp;
     }
 
-    private void ValidateRegisterAffineChain(Call scatterCall, IR.Affine.Scatter scatter, IReadOnlyList<Call> gatherCalls, TileDecision scatterDecision)
+    private void ValidateRegisterAffineChain(Call scatterCall, IR.Affine.Scatter scatter, IReadOnlyList<Call> gatherCalls, IReadOnlyList<Call> producerCalls, TileDecision scatterDecision)
     {
         ValidateOneDimensionalRegisterDecision(scatterDecision, "Affine.Scatter");
+        foreach (var producerCall in producerCalls.Distinct(new ReferenceEqualityComparer<Call>()))
+        {
+            var producerDecision = TileDecisionMetadata.Require(producerCall, "Register direct affine producer/consumer layout validation");
+            ValidateOneDimensionalRegisterDecision(producerDecision, producerCall.Target.GetType().Name);
+            if (!IsSameDistributionLayout(producerDecision.DistributionLayout, scatterDecision.DistributionLayout))
+            {
+                throw new NotSupportedException(
+                    "Register direct affine lowering requires producer/consumer distribution layouts to match for every tiled intermediate. " +
+                    $"Producer={FormatRegisterDecision(producerCall, producerDecision)}, Consumer={FormatRegisterDecision(scatterCall, scatterDecision)}. " +
+                    "Insert an explicit reshard/redistribute before consuming incompatible tile layouts.");
+            }
+
+            if (!IsSameStorageLayout(producerDecision.StorageLayout, scatterDecision.StorageLayout))
+            {
+                throw new NotSupportedException(
+                    "Register direct affine lowering requires producer/consumer storage layouts to match for every tiled intermediate. " +
+                    $"Producer={FormatRegisterDecision(producerCall, producerDecision)}, Consumer={FormatRegisterDecision(scatterCall, scatterDecision)}. " +
+                    "Insert an explicit reshard/redistribute before consuming incompatible tile layouts.");
+            }
+        }
+
         foreach (var gatherCall in gatherCalls)
         {
             if (gatherCall.Target is not IR.Affine.Gather gather)
@@ -852,11 +873,6 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
 
             var gatherDecision = TileDecisionMetadata.Require(gatherCall, "Register direct affine TIR selection");
             ValidateOneDimensionalRegisterDecision(gatherDecision, "Affine.Gather");
-            if (!IsSameDistributionLayout(gatherDecision.DistributionLayout, scatterDecision.DistributionLayout))
-            {
-                throw new NotSupportedException($"Register direct affine lowering requires producer/consumer distribution layouts to match. Gather={gatherDecision.DistributionLayout?.Kind ?? "<none>"}, Scatter={scatterDecision.DistributionLayout?.Kind ?? "<none>"}.");
-            }
-
             if (gatherCall[IR.Affine.Gather.DefaultValue] is not None)
             {
                 throw new NotSupportedException("Register direct affine lowering only supports masked gathers whose default is None and whose value is consumed under the scatter guard.");
@@ -878,6 +894,17 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             throw new NotSupportedException($"Register direct affine scatter must be void, got {scatterCall.CheckedType}.");
         }
     }
+
+    private string FormatRegisterDecision(Call call, TileDecision decision) =>
+        $"{call.Target.GetType().Name}/{decision.Id}, Op={decision.OpKind}, Shape={decision.TileShape}, Distribution={FormatDistributionLayout(decision.DistributionLayout)}, Storage={FormatStorageLayout(decision.StorageLayout)}";
+
+    private string FormatDistributionLayout(DistributionLayout? layout) =>
+        layout is null
+            ? "<none>"
+            : $"{layout.Kind}, LocalShape={layout.LocalShape}, OwnerDomain=[{string.Join("; ", layout.OwnerLocalToGlobal.InputDomain)}]";
+
+    private string FormatStorageLayout(StorageLayout layout) =>
+        $"{layout.Kind}, LogicalShape={layout.LogicalShape}, Map={layout.LogicalToPhysical}";
 
     private void ValidateOneDimensionalRegisterDecision(TileDecision decision, string opKind)
     {
@@ -982,6 +1009,24 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             IsSameStringArray(lhs.Attributes, rhs.Attributes) &&
             IsSameIndexMap(lhs.GlobalToOwnerLocal, rhs.GlobalToOwnerLocal) &&
             IsSameIndexMap(lhs.OwnerLocalToGlobal, rhs.OwnerLocalToGlobal);
+    }
+
+    private bool IsSameStorageLayout(StorageLayout lhs, StorageLayout rhs) =>
+        lhs.Kind == rhs.Kind &&
+        lhs.LogicalShape == rhs.LogicalShape &&
+        lhs.ValidPredicate == rhs.ValidPredicate &&
+        IsSameStringArray(lhs.Attributes, rhs.Attributes) &&
+        IsSameIndexMap(lhs.LogicalToPhysical, rhs.LogicalToPhysical) &&
+        IsSameNullableIndexMap(lhs.ViewMap, rhs.ViewMap);
+
+    private bool IsSameNullableIndexMap(IndexMapDescriptor? lhs, IndexMapDescriptor? rhs)
+    {
+        if (lhs is null || rhs is null)
+        {
+            return lhs is null && rhs is null;
+        }
+
+        return IsSameIndexMap(lhs, rhs);
     }
 
     private bool IsSameIndexMap(IndexMapDescriptor lhs, IndexMapDescriptor rhs)

@@ -267,6 +267,26 @@ public sealed class UnitTestTilingModel : TestClassBase
     }
 
     [Fact]
+    public void TensorUtilitiesVerifiesExplicitStorageLayoutBeforeSizing()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(1024));
+        var placement = new Placement([128], "t");
+        var layout = DistributionLayout.FromAxisPolicies(tensorType, [SBP.S(0)], placement);
+        var invalidStorage = StorageLayout.Identity(new RankedShape(16));
+        var distributedType = new DistributedType(
+            tensorType,
+            [SBP.S(0)],
+            placement,
+            ExplicitDistributionLayout: layout,
+            ExplicitStorageLayout: invalidStorage);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => TensorUtilities.GetTensorMaxSizeAndStrides(tensorType, distributedType));
+        Assert.Contains(nameof(TensorUtilities.GetTensorMaxSizeAndStrides), ex.Message, StringComparison.Ordinal);
+        Assert.Contains("StorageLayout", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("DistributionLayout", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExplicitDistributionLayoutVerifierRejectsOwnerDomainOutsidePlacement()
     {
         var tensorType = new TensorType(DataTypes.Float32, new RankedShape(1024));

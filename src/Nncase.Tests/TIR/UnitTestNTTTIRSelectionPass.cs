@@ -178,6 +178,41 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
     }
 
     [Fact]
+    public async Task RegisterDirectAffineRejectsProducerConsumerStorageLayoutMismatch()
+    {
+        const int blockSize = 128;
+        var lhs = new Var("lhs", TensorType.Pointer(DataTypes.Float32));
+        var rhs = new Var("rhs", TensorType.Pointer(DataTypes.Float32));
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var left = Nncase.IR.F.Affine.Gather(lhs, relation, symbols, shape, None.Default);
+        var right = Nncase.IR.F.Affine.Gather(rhs, relation, symbols, shape, None.Default);
+        var sum = left + right;
+        var scatter = Nncase.IR.F.Affine.Scatter(sum, dest, relation, symbols);
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, rhs, dest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        TileDecisionMetadata.Set(left, CreateRegisterDecision("tile_0", "Affine.Gather", shape));
+        TileDecisionMetadata.Set(right, CreateRegisterDecision("tile_1", "Affine.Gather", shape));
+        TileDecisionMetadata.Set(sum, CreateRegisterDecision("tile_2", "Binary", shape, CreateReverseRegisterStorageLayout(shape)));
+        TileDecisionMetadata.Set(scatter, CreateRegisterDecision("tile_3", "Affine.Scatter", shape));
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(function, new()));
+        Assert.Contains("producer/consumer storage layouts", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Binary", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Affine.Scatter", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("ReverseLocal", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RegisterDirectAffineLowersUnaryCastWhereWithoutAddressableIntermediates()
     {
         const int blockSize = 256;
@@ -538,6 +573,36 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
                 CTAOrder: [0],
                 ThreadElementOrder: TritonThreadElementOrder.Strided));
         return baseLayout with { Kind = "UnsupportedLayout" };
+    }
+
+    private static TileDecision CreateRegisterDecision(string id, string opKind, Shape shape, StorageLayout? storageLayout = null) =>
+        new(
+            id,
+            opKind,
+            shape,
+            null,
+            storageLayout ?? StorageLayout.Identity(shape),
+            new BufferStorage(BufferUsage.Temp, BufferScope.ThreadLocal, PhysicalMemorySpace.Register),
+            new TileLifetime(0, 0),
+            shape[0].FixedValue * DataTypes.Float32.SizeInBytes,
+            new TileCapacity(shape[0].FixedValue * DataTypes.Float32.SizeInBytes, 4096, "test"),
+            new TileTelemetry(1, shape[0].FixedValue * DataTypes.Float32.SizeInBytes, shape[0].FixedValue * DataTypes.Float32.SizeInBytes, 0, $"{id}@register"),
+            false,
+            "test register decision");
+
+    private static StorageLayout CreateReverseRegisterStorageLayout(Shape shape)
+    {
+        var extent = shape[0].FixedValue;
+        return new StorageLayout(
+            "ReverseLocal",
+            shape,
+            new IndexMapDescriptor(
+                "LogicalToPhysical",
+                ["l0"],
+                [new IndexMapBinding("p0", IndexExpr.Add(IndexExpr.Const(extent - 1), IndexExpr.Mul(IndexExpr.Const(-1), IndexExpr.Var("l0"))))],
+                [$"0<=l0<{extent}"],
+                [$"0<=p0<{extent}"],
+                Inverse: "LogicalToPhysical"));
     }
 
     private static Dimension GetSingleBufferIndex(Call bufferAccess, ParameterInfo indicesParameter)

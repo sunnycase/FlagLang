@@ -485,6 +485,7 @@ public static class TensorUtilities
         }
         else if (distributedType.ExplicitStorageLayout is { } storageLayout)
         {
+            VerifyExplicitStorageLayoutForContiguousAllocation(distributedType, nameof(GetTensorMaxSizeAndStrides));
             dims = CompilerServices.GetMaxShape(storageLayout.LogicalShape);
             strides = GetDefaultStrides(storageLayout.LogicalShape, dims);
         }
@@ -516,6 +517,7 @@ public static class TensorUtilities
         }
         else if (distributedType.ExplicitStorageLayout is { LogicalShape: RankedShape storageShape })
         {
+            VerifyExplicitStorageLayoutForContiguousAllocation(distributedType, nameof(GetTensorSizeAndContiguousStrides));
             dims = storageShape.Dimensions.ToArray();
             strides = GetDefaultStrides(dims);
         }
@@ -537,4 +539,31 @@ public static class TensorUtilities
             DistributedType distributedType => GetTensorMaxSizeAndStrides(DistributedUtility.GetDividedTensorType(distributedType), distributedType),
             _ => throw new NotSupportedException(),
         };
+
+    private static void VerifyExplicitStorageLayoutForContiguousAllocation(DistributedType distributedType, string context)
+    {
+        var storageLayout = distributedType.ExplicitStorageLayout!;
+        if (storageLayout.LogicalShape.IsUnranked)
+        {
+            throw new NotSupportedException($"{context} cannot allocate explicit StorageLayout {storageLayout.Kind} with unranked logical shape. Layout={distributedType.DistributionLayout.Kind}, TensorShape={distributedType.TensorType.Shape}, Placement={distributedType.Placement}.");
+        }
+
+        try
+        {
+            LayoutVerifier.Verify(distributedType, $"{context} explicit storage allocation");
+        }
+        catch (NotSupportedException ex)
+        {
+            throw new NotSupportedException(CreateExplicitStorageAllocationMessage(distributedType, storageLayout, context, ex.Message), ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidOperationException(CreateExplicitStorageAllocationMessage(distributedType, storageLayout, context, ex.Message), ex);
+        }
+    }
+
+    private static string CreateExplicitStorageAllocationMessage(DistributedType distributedType, StorageLayout storageLayout, string context, string reason) =>
+        $"{context} explicit storage allocation cannot derive size/strides for StorageLayout {storageLayout.Kind}. " +
+        $"StorageShape={storageLayout.LogicalShape}, StorageMap={storageLayout.LogicalToPhysical}, " +
+        $"DistributionLayout={distributedType.DistributionLayout.Kind}, TensorShape={distributedType.TensorType.Shape}, Placement={distributedType.Placement}. Reason: {reason}";
 }
