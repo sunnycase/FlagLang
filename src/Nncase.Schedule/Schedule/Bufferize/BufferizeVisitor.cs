@@ -65,16 +65,16 @@ public sealed class BufferizeVisitor : ExprRewriter
                 DumpSchedule(buffers, scheduleResult);
             }
 
+            var bufferReplaces = BuildBufferReplacements(scheduleResult);
             AssignOutputResult(func, scheduleResult);
             AssignDataResult(func, scheduleResult);
             AssignWarpLocalDataResult(func, scheduleResult);
             AssignBlockLocalDataResult(func, scheduleResult);
-            AssignRdataResult(func, scheduleResult);
-            AssignThreadLocalRdataResult(func, scheduleResult);
-            AssignWarpLocalRdataResult(func, scheduleResult);
-            AssignBlockLocalRdataResult(func, scheduleResult);
+            AssignRdataResult(func, scheduleResult, bufferReplaces);
+            AssignThreadLocalRdataResult(func, scheduleResult, bufferReplaces);
+            AssignWarpLocalRdataResult(func, scheduleResult, bufferReplaces);
+            AssignBlockLocalRdataResult(func, scheduleResult, bufferReplaces);
 
-            var bufferReplaces = scheduleResult.SelectMany(x => x.Value.Buffers).ToDictionary(ReferenceEqualityComparer.Instance);
             new BufferReplacer(bufferReplaces).Rewrite(func.Body);
             func.SchedResult.IsScheduled = true;
         }
@@ -145,64 +145,113 @@ public sealed class BufferizeVisitor : ExprRewriter
         }
     }
 
-    private void AssignRdataResult(PrimFunction func, IReadOnlyDictionary<BufferStorage, BufferScheduleResult> scheduleResult)
+    private IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> BuildBufferReplacements(IReadOnlyDictionary<BufferStorage, BufferScheduleResult> scheduleResult)
+    {
+        var replacements = new Dictionary<TIR.PhysicalBuffer, BufferLifetime>(ReferenceEqualityComparer.Instance);
+        foreach (var (_, result) in scheduleResult)
+        {
+            if (result.Storage.Usage is BufferUsage.Const && result.Storage.PhysicalLocation is PhysicalMemorySpace.ConstMem)
+            {
+                var canonicalByConst = new Dictionary<Const, BufferLifetime>(ReferenceEqualityComparer.Instance);
+                foreach ((var buffer, var lifetime) in result.Buffers)
+                {
+                    var constValue = GetAddressOfConst(buffer);
+                    if (canonicalByConst.TryGetValue(constValue, out var canonical))
+                    {
+                        replacements.Add(buffer, canonical);
+                    }
+                    else
+                    {
+                        canonicalByConst.Add(constValue, lifetime);
+                        replacements.Add(buffer, lifetime);
+                    }
+                }
+            }
+            else
+            {
+                foreach ((var buffer, var lifetime) in result.Buffers)
+                {
+                    replacements.Add(buffer, lifetime);
+                }
+            }
+        }
+
+        return replacements;
+    }
+
+    private void AssignRdataResult(PrimFunction func, IReadOnlyDictionary<BufferStorage, BufferScheduleResult> scheduleResult, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> bufferReplaces)
     {
         if (scheduleResult.TryGetValue(RdataStorage, out var rdataResult))
         {
-            foreach ((var buffer, var lifetime) in rdataResult.Buffers)
-            {
-                var constValue = (Const)((Call)buffer.Start)[IR.Buffers.AddressOf.Input];
-                var range = new ValueRange<ulong>((ulong)lifetime.Memory.Start, (ulong)lifetime.Memory.Stop);
-                func.SchedResult.Rdatas.Add(constValue, range);
-            }
-
-            _currentRdataStart = rdataResult.MemoryPoolEnd;
+            _currentRdataStart = AssignConstRdataResult(func.SchedResult.Rdatas, rdataResult, bufferReplaces);
         }
     }
 
-    private void AssignThreadLocalRdataResult(PrimFunction func, IReadOnlyDictionary<BufferStorage, BufferScheduleResult> scheduleResult)
+    private void AssignThreadLocalRdataResult(PrimFunction func, IReadOnlyDictionary<BufferStorage, BufferScheduleResult> scheduleResult, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> bufferReplaces)
     {
         if (scheduleResult.TryGetValue(ThreadLocalRdataStorage, out var threadOrWarpLocalRdataResult))
         {
-            foreach ((var buffer, var lifetime) in threadOrWarpLocalRdataResult.Buffers)
-            {
-                var constValue = (Const)((Call)buffer.Start)[IR.Buffers.AddressOf.Input];
-                var range = new ValueRange<ulong>((ulong)lifetime.Memory.Start, (ulong)lifetime.Memory.Stop);
-                func.SchedResult.ThreadLocalRdatas.Add(constValue, range);
-            }
-
-            _currentThreadLocalRdataStart = threadOrWarpLocalRdataResult.MemoryPoolEnd;
+            _currentThreadLocalRdataStart = AssignConstRdataResult(func.SchedResult.ThreadLocalRdatas, threadOrWarpLocalRdataResult, bufferReplaces);
         }
     }
 
-    private void AssignWarpLocalRdataResult(PrimFunction func, IReadOnlyDictionary<BufferStorage, BufferScheduleResult> scheduleResult)
+    private void AssignWarpLocalRdataResult(PrimFunction func, IReadOnlyDictionary<BufferStorage, BufferScheduleResult> scheduleResult, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> bufferReplaces)
     {
         if (scheduleResult.TryGetValue(WarpLocalRdataStorage, out var warpLocalRdataResult))
         {
-            foreach ((var buffer, var lifetime) in warpLocalRdataResult.Buffers)
-            {
-                var constValue = (Const)((Call)buffer.Start)[IR.Buffers.AddressOf.Input];
-                var range = new ValueRange<ulong>((ulong)lifetime.Memory.Start, (ulong)lifetime.Memory.Stop);
-                func.SchedResult.WarpLocalRdatas.Add(constValue, range);
-            }
-
-            _currentWarpLocalRdataStart = warpLocalRdataResult.MemoryPoolEnd;
+            _currentWarpLocalRdataStart = AssignConstRdataResult(func.SchedResult.WarpLocalRdatas, warpLocalRdataResult, bufferReplaces);
         }
     }
 
-    private void AssignBlockLocalRdataResult(PrimFunction func, IReadOnlyDictionary<BufferStorage, BufferScheduleResult> scheduleResult)
+    private void AssignBlockLocalRdataResult(PrimFunction func, IReadOnlyDictionary<BufferStorage, BufferScheduleResult> scheduleResult, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> bufferReplaces)
     {
         if (scheduleResult.TryGetValue(BlockLocalRdataStorage, out var blockLocalRdataResult))
         {
-            foreach ((var buffer, var lifetime) in blockLocalRdataResult.Buffers)
+            _currentBlockLocalRdataStart = AssignConstRdataResult(func.SchedResult.BlockLocalRdatas, blockLocalRdataResult, bufferReplaces);
+        }
+    }
+
+    private long AssignConstRdataResult(Dictionary<Const, ValueRange<ulong>> rdatas, BufferScheduleResult result, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> bufferReplaces)
+    {
+        var uniqueLifetimes = new HashSet<BufferLifetime>(ReferenceEqualityComparer.Instance);
+        foreach (var buffer in result.Buffers.Keys)
+        {
+            var constValue = GetAddressOfConst(buffer);
+            if (!bufferReplaces.TryGetValue(buffer, out var lifetime))
             {
-                var constValue = (Const)((Call)buffer.Start)[IR.Buffers.AddressOf.Input];
-                var range = new ValueRange<ulong>((ulong)lifetime.Memory.Start, (ulong)lifetime.Memory.Stop);
-                func.SchedResult.BlockLocalRdatas.Add(constValue, range);
+                throw new InvalidOperationException($"Scheduled constant buffer {buffer} has no replacement lifetime.");
             }
 
-            _currentBlockLocalRdataStart = blockLocalRdataResult.MemoryPoolEnd;
+            var range = new ValueRange<ulong>((ulong)lifetime.Memory.Start, (ulong)lifetime.Memory.Stop);
+            if (rdatas.TryGetValue(constValue, out var existing))
+            {
+                if (existing.Min != range.Min || existing.Max != range.Max)
+                {
+                    throw new InvalidOperationException($"Constant rdata {constValue} was assigned conflicting ranges {existing} and {range}.");
+                }
+            }
+            else
+            {
+                rdatas.Add(constValue, range);
+            }
+
+            uniqueLifetimes.Add(lifetime);
         }
+
+        return uniqueLifetimes.Count == 0
+            ? result.MemoryPoolStart
+            : uniqueLifetimes.Max(lifetime => lifetime.Memory.Stop);
+    }
+
+    private Const GetAddressOfConst(TIR.PhysicalBuffer buffer)
+    {
+        if (buffer.Start is Call { Target: IR.Buffers.AddressOf } addressOf &&
+            addressOf[IR.Buffers.AddressOf.Input] is Const constValue)
+        {
+            return constValue;
+        }
+
+        throw new InvalidOperationException($"Constant buffer scheduling requires AddressOf(Const) starts, got {buffer.Start}.");
     }
 
     private void DumpSchedule(TIR.Buffer[] buffers, IReadOnlyDictionary<BufferStorage, BufferScheduleResult> scheduleResult)

@@ -2,6 +2,7 @@
 // Licensed under the Apache license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -2103,6 +2104,129 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         AssertBlockLocalSmemArtifacts(Path.Join(CompileOptions.DumpDir, nameof(TestBlockLocalSmemSharedAffineGatherMicroKernel), "Case0"));
     }
 
+    [Fact]
+    public async Task TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel()
+    {
+        const int blockSize = 128;
+        var firstSrcBase = new Var("smem_first_src_base", TensorType.Pointer(DataTypes.Float32));
+        var secondSrcBase = new Var("smem_second_src_base", TensorType.Pointer(DataTypes.Float32));
+        var firstDest0 = new Var("smem_first_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var firstDest1 = new Var("smem_first_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var secondDest0 = new Var("smem_second_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var secondDest1 = new Var("smem_second_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var offsets = IR.F.Tensors.Range((Const)0, (Const)blockSize, (Const)1);
+        var mask = IR.F.Math.Compare(CompareOp.LowerThan, offsets, (Const)blockSize);
+        var defaultValue = Const.FromTensor(Tensor.Zeros(DataTypes.Float32, new long[] { blockSize }));
+        var firstTile = IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, firstSrcBase, offsets), mask, defaultValue);
+        var secondTile = IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, secondSrcBase, offsets), mask, defaultValue);
+        var firstStore0 = IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, firstDest0, offsets), firstTile, mask);
+        var firstStore1 = IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, firstDest1, offsets), firstTile, mask);
+        var secondStore0 = IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, secondDest0, offsets), secondTile, mask);
+        var secondStore1 = IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, secondDest1, offsets), secondTile, mask);
+        var body = new IR.Tuple(firstStore0, firstStore1, secondStore0, secondStore1);
+
+        var firstSourceTensor = Tensor.From<float>(Enumerable.Range(0, blockSize).Select(i => (float)(i + 1)).ToArray(), new long[] { blockSize });
+        var secondSourceTensor = Tensor.From<float>(Enumerable.Range(0, blockSize).Select(i => (float)(i + 1001)).ToArray(), new long[] { blockSize });
+        var firstEval0 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var firstEval1 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var secondEval0 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var secondEval1 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var firstRt0 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var firstRt1 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var secondRt0 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var secondRt1 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+
+        using var firstSourcePinned = firstSourceTensor.PinBuffer();
+        using var secondSourcePinned = secondSourceTensor.PinBuffer();
+        using var firstEval0Pinned = firstEval0.PinBuffer();
+        using var firstEval1Pinned = firstEval1.PinBuffer();
+        using var secondEval0Pinned = secondEval0.PinBuffer();
+        using var secondEval1Pinned = secondEval1.PinBuffer();
+        using var firstRt0Pinned = firstRt0.PinBuffer();
+        using var firstRt1Pinned = firstRt1.PinBuffer();
+        using var secondRt0Pinned = secondRt0.PinBuffer();
+        using var secondRt1Pinned = secondRt1.PinBuffer();
+        var firstSourceValue = Value.FromTensor(Tensor.FromPointer(GetPointer(firstSourcePinned), DataTypes.Float32));
+        var secondSourceValue = Value.FromTensor(Tensor.FromPointer(GetPointer(secondSourcePinned), DataTypes.Float32));
+        var feedDict = new Dictionary<IVar, IValue>
+        {
+            { firstSrcBase, firstSourceValue },
+            { secondSrcBase, secondSourceValue },
+            { firstDest0, Value.FromTensor(Tensor.FromPointer(GetPointer(firstEval0Pinned), DataTypes.Float32)) },
+            { firstDest1, Value.FromTensor(Tensor.FromPointer(GetPointer(firstEval1Pinned), DataTypes.Float32)) },
+            { secondDest0, Value.FromTensor(Tensor.FromPointer(GetPointer(secondEval0Pinned), DataTypes.Float32)) },
+            { secondDest1, Value.FromTensor(Tensor.FromPointer(GetPointer(secondEval1Pinned), DataTypes.Float32)) },
+        };
+        var rtFeedDict = new Dictionary<IVar, IValue>
+        {
+            { firstSrcBase, firstSourceValue },
+            { secondSrcBase, secondSourceValue },
+            { firstDest0, Value.FromTensor(Tensor.FromPointer(GetPointer(firstRt0Pinned), DataTypes.Float32)) },
+            { firstDest1, Value.FromTensor(Tensor.FromPointer(GetPointer(firstRt1Pinned), DataTypes.Float32)) },
+            { secondDest0, Value.FromTensor(Tensor.FromPointer(GetPointer(secondRt0Pinned), DataTypes.Float32)) },
+            { secondDest1, Value.FromTensor(Tensor.FromPointer(GetPointer(secondRt1Pinned), DataTypes.Float32)) },
+        };
+
+        await RunCases(nameof(TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel), feedDict, new BaseExpr[] { body }, rtFeedDict);
+
+        var firstExpected = firstSourceTensor.ToArray<float>();
+        var secondExpected = secondSourceTensor.ToArray<float>();
+        Assert.Equal(firstExpected, firstEval0.ToArray<float>());
+        Assert.Equal(firstExpected, firstEval1.ToArray<float>());
+        Assert.Equal(secondExpected, secondEval0.ToArray<float>());
+        Assert.Equal(secondExpected, secondEval1.ToArray<float>());
+        Assert.Equal(firstExpected, firstRt0.ToArray<float>());
+        Assert.Equal(firstExpected, firstRt1.ToArray<float>());
+        Assert.Equal(secondExpected, secondRt0.ToArray<float>());
+        Assert.Equal(secondExpected, secondRt1.ToArray<float>());
+        AssertBlockLocalSmemMultiTileArtifacts(Path.Join(CompileOptions.DumpDir, nameof(TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel), "Case0"));
+    }
+
+    [Fact]
+    public async Task TestBlockLocalSmemOverlappingSharedAffineGatherBudgetFails()
+    {
+        ((NTTTargetOptions)CompileOptions.TargetOptions).SharedMemoryTileBudgetBytes = 768;
+        const int blockSize = 128;
+        var firstSrcBase = new Var("smem_first_src_base", TensorType.Pointer(DataTypes.Float32));
+        var secondSrcBase = new Var("smem_second_src_base", TensorType.Pointer(DataTypes.Float32));
+        var firstDest0 = new Var("smem_first_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var firstDest1 = new Var("smem_first_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var secondDest0 = new Var("smem_second_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var secondDest1 = new Var("smem_second_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var offsets = IR.F.Tensors.Range((Const)0, (Const)blockSize, (Const)1);
+        var mask = IR.F.Math.Compare(CompareOp.LowerThan, offsets, (Const)blockSize);
+        var defaultValue = Const.FromTensor(Tensor.Zeros(DataTypes.Float32, new long[] { blockSize }));
+        var firstTile = IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, firstSrcBase, offsets), mask, defaultValue);
+        var secondTile = IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, secondSrcBase, offsets), mask, defaultValue);
+        var firstStore0 = IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, firstDest0, offsets), firstTile, mask);
+        var secondStore0 = IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, secondDest0, offsets), secondTile, mask);
+        var firstStore1 = IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, firstDest1, offsets), firstTile, mask);
+        var secondStore1 = IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, secondDest1, offsets), secondTile, mask);
+        var body = new IR.Tuple(firstStore0, secondStore0, firstStore1, secondStore1);
+        var sourceTensor = Tensor.From<float>(Enumerable.Range(0, blockSize).Select(i => (float)(i + 1)).ToArray(), new long[] { blockSize });
+        var destTensor = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        using var sourcePinned = sourceTensor.PinBuffer();
+        using var destPinned = destTensor.PinBuffer();
+        var sourceValue = Value.FromTensor(Tensor.FromPointer(GetPointer(sourcePinned), DataTypes.Float32));
+        var destValue = Value.FromTensor(Tensor.FromPointer(GetPointer(destPinned), DataTypes.Float32));
+        var feedDict = new Dictionary<IVar, IValue>
+        {
+            { firstSrcBase, sourceValue },
+            { secondSrcBase, sourceValue },
+            { firstDest0, destValue },
+            { firstDest1, destValue },
+            { secondDest0, destValue },
+            { secondDest1, destValue },
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => RunCases(nameof(TestBlockLocalSmemOverlappingSharedAffineGatherBudgetFails), feedDict, new BaseExpr[] { body }));
+        Assert.Contains("aggregate live", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("BlockLocal/SMem", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("1024 bytes", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("budget 768 bytes", ex.Message, StringComparison.Ordinal);
+    }
+
     internal async Task RunCases(string dumpDir, Dictionary<IVar, IValue> feedDict, IEnumerable<BaseExpr> posts, Dictionary<IVar, IValue>? feedDictRT = null, bool enableAutoDist = true)
     {
         var postArray = posts.ToArray();
@@ -2248,6 +2372,50 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         AssertContains("ScheduledBuffer('smem_tile_0'", blockLocalSchedule.Text, blockLocalSchedule.Path);
         AssertContains("Interval(0, 512)", blockLocalSchedule.Text, blockLocalSchedule.Path);
     }
+
+    private static void AssertBlockLocalSmemMultiTileArtifacts(string caseDumpDir)
+    {
+        Assert.True(Directory.Exists(caseDumpDir), $"Missing CUDA smem multi-tile dump directory: {caseDumpDir}");
+
+        var threadMain = ReadRequiredDumpFile(Path.Join(caseDumpDir, "CodeGen", "cuda", "thread_main.cu"));
+        var mainPrim = ReadRequiredDumpFile(Path.Join(caseDumpDir, "CodeGen", "cuda", "main_prim.h"));
+        var ptx = ReadRequiredDumpFile(Path.Join(caseDumpDir, "CodeGen", "cuda", "build", "thread_main.ptx"));
+        var decisions = ReadRequiredUniqueDumpFile(caseDumpDir, "direct-affine-decisions.md");
+        var blockLocalSchedule = ReadRequiredUniqueDumpFile(caseDumpDir, "BlockLocalData.py");
+
+        AssertContains("__shared__", threadMain.Text, threadMain.Path);
+        AssertContains("flaglang_block_local_data_storage[512]", threadMain.Text, threadMain.Path);
+        AssertDoesNotContain("flaglang_block_local_data_storage[1024]", threadMain.Text, threadMain.Path);
+        AssertDoesNotContain("flaglang_thread_local_data_storage[512]", threadMain.Text, threadMain.Path);
+
+        AssertContains("topology_synchronize<ntt::distributed::topology::thread>", mainPrim.Text, mainPrim.Path);
+        Assert.True(
+            CountOccurrences(mainPrim.Text, "ntt::span<std::byte, 512>(block_local_data") >= 6,
+            $"Expected {mainPrim.Path} to materialize two reused shared tiles through one 512-byte block-local pool.");
+        Assert.True(
+            CountOccurrences(mainPrim.Text, "id_smem_first_src_base[") == 1,
+            $"Expected {mainPrim.Path} to read the first source exactly once.");
+        Assert.True(
+            CountOccurrences(mainPrim.Text, "id_smem_second_src_base[") == 1,
+            $"Expected {mainPrim.Path} to read the second source exactly once.");
+        AssertDoesNotContain("ntt::span<std::byte, 512>(thread_local_data", mainPrim.Text, mainPrim.Path);
+
+        AssertContains(".shared", ptx.Text, ptx.Path);
+        AssertContains("st.shared", ptx.Text, ptx.Path);
+        AssertContains("ld.shared", ptx.Text, ptx.Path);
+
+        AssertContains("allocation_slot=smem-slot0@0+512[0,2]", decisions.Text, decisions.Path);
+        AssertContains("allocation_slot=smem-slot0@0+512[3,5]", decisions.Text, decisions.Path);
+        AssertDoesNotContain("Location=LocalAddressable", decisions.Text, decisions.Path);
+
+        AssertContains("ScheduledBuffer('smem_tile_0'", blockLocalSchedule.Text, blockLocalSchedule.Path);
+        AssertContains("ScheduledBuffer('smem_tile_1'", blockLocalSchedule.Text, blockLocalSchedule.Path);
+        Assert.True(
+            CountOccurrences(blockLocalSchedule.Text, "Interval(0, 512)") >= 2,
+            $"Expected {blockLocalSchedule.Path} to assign both non-overlapping tiles to the same byte interval.");
+    }
+
+    private static unsafe ulong GetPointer(MemoryHandle handle) => (ulong)handle.Pointer;
 
     private static (string Path, string Text) ReadRequiredDumpFile(string path)
     {

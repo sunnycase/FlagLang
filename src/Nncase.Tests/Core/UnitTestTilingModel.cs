@@ -238,6 +238,34 @@ public sealed class UnitTestTilingModel : TestClassBase
     }
 
     [Fact]
+    public void StorageLayoutVerifierRejectsUnsupportedViewMapPrimitive()
+    {
+        var tensorShape = new RankedShape(1024);
+        var distributedType = new DistributedType(new TensorType(DataTypes.Float32, tensorShape), [SBP.S(0)], new Placement([128], "t"));
+        var invalidViewMap = new IndexMapDescriptor(
+            "OwnerLocalToGlobal",
+            ["owner0", "l0"],
+            [new IndexMapBinding("g0", new IndexNamedPrimitive("xor_swizzle", [IndexExpr.Var("owner0"), IndexExpr.Var("l0")]))],
+            ["0<=owner0<128", "0<=l0<8"],
+            ["0<=g0<1024"],
+            Inverse: "GlobalToOwnerLocal");
+        var invalidStorage = StorageLayout.SharedBlock(tensorShape, distributedType.DistributionLayout) with { ViewMap = invalidViewMap };
+
+        Assert.Throws<NotSupportedException>(() => LayoutVerifier.Verify(distributedType.DistributionLayout, invalidStorage));
+    }
+
+    [Fact]
+    public void StorageLayoutVerifierRequiresViewMapInverse()
+    {
+        var tensorShape = new RankedShape(1024);
+        var distributedType = new DistributedType(new TensorType(DataTypes.Float32, tensorShape), [SBP.S(0)], new Placement([128], "t"));
+        var invalidViewMap = distributedType.DistributionLayout.OwnerLocalToGlobal with { Inverse = "WrongInverse" };
+        var invalidStorage = StorageLayout.SharedBlock(tensorShape, distributedType.DistributionLayout) with { ViewMap = invalidViewMap };
+
+        Assert.Throws<InvalidOperationException>(() => LayoutVerifier.Verify(distributedType.DistributionLayout, invalidStorage));
+    }
+
+    [Fact]
     public async Task DirectAffineTilingPassAnnotatesGatherBinaryScatterDecisions()
     {
         const int blockSize = 256;

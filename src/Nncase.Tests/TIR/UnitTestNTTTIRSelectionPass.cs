@@ -302,6 +302,62 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
     }
 
     [Fact]
+    public async Task BlockLocalSmemMultipleSharedGathersPreserveNonOverlappingSchedule()
+    {
+        const int blockSize = 128;
+        var firstSource = new Var("first_source", TensorType.Pointer(DataTypes.Float32));
+        var secondSource = new Var("second_source", TensorType.Pointer(DataTypes.Float32));
+        var firstDest0 = new Var("first_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var firstDest1 = new Var("first_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var secondDest0 = new Var("second_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var secondDest1 = new Var("second_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var firstTile = Nncase.IR.F.Affine.Gather(firstSource, relation, symbols, shape, None.Default);
+        var firstScatter0 = Nncase.IR.F.Affine.Scatter(firstTile, firstDest0, relation, symbols);
+        var firstScatter1 = Nncase.IR.F.Affine.Scatter(firstTile, firstDest1, relation, symbols);
+        var secondTile = Nncase.IR.F.Affine.Gather(secondSource, relation, symbols, shape, None.Default);
+        var secondScatter0 = Nncase.IR.F.Affine.Scatter(secondTile, secondDest0, relation, symbols);
+        var secondScatter1 = Nncase.IR.F.Affine.Scatter(secondTile, secondDest1, relation, symbols);
+        var body = new Sequential(new Expr[] { firstTile, firstScatter0, firstScatter1, secondTile, secondScatter0, secondScatter1 });
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(body, firstSource, secondSource, firstDest0, firstDest1, secondDest0, secondDest1));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        Assert.True(TileDecisionMetadata.TryGet(firstTile, out var firstDecision));
+        Assert.True(TileDecisionMetadata.TryGet(secondTile, out var secondDecision));
+        Assert.Equal("smem-slot0@0+512[0,2]", firstDecision.Telemetry.AllocationSlot);
+        Assert.Equal("smem-slot0@0+512[3,5]", secondDecision.Telemetry.AllocationSlot);
+
+        var selected = Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(tiled, new()));
+        var fields = selected.Body.Fields.ToArray();
+        Assert.IsType<Nncase.TIR.NTT.AffineGather>(Assert.IsType<Call>(fields[0]).Target);
+        Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[1]).Target);
+        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[2]).Target);
+        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[3]).Target);
+        Assert.IsType<Nncase.TIR.NTT.AffineGather>(Assert.IsType<Call>(fields[4]).Target);
+        Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[5]).Target);
+        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[6]).Target);
+        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[7]).Target);
+        Assert.IsType<Return>(fields[8]);
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(selected, new()));
+        var module = new IRModule(lowered);
+        var passManager = CompileSession.CreatePassManager("smem-bufferize");
+        passManager.Add<BufferizePass>();
+        module = await passManager.RunAsync(module);
+        var scheduled = Assert.IsType<PrimFunction>(module.Entry);
+        Assert.True(scheduled.SchedResult.IsScheduled);
+        Assert.Equal((ulong)firstDecision.ByteSize, scheduled.SchedResult.BlockLocalDataPoolSize);
+    }
+
+    [Fact]
     public async Task DirectAffineSelectionRequiresTileDecision()
     {
         const int blockSize = 256;

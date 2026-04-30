@@ -253,20 +253,17 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         }
 
         var fields = GetBlockLocalSmemFields(blockBody);
-        var sourceGathers = new List<Call>();
         var consumerScatters = new List<Call>();
         foreach (var field in fields)
         {
             if (field is Call { Target: IR.Affine.Gather } gatherCall && IsBlockLocalSmem(gatherCall))
             {
-                AddUniqueSourceGather(sourceGathers, gatherCall);
                 continue;
             }
 
             if (field is Call { Target: IR.Affine.Scatter } scatterCall &&
-                TryGetBlockLocalSmemGatherSource(scatterCall, out var sourceGather))
+                TryGetBlockLocalSmemGatherSource(scatterCall, out _))
             {
-                AddUniqueSourceGather(sourceGathers, sourceGather);
                 consumerScatters.Add(scatterCall);
                 continue;
             }
@@ -286,37 +283,28 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
 
         var buffers = new Dictionary<Call, TIR.Buffer>(ReferenceEqualityComparer.Instance);
         var loweredFields = new List<Expr>();
-        foreach (var gatherCall in sourceGathers)
+        foreach (var field in fields)
         {
-            var gather = (IR.Affine.Gather)gatherCall.Target;
-            var decision = TileDecisionMetadata.Require(gatherCall, "Block-local SMem affine TIR selection");
-            ValidateBlockLocalSmemDecision(decision, "Affine.Gather");
-            var output = CreateBlockLocalSmemBuffer(gatherCall, decision, buffers.Count);
-            buffers.Add(gatherCall, output);
-            loweredFields.Add(TIR.F.NTT.AffineGather(
-                (Expr)gatherCall[IR.Affine.Gather.Source],
-                (Expr)gatherCall[IR.Affine.Gather.DefaultValue],
-                output,
-                gather.Relation,
-                gather.Symbols,
-                gather.Shape).InheritMetaData(gatherCall));
-        }
-
-        loweredFields.Add(TIR.F.NTT.SynchronizeThreads());
-        foreach (var scatterCall in consumerScatters)
-        {
-            if (!TryGetBlockLocalSmemGatherSource(scatterCall, out var sourceGather) ||
-                !buffers.TryGetValue(sourceGather, out var sourceBuffer))
+            if (field is Call { Target: IR.Affine.Gather } gatherCall && IsBlockLocalSmem(gatherCall))
             {
-                throw new InvalidOperationException("Block-local SMem affine scatter source was not materialized by the derived producer set.");
+                EnsureBlockLocalSmemGatherLowered(gatherCall, buffers, loweredFields);
+                continue;
             }
 
-            var scatter = (IR.Affine.Scatter)scatterCall.Target;
-            loweredFields.Add(TIR.F.NTT.AffineScatter(
-                sourceBuffer,
-                (Expr)scatterCall[IR.Affine.Scatter.Dest],
-                scatter.Relation,
-                scatter.Symbols).InheritMetaData(scatterCall));
+            if (field is Call { Target: IR.Affine.Scatter } scatterCall &&
+                TryGetBlockLocalSmemGatherSource(scatterCall, out var sourceGather))
+            {
+                var sourceBuffer = EnsureBlockLocalSmemGatherLowered(sourceGather, buffers, loweredFields);
+                var scatter = (IR.Affine.Scatter)scatterCall.Target;
+                loweredFields.Add(TIR.F.NTT.AffineScatter(
+                    sourceBuffer,
+                    (Expr)scatterCall[IR.Affine.Scatter.Dest],
+                    scatter.Relation,
+                    scatter.Symbols).InheritMetaData(scatterCall));
+                continue;
+            }
+
+            throw new InvalidOperationException("Block-local SMem affine field validation diverged from lowering.");
         }
 
         loweredFields.Add(T.Return());
@@ -332,12 +320,27 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         _ => throw new NotSupportedException($"Block-local SMem affine lowering requires an expression block, got {body.GetType().Name}."),
     };
 
-    private void AddUniqueSourceGather(List<Call> sourceGathers, Call gatherCall)
+    private TIR.Buffer EnsureBlockLocalSmemGatherLowered(Call gatherCall, IDictionary<Call, TIR.Buffer> buffers, IList<Expr> loweredFields)
     {
-        if (!sourceGathers.Any(candidate => ReferenceEquals(candidate, gatherCall)))
+        if (buffers.TryGetValue(gatherCall, out var existing))
         {
-            sourceGathers.Add(gatherCall);
+            return existing;
         }
+
+        var gather = (IR.Affine.Gather)gatherCall.Target;
+        var decision = TileDecisionMetadata.Require(gatherCall, "Block-local SMem affine TIR selection");
+        ValidateBlockLocalSmemDecision(decision, "Affine.Gather");
+        var output = CreateBlockLocalSmemBuffer(gatherCall, decision, buffers.Count);
+        buffers.Add(gatherCall, output);
+        loweredFields.Add(TIR.F.NTT.AffineGather(
+            (Expr)gatherCall[IR.Affine.Gather.Source],
+            (Expr)gatherCall[IR.Affine.Gather.DefaultValue],
+            output,
+            gather.Relation,
+            gather.Symbols,
+            gather.Shape).InheritMetaData(gatherCall));
+        loweredFields.Add(TIR.F.NTT.SynchronizeThreads());
+        return output;
     }
 
     private bool ContainsBlockLocalSmemDecision(BaseExpr expr) =>

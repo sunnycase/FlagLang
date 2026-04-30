@@ -18,7 +18,7 @@ BEGIN {
   in_signature = 0
   in_body = 0
   bad = 0
-  local_pattern = "(^|[[:space:]])(\\.local|ld\\.local|st\\.local|cvta\\.local)([^[:alnum:]_.]|$)"
+  local_pattern = "(^|[[:space:]])(\\.local([[:space:].]|$)|ld\\.local(\\.|[[:space:];]|$)|st\\.local(\\.|[[:space:];]|$)|cvta(\\.to)?\\.local(\\.|[[:space:];]|$))"
 }
 
 /\.visible[[:space:]]+\.func/ && /thread_main/ {

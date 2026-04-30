@@ -277,6 +277,11 @@ public static class LayoutVerifier
         {
             throw new InvalidOperationException($"StorageLayout {storageLayout.Kind} logical shape {storageLayout.LogicalShape} does not match DistributionLayout {distributionLayout.Kind} local shape {distributionLayout.LocalShape} and has no view map.");
         }
+
+        if (storageLayout.ViewMap is { } viewMap)
+        {
+            VerifyMap(viewMap, distributionLayout.GlobalToOwnerLocal.Name, storageLayout.Kind);
+        }
     }
 
     private static void VerifyMap(IndexMapDescriptor map, string expectedInverse, string layoutKind)
