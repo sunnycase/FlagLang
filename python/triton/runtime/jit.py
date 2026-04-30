@@ -416,7 +416,10 @@ def create_specialize_impl(specialize_extra):
         elif isinstance(arg, constexpr):
             return ("constexpr", arg)
         elif isinstance(arg, tuple):
-            spec = [specialize_impl(x) for x in arg]
+            spec = [
+                specialize_impl(x, is_const=is_const, specialize_value=specialize_value, align=align)
+                for x in arg
+            ]
             make_tuple = lambda vals: type(arg)(*vals) if hasattr(arg, "_fields") else tuple(vals)
             tys = make_tuple([x[0] for x in spec])
             keys = make_tuple([x[1] for x in spec])

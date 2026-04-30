@@ -4,7 +4,12 @@ import torch
 
 import triton
 import triton.language as tl
-from triton.runtime.jit import MockTensor, create_function_from_signature, compute_cache_key
+from triton.runtime.jit import (
+    MockTensor,
+    create_function_from_signature,
+    compute_cache_key,
+    create_specialize_impl,
+)
 
 _CLOSURE_SHADOW_VALUE = 7
 
@@ -44,6 +49,25 @@ def test_mock_tensor_stride_matches_contiguous_layout():
     assert MockTensor(torch.float32, shape=[2, 3]).stride() == (3, 1)
     assert MockTensor(torch.float32, shape=[2, 3, 4]).stride() == (12, 4, 1)
     assert MockTensor(torch.float32, shape=[2, 3, 4, 5]).stride() == (60, 20, 5, 1)
+
+
+def test_tuple_specialization_preserves_opt_out_flags():
+    calls = []
+
+    def specialize_extra(arg, kind, **kwargs):
+        calls.append((arg, kind, kwargs))
+        return (arg, kind, kwargs["align"])
+
+    specialize_impl = create_specialize_impl(specialize_extra)
+
+    assert specialize_impl((1, 2), specialize_value=False) == (("i32", "i32"), (None, None))
+    assert calls == []
+
+    assert specialize_impl((16, 32), align=False) == (
+        ("i32", "i32"),
+        ((16, "int", False), (32, "int", False)),
+    )
+    assert [call[2]["align"] for call in calls] == [False, False]
 
 
 def test_dependency_finder_resolves_nonlocals_before_globals():
