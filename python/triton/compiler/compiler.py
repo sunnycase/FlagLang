@@ -322,6 +322,13 @@ def _serialize_ir_for_storage(module, ext):
     return str(module)
 
 
+_BINARY_ONLY_CACHE_EXTENSIONS = frozenset(("cubin", "hsaco", "json"))
+
+
+def _should_store_compilation_artifact(ext, store_only_binary):
+    return not store_only_binary or ext in _BINARY_ONLY_CACHE_EXTENSIONS
+
+
 def _supports_positional_argument(method, count: int) -> bool:
     params = inspect.signature(method).parameters.values()
     positional = {
@@ -512,10 +519,12 @@ def compile(src, target=None, options=None, _env_vars=None):
 
     if ir_source:
         ir_filename = f"{file_name}.{src.ext}"
-        metadata_group[ir_filename] = fn_cache_manager.put(_serialize_ir_for_storage(module, src.ext), ir_filename)
+        if _should_store_compilation_artifact(src.ext, store_only_binary):
+            metadata_group[ir_filename] = fn_cache_manager.put(_serialize_ir_for_storage(module, src.ext), ir_filename)
     else:
         ir_filename = f"{file_name}.source"
-        metadata_group[ir_filename] = fn_cache_manager.put(_serialize_ir_for_storage(module, "source"), ir_filename)
+        if _should_store_compilation_artifact("source", store_only_binary):
+            metadata_group[ir_filename] = fn_cache_manager.put(_serialize_ir_for_storage(module, "source"), ir_filename)
 
     use_ir_loc = knobs.compilation.use_ir_loc
     if ir_source and use_ir_loc:
@@ -536,8 +545,8 @@ def compile(src, target=None, options=None, _env_vars=None):
             print(f"\nOverriding kernel with file {full_name}")
             next_module = parse(full_name, ext, context)
         suppress_stage_file = getattr(next_module, "suppress_stage_file", False)
-        # If TRITON_STORE_BINARY_ONLY is 1, only store cubin/hsaco/json
-        if ((not store_only_binary) or (ext in ("cubin", "hsaco", "json"))) and not suppress_stage_file:
+        # If TRITON_STORE_BINARY_ONLY is 1, only store cubin/hsaco/json in cache.
+        if _should_store_compilation_artifact(ext, store_only_binary) and not suppress_stage_file:
             metadata_group[ir_filename] = fn_cache_manager.put(_serialize_ir_for_storage(next_module, ext), ir_filename)
         if fn_dump_manager is not None:
             if not suppress_stage_file:
@@ -549,8 +558,9 @@ def compile(src, target=None, options=None, _env_vars=None):
         if callable(cache_artifacts):
             for artifact_ext, artifact in cache_artifacts().items():
                 artifact_filename = f"{file_name}.{artifact_ext}"
-                metadata_group[artifact_filename] = fn_cache_manager.put(
-                    _serialize_ir_for_storage(artifact, artifact_ext), artifact_filename)
+                if _should_store_compilation_artifact(artifact_ext, store_only_binary):
+                    metadata_group[artifact_filename] = fn_cache_manager.put(
+                        _serialize_ir_for_storage(artifact, artifact_ext), artifact_filename)
                 if fn_dump_manager is not None:
                     fn_dump_manager.put(_serialize_ir_for_storage(artifact, artifact_ext), artifact_filename)
         # use an env variable to parse ir from file
