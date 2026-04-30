@@ -2230,6 +2230,9 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         Assert.True(
             CountOccurrences(mainPrim.Text, "ntt::span<std::byte, 512>(block_local_data") >= 3,
             $"Expected {mainPrim.Path} to load the reused tile from block-local storage for both consumers.");
+        Assert.Equal(
+            1,
+            CountOccurrences(mainPrim.Text, "id_smem_src_base["));
         AssertDoesNotContain("ntt::span<std::byte, 512>(thread_local_data", mainPrim.Text, mainPrim.Path);
 
         AssertContains(".shared", ptx.Text, ptx.Path);
@@ -2239,7 +2242,7 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         AssertContains("Location=SMem", decisions.Text, decisions.Path);
         AssertContains("requires_sync: True", decisions.Text, decisions.Path);
         AssertContains("capacity: requested=512, budget=49152, source=target-options:SharedMemoryTileBudgetBytes", decisions.Text, decisions.Path);
-        AssertContains("telemetry: reuse_count=2, estimated_traffic_bytes=1024, register_bytes=0, smem_bytes=512, allocation_slot=smem-lifetime-slot[0,2]", decisions.Text, decisions.Path);
+        AssertContains("telemetry: reuse_count=2, estimated_traffic_bytes=1024, register_bytes=0, smem_bytes=512, allocation_slot=smem-slot0@0+512[0,2]", decisions.Text, decisions.Path);
         AssertDoesNotContain("Location=LocalAddressable", decisions.Text, decisions.Path);
 
         AssertContains("ScheduledBuffer('smem_tile_0'", blockLocalSchedule.Text, blockLocalSchedule.Path);

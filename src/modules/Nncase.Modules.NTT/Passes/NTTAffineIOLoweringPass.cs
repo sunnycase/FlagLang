@@ -172,14 +172,63 @@ namespace Nncase.Passes
                 return sourceSetup is null ? loopNest : T.Sequential(sourceSetup, loopNest);
             }
 
-            private Expr[] GetStorageIndices(TIR.Buffer buffer, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> domainValues) =>
-                UsesSharedBlockStorage(buffer)
-                    ? domainValues.AsExprs()
-                    : loopVars.AsExprs();
+            private Expr[] GetStorageIndices(TIR.Buffer buffer, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> domainValues)
+            {
+                if (buffer.DistributedType is not DistributedType distributedType)
+                {
+                    return loopVars.AsExprs();
+                }
 
-            private bool UsesSharedBlockStorage(TIR.Buffer buffer) =>
-                buffer.Storage is { Scope: BufferScope.BlockLocal, PhysicalLocation: PhysicalMemorySpace.SMem } &&
-                buffer.DistributedType?.StorageLayout.ViewMap is not null;
+                ValidateDistributedBuffer(buffer, distributedType);
+                var storageLayout = distributedType.StorageLayout;
+                if (IsIdentityStorageMap(storageLayout.LogicalToPhysical, loopVars.Count))
+                {
+                    return loopVars.AsExprs();
+                }
+
+                var bindings = BuildOwnerLocalBindings(buffer, distributedType, loopVars);
+                if (storageLayout.ViewMap is not null)
+                {
+                    var viewValues = EvaluateMap(storageLayout.ViewMap, bindings, $"storage view map {storageLayout.ViewMap.Name} for buffer {buffer.Name}");
+                    foreach (var value in viewValues)
+                    {
+                        bindings[value.Name] = value.Value;
+                    }
+                }
+                else
+                {
+                    for (int i = 0; i < domainValues.Count; i++)
+                    {
+                        bindings[$"g{i}"] = domainValues[i];
+                    }
+                }
+
+                return EvaluateMap(storageLayout.LogicalToPhysical, bindings, $"storage map {storageLayout.LogicalToPhysical.Name} for buffer {buffer.Name}")
+                    .Select(value => value.Value)
+                    .ToArray()
+                    .AsExprs();
+            }
+
+            private bool IsIdentityStorageMap(IndexMapDescriptor map, int rank)
+            {
+                if (map.Inputs.Count != rank || map.Outputs.Count != rank)
+                {
+                    return false;
+                }
+
+                for (int i = 0; i < rank; i++)
+                {
+                    if (map.Inputs[i] != $"l{i}" ||
+                        map.Outputs[i].Name != $"p{i}" ||
+                        map.Outputs[i].Expr is not IndexVar { Name: var name } ||
+                        name != $"l{i}")
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
 
             private Expr BuildLoopNest(Dimension[] extents, Func<DimVar[], Expr> bodyFactory)
             {
@@ -240,7 +289,7 @@ namespace Nncase.Passes
                 ValidateDistributedBuffer(buffer, distributedType);
                 if (distributedType.ExplicitDistributionLayout is not null)
                 {
-                    return GetExplicitDomainValues(buffer, distributedType, loopVars, globalExtents);
+                    return GetExplicitDomainValues(buffer, distributedType, loopVars);
                 }
 
                 var domainValues = new Dimension[loopVars.Count];
@@ -277,33 +326,30 @@ namespace Nncase.Passes
             private Dimension[] GetExplicitIterationExtents(TIR.Buffer buffer, DistributedType distributedType)
             {
                 var layout = distributedType.DistributionLayout;
-                return layout.Kind switch
-                {
-                    "SBP" => layout.LocalShape.ToArray(),
-                    "TritonBlocked" => RequireRankOneExplicitLayout(buffer, layout).LocalShape.ToArray(),
-                    _ => throw new NotSupportedException($"Affine IO lowering cannot evaluate explicit distribution layout {layout.Kind} for buffer {buffer.Name}. Add a DistributionLayout evaluator for this map instead of falling back to AxisPolicies."),
-                };
+                ValidateSupportedExplicitMap(buffer, layout);
+                return layout.LocalShape.ToArray();
             }
 
-            private Dimension[] GetExplicitDomainValues(TIR.Buffer buffer, DistributedType distributedType, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> globalExtents)
+            private Dimension[] GetExplicitDomainValues(TIR.Buffer buffer, DistributedType distributedType, IReadOnlyList<DimVar> loopVars)
             {
                 var layout = distributedType.DistributionLayout;
-                return layout.Kind switch
-                {
-                    "SBP" => loopVars.Select((loopVar, axis) => (Dimension)(loopVar + GetShardOffset(distributedType, axis, globalExtents[axis]))).ToArray(),
-                    "TritonBlocked" => [GetTritonBlockedDomainValue(RequireRankOneExplicitLayout(buffer, layout), loopVars[0])],
-                    _ => throw new NotSupportedException($"Affine IO lowering cannot evaluate explicit distribution layout {layout.Kind} for buffer {buffer.Name}. Add a DistributionLayout evaluator for this map instead of falling back to AxisPolicies."),
-                };
+                ValidateSupportedExplicitMap(buffer, layout);
+                return EvaluateMap(layout.OwnerLocalToGlobal, BuildOwnerLocalBindings(buffer, distributedType, loopVars), $"distribution map {layout.OwnerLocalToGlobal.Name} for buffer {buffer.Name}")
+                    .Select(value => value.Value)
+                    .ToArray();
             }
 
-            private DistributionLayout RequireRankOneExplicitLayout(TIR.Buffer buffer, DistributionLayout layout)
+            private void ValidateSupportedExplicitMap(TIR.Buffer buffer, DistributionLayout layout)
             {
-                if (layout.LocalShape is not { IsUnranked: false, Rank: 1 })
+                if (layout.Kind is not ("SBP" or "TritonBlocked"))
+                {
+                    throw new NotSupportedException($"Affine IO lowering cannot evaluate explicit distribution layout {layout.Kind} for buffer {buffer.Name}. Add a DistributionLayout evaluator for this map instead of falling back to AxisPolicies.");
+                }
+
+                if (layout.Kind == "TritonBlocked" && layout.LocalShape is not { IsUnranked: false, Rank: 1 })
                 {
                     throw new NotSupportedException($"Affine IO lowering supports explicit {layout.Kind} layout only for rank-1 buffers, got {layout.LocalShape} on {buffer.Name}.");
                 }
-
-                return layout;
             }
 
             private Dimension GetLocalShardExtent(DistributedType distributedType, int tensorAxis, Dimension globalExtent)
@@ -466,6 +512,102 @@ namespace Nncase.Passes
                 return matches.Length == 1
                     ? matches[0][prefix.Length..]
                     : throw new NotSupportedException($"TritonBlocked layout must provide exactly one {name} attribute, got {matches.Length}.");
+            }
+
+            private Dictionary<string, Dimension> BuildOwnerLocalBindings(TIR.Buffer buffer, DistributedType distributedType, IReadOnlyList<DimVar> loopVars)
+            {
+                var bindings = new Dictionary<string, Dimension>(StringComparer.Ordinal);
+                for (int axis = 0; axis < distributedType.Placement.Rank; axis++)
+                {
+                    bindings[$"owner{axis}"] = GetMeshAxisIndex(distributedType.Placement, axis);
+                }
+
+                for (int i = 0; i < loopVars.Count; i++)
+                {
+                    bindings[$"l{i}"] = loopVars[i];
+                    bindings[$"d{i}"] = loopVars[i];
+                }
+
+                if (distributedType.DistributionLayout.Kind == "TritonBlocked")
+                {
+                    BindTritonBlockedOwnerCoordinates(distributedType.DistributionLayout, bindings);
+                    if (loopVars.Count != 1)
+                    {
+                        throw new NotSupportedException($"TritonBlocked affine IO lowering requires one loop coordinate for buffer {buffer.Name}, got {loopVars.Count}.");
+                    }
+
+                    bindings["elem"] = loopVars[0];
+                }
+
+                return bindings;
+            }
+
+            private void BindTritonBlockedOwnerCoordinates(DistributionLayout layout, IDictionary<string, Dimension> bindings)
+            {
+                var tritonLayout = ParseTritonBlockedLayout(layout);
+                var threadId = IR.F.Distributed.ThreadId();
+                bindings["cta"] = IR.F.Distributed.ProgramId(0);
+                bindings["warp"] = threadId / (Dimension)tritonLayout.ThreadsPerWarp;
+                bindings["lane"] = threadId % (Dimension)tritonLayout.ThreadsPerWarp;
+            }
+
+            private IReadOnlyList<(string Name, Dimension Value)> EvaluateMap(IndexMapDescriptor map, IReadOnlyDictionary<string, Dimension> bindings, string context)
+            {
+                foreach (var input in map.Inputs)
+                {
+                    if (!bindings.ContainsKey(input))
+                    {
+                        throw new NotSupportedException($"Cannot evaluate {context}: input {input} is not bound.");
+                    }
+                }
+
+                var outputs = new List<(string Name, Dimension Value)>(map.Outputs.Count);
+                foreach (var output in map.Outputs)
+                {
+                    outputs.Add((output.Name, EvaluateIndexExpr(output.Expr, bindings, context)));
+                }
+
+                return outputs;
+            }
+
+            private Dimension EvaluateIndexExpr(IndexExpr expr, IReadOnlyDictionary<string, Dimension> bindings, string context)
+            {
+                return expr switch
+                {
+                    IndexVar variable => bindings.TryGetValue(variable.Name, out var value)
+                        ? value
+                        : throw new NotSupportedException($"Cannot evaluate {context}: variable {variable.Name} is not bound."),
+                    IndexConst constant => constant.Value,
+                    IndexAdd add => EvaluateIndexAdd(add, bindings, context),
+                    IndexMul mul => EvaluateIndexMul(mul, bindings, context),
+                    IndexFloorDiv floorDiv => EvaluateIndexExpr(floorDiv.Value, bindings, context) / EvaluateIndexExpr(floorDiv.Divisor, bindings, context),
+                    IndexMod mod => EvaluateIndexExpr(mod.Value, bindings, context) % EvaluateIndexExpr(mod.Divisor, bindings, context),
+                    IndexAny => throw new NotSupportedException($"Cannot evaluate {context}: wildcard index output requires an explicit binding."),
+                    IndexNamedPrimitive named => throw new NotSupportedException($"Cannot evaluate {context}: named primitive {named.Name} has no affine IO evaluator."),
+                    _ => throw new NotSupportedException($"Cannot evaluate {context}: unsupported index expression {expr.GetType().Name}."),
+                };
+            }
+
+            private Dimension EvaluateIndexAdd(IndexAdd add, IReadOnlyDictionary<string, Dimension> bindings, string context)
+            {
+                Dimension result = Dimension.Zero;
+                foreach (var term in add.Terms)
+                {
+                    result += EvaluateIndexExpr(term, bindings, context);
+                }
+
+                return result;
+            }
+
+            private Dimension EvaluateIndexMul(IndexMul mul, IReadOnlyDictionary<string, Dimension> bindings, string context)
+            {
+                Dimension result = Dimension.One;
+                foreach (var factor in mul.Factors)
+                {
+                    result *= EvaluateIndexExpr(factor, bindings, context);
+                }
+
+                return result;
             }
 
             private Dimension EvaluateAddress(AffineRelation relation, IReadOnlyList<Dimension> domainValues, IReadOnlyList<Dimension> extents, IReadOnlyDictionary<int, Dimension>? symbolMap)

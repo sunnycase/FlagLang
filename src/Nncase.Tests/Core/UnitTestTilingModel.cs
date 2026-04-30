@@ -316,6 +316,67 @@ public sealed class UnitTestTilingModel : TestClassBase
     }
 
     [Fact]
+    public async Task DirectAffineTilingPassReusesSmemSlotForNonOverlappingSharedTiles()
+    {
+        const int blockSize = 128;
+        var firstSource = new Var("first_source", TensorType.Pointer(DataTypes.Float32));
+        var secondSource = new Var("second_source", TensorType.Pointer(DataTypes.Float32));
+        var firstDest0 = new Var("first_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var firstDest1 = new Var("first_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var secondDest0 = new Var("second_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var secondDest1 = new Var("second_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var (relation, symbols, shape) = CreateRankOneIdentity(blockSize);
+        var firstTile = Nncase.IR.F.Affine.Gather(firstSource, relation, symbols, shape, None.Default);
+        var firstScatter0 = Nncase.IR.F.Affine.Scatter(firstTile, firstDest0, relation, symbols);
+        var firstScatter1 = Nncase.IR.F.Affine.Scatter(firstTile, firstDest1, relation, symbols);
+        var secondTile = Nncase.IR.F.Affine.Gather(secondSource, relation, symbols, shape, None.Default);
+        var secondScatter0 = Nncase.IR.F.Affine.Scatter(secondTile, secondDest0, relation, symbols);
+        var secondScatter1 = Nncase.IR.F.Affine.Scatter(secondTile, secondDest1, relation, symbols);
+        var body = new Sequential(new Expr[] { firstTile, firstScatter0, firstScatter1, secondTile, secondScatter0, secondScatter1 });
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(body, firstSource, secondSource, firstDest0, firstDest1, secondDest0, secondDest1));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        _ = await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new());
+
+        Assert.True(TileDecisionMetadata.TryGet(firstTile, out var firstDecision));
+        Assert.True(TileDecisionMetadata.TryGet(secondTile, out var secondDecision));
+        Assert.Equal(new TileLifetime(0, 2), firstDecision.Lifetime);
+        Assert.Equal(new TileLifetime(3, 5), secondDecision.Lifetime);
+        Assert.Equal("smem-slot0@0+512[0,2]", firstDecision.Telemetry.AllocationSlot);
+        Assert.Equal("smem-slot0@0+512[3,5]", secondDecision.Telemetry.AllocationSlot);
+    }
+
+    [Fact]
+    public async Task DirectAffineTilingPassRejectsOverlappingSmemLiveBytesOverBudget()
+    {
+        ((NTTTargetOptions)CompileOptions.TargetOptions).SharedMemoryTileBudgetBytes = 768;
+        const int blockSize = 128;
+        var firstSource = new Var("first_source", TensorType.Pointer(DataTypes.Float32));
+        var secondSource = new Var("second_source", TensorType.Pointer(DataTypes.Float32));
+        var firstDest0 = new Var("first_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var firstDest1 = new Var("first_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var secondDest0 = new Var("second_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var secondDest1 = new Var("second_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var (relation, symbols, shape) = CreateRankOneIdentity(blockSize);
+        var firstTile = Nncase.IR.F.Affine.Gather(firstSource, relation, symbols, shape, None.Default);
+        var secondTile = Nncase.IR.F.Affine.Gather(secondSource, relation, symbols, shape, None.Default);
+        var firstScatter0 = Nncase.IR.F.Affine.Scatter(firstTile, firstDest0, relation, symbols);
+        var secondScatter0 = Nncase.IR.F.Affine.Scatter(secondTile, secondDest0, relation, symbols);
+        var firstScatter1 = Nncase.IR.F.Affine.Scatter(firstTile, firstDest1, relation, symbols);
+        var secondScatter1 = Nncase.IR.F.Affine.Scatter(secondTile, secondDest1, relation, symbols);
+        var body = new Sequential(new Expr[] { firstTile, secondTile, firstScatter0, secondScatter0, firstScatter1, secondScatter1 });
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(body, firstSource, secondSource, firstDest0, firstDest1, secondDest0, secondDest1));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        Assert.Contains("aggregate live", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("BlockLocal/SMem", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("1024 bytes", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("budget 768 bytes", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DirectAffineTilingPassRejectsUnsupportedCudaDirectAffineFallback()
     {
         const int blockSize = 128;
@@ -438,5 +499,16 @@ public sealed class UnitTestTilingModel : TestClassBase
         var ex = await Assert.ThrowsAsync<NotSupportedException>(
             () => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
         Assert.Contains("Unsupported direct-affine DAGs must fail fast", ex.Message, StringComparison.Ordinal);
+    }
+
+    private static (AffineRelation Relation, RankedShape Symbols, RankedShape Shape) CreateRankOneIdentity(int blockSize)
+    {
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        return (relation, new RankedShape(Array.Empty<Dimension>()), new RankedShape(blockSize));
     }
 }

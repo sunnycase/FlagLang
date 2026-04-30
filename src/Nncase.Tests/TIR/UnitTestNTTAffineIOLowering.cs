@@ -214,6 +214,64 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
     }
 
     [Fact]
+    public async Task ExplicitSbpScatterUsesOwnerLocalMapWithoutLegacyAxisPolicies()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(4));
+        var placement = new Placement([2], "t");
+        var layout = DistributionLayout.FromAxisPolicies(tensorType, [SBP.S(0)], placement);
+        var distributedType = DistributedType.FromLayouts(tensorType, placement, layout);
+        var source = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, "source", distributedType);
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var (relation, symbols) = CreateIdentityRelation();
+        var call = Nncase.TIR.F.NTT.AffineScatter(source, dest, relation, symbols);
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(call));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var outerLoop = Assert.IsType<Nncase.TIR.For>(Assert.Single(lowered.Body.Fields.ToArray()));
+        var storeCall = AssertSingleCall<Store>(outerLoop.Body);
+        var storeAddress = Assert.IsAssignableFrom<Dimension>(storeCall[Store.Index]);
+
+        Assert.Equal(2, EvaluateDimension(outerLoop.Domain.Stop, outerLoop.LoopVar, lane: 0, programId: 0, nElements: 0, threadId: 0));
+        AssertAddresses(storeAddress, outerLoop, programId: 0, expected: [0, 1], threadId: 0);
+        AssertAddresses(storeAddress, outerLoop, programId: 0, expected: [2, 3], threadId: 1);
+        Assert.True(CompilerServices.InferenceType(lowered));
+    }
+
+    [Fact]
+    public async Task ExplicitStorageLayoutLogicalToPhysicalControlsBufferLoadIndex()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(4));
+        var placement = new Placement([2], "t");
+        var layout = DistributionLayout.FromAxisPolicies(tensorType, [SBP.S(0)], placement);
+        var storageLayout = new StorageLayout(
+            "ReverseLocal",
+            layout.LocalShape,
+            new IndexMapDescriptor(
+                "LogicalToPhysical",
+                ["l0"],
+                [new IndexMapBinding("p0", IndexExpr.Add(IndexExpr.Const(1), IndexExpr.Mul(IndexExpr.Const(-1), IndexExpr.Var("l0"))))],
+                ["0<=l0<2"],
+                ["0<=p0<2"],
+                Inverse: "LogicalToPhysical"));
+        var distributedType = DistributedType.FromLayouts(tensorType, placement, layout, storageLayout);
+        var source = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, "source", distributedType);
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var (relation, symbols) = CreateIdentityRelation();
+        var call = Nncase.TIR.F.NTT.AffineScatter(source, dest, relation, symbols);
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(call));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var outerLoop = Assert.IsType<Nncase.TIR.For>(Assert.Single(lowered.Body.Fields.ToArray()));
+        var storeCall = AssertSingleCall<Store>(outerLoop.Body);
+        var storeAddress = Assert.IsAssignableFrom<Dimension>(storeCall[Store.Index]);
+        var loadIndex = GetSingleBufferLoadIndex(storeCall);
+
+        AssertAddresses(storeAddress, outerLoop, programId: 0, expected: [0, 1], threadId: 0);
+        AssertDimensionValues(loadIndex, outerLoop, expected: [1, 0], threadId: 0);
+        Assert.True(CompilerServices.InferenceType(lowered));
+    }
+
+    [Fact]
     public async Task ExplicitTritonBlockedScatterUsesLayoutDomainMap()
     {
         var tensorType = new TensorType(DataTypes.Float32, new RankedShape(8));
@@ -382,6 +440,18 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
 
     private static void AssertLocalBufferLoadIndex(Call storeCall, Nncase.TIR.For loop)
     {
+        var asTensor = GetSingleBufferLoadAsTensor(storeCall);
+        Assert.Same(loop.LoopVar, asTensor.Arguments[0]);
+    }
+
+    private static Dimension GetSingleBufferLoadIndex(Call storeCall)
+    {
+        var asTensor = GetSingleBufferLoadAsTensor(storeCall);
+        return Assert.IsAssignableFrom<Dimension>(asTensor.Arguments[0]);
+    }
+
+    private static Call GetSingleBufferLoadAsTensor(Call storeCall)
+    {
         var loadCall = Assert.IsType<Call>(storeCall[Store.Value]);
         Assert.IsType<BufferLoad>(loadCall.Target);
         var indices = Assert.IsType<Nncase.IR.Tuple>(loadCall[BufferLoad.Indices]);
@@ -389,7 +459,15 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         Assert.IsType<Nncase.IR.Tensors.Cast>(cast.Target);
         var asTensor = Assert.IsType<Call>(cast.Arguments[0]);
         Assert.IsType<Nncase.IR.Shapes.AsTensor>(asTensor.Target);
-        Assert.Same(loop.LoopVar, asTensor.Arguments[0]);
+        return asTensor;
+    }
+
+    private static void AssertDimensionValues(Dimension dimension, Nncase.TIR.For loop, long[] expected, long threadId)
+    {
+        var actual = Enumerable.Range(0, expected.Length)
+            .Select(lane => EvaluateDimension(dimension, loop.LoopVar, lane, programId: 0, nElements: 0, threadId))
+            .ToArray();
+        Assert.Equal(expected, actual);
     }
 
     private static bool EvaluateLogical(BaseExpr expr, DimVar loopVar, long lane, long programId, long nElements, long threadId = 0)

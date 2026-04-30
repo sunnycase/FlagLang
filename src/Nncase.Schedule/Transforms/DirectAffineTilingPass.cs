@@ -80,6 +80,7 @@ public sealed class DirectAffineTilingPass : FunctionPass
         private readonly HashSet<BaseExpr> _blockLocalEligible = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<BaseExpr> _registerEligible = new(ReferenceEqualityComparer.Instance);
         private readonly List<TileDecision> _decisions = new();
+        private readonly List<Call> _decisionExprs = new();
         private readonly Dictionary<BaseExpr, int> _decisionIndexes = new(ReferenceEqualityComparer.Instance);
         private readonly CompileOptions _compileOptions;
         private Dictionary<BaseExpr, HashSet<Call>> _callUsers = new(ReferenceEqualityComparer.Instance);
@@ -96,6 +97,7 @@ public sealed class DirectAffineTilingPass : FunctionPass
             MarkBlockLocalEligible(root);
             MarkRegisterEligible(root, new HashSet<BaseExpr>(ReferenceEqualityComparer.Instance));
             Visit(root);
+            FinalizeDecisionSchedule(root);
             return _decisions;
         }
 
@@ -323,7 +325,7 @@ public sealed class DirectAffineTilingPass : FunctionPass
             var decisionIndex = _decisions.Count;
             var reuseCount = _callUsers.TryGetValue(call, out var users) ? users.Count : 0;
             var lifetime = new TileLifetime(decisionIndex, decisionIndex);
-            var telemetry = CreateTelemetry(storage, byteSize, reuseCount, lifetime);
+            var telemetry = CreateTelemetry(storage, byteSize, reuseCount, lifetime, GetUnscheduledSlot(storage));
             var decision = new TileDecision(
                 $"tile_{decisionIndex}",
                 opKind,
@@ -339,6 +341,7 @@ public sealed class DirectAffineTilingPass : FunctionPass
                 reason);
             TileDecisionMetadata.Set(call, decision);
             _decisions.Add(decision);
+            _decisionExprs.Add(call);
             _decisionIndexes.Add(call, decisionIndex);
             ExtendInputLifetimes(call, decisionIndex);
         }
@@ -555,7 +558,7 @@ public sealed class DirectAffineTilingPass : FunctionPass
             return true;
         }
 
-        private TileTelemetry CreateTelemetry(BufferStorage storage, long byteSize, int reuseCount, TileLifetime lifetime)
+        private TileTelemetry CreateTelemetry(BufferStorage storage, long byteSize, int reuseCount, TileLifetime lifetime, string allocationSlot)
         {
             var registerBytes = storage.PhysicalLocation is PhysicalMemorySpace.Register ? byteSize : 0;
             var smemBytes = storage.PhysicalLocation is PhysicalMemorySpace.SMem ? byteSize : 0;
@@ -565,15 +568,16 @@ public sealed class DirectAffineTilingPass : FunctionPass
                 PhysicalMemorySpace.SMem => byteSize + (byteSize * Math.Max(0, reuseCount - 1)),
                 _ => byteSize,
             };
-            var slot = storage.PhysicalLocation switch
-            {
-                PhysicalMemorySpace.Register => $"register-fragment[{lifetime.Start},{lifetime.End}]",
-                PhysicalMemorySpace.SMem => $"smem-lifetime-slot[{lifetime.Start},{lifetime.End}]",
-                PhysicalMemorySpace.GMem when storage.Usage is BufferUsage.Output => "output-abi",
-                _ => "addressable",
-            };
-            return new TileTelemetry(reuseCount, estimatedTraffic, registerBytes, smemBytes, slot);
+            return new TileTelemetry(reuseCount, estimatedTraffic, registerBytes, smemBytes, allocationSlot);
         }
+
+        private string GetUnscheduledSlot(BufferStorage storage) => storage.PhysicalLocation switch
+        {
+            PhysicalMemorySpace.Register => "register-live[unscheduled]",
+            PhysicalMemorySpace.SMem => "smem-slot[unscheduled]",
+            PhysicalMemorySpace.GMem when storage.Usage is BufferUsage.Output => "output-abi",
+            _ => "addressable",
+        };
 
         private long? GetBudgetBytes(BufferStorage storage) => storage.PhysicalLocation switch
         {
@@ -622,11 +626,227 @@ public sealed class DirectAffineTilingPass : FunctionPass
                 var extended = producer with
                 {
                     Lifetime = lifetime,
-                    Telemetry = CreateTelemetry(producer.Storage, producer.ByteSize, producer.Telemetry.ReuseCount, lifetime),
+                    Telemetry = CreateTelemetry(producer.Storage, producer.ByteSize, producer.Telemetry.ReuseCount, lifetime, GetUnscheduledSlot(producer.Storage)),
                 };
-                _decisions[producerIndex] = extended;
-                TileDecisionMetadata.Set(argument, extended);
+                ReplaceDecision(producerIndex, extended);
             }
+        }
+
+        private void FinalizeDecisionSchedule(BaseExpr root)
+        {
+            if (_decisions.Count == 0)
+            {
+                return;
+            }
+
+            var executionOrder = BuildDecisionExecutionOrder(root);
+            for (int index = 0; index < _decisions.Count; index++)
+            {
+                var expr = _decisionExprs[index];
+                var start = executionOrder.TryGetValue(expr, out var orderedStart) ? orderedStart : index;
+                var end = start;
+                if (_callUsers.TryGetValue(expr, out var users))
+                {
+                    foreach (var user in users)
+                    {
+                        if (executionOrder.TryGetValue(user, out var userOrder))
+                        {
+                            end = Math.Max(end, userOrder);
+                        }
+                        else if (_decisionIndexes.TryGetValue(user, out var userIndex))
+                        {
+                            end = Math.Max(end, userIndex);
+                        }
+                    }
+                }
+
+                var decision = _decisions[index];
+                ReplaceDecision(index, decision with
+                {
+                    Lifetime = new TileLifetime(start, end),
+                    Telemetry = CreateTelemetry(decision.Storage, decision.ByteSize, decision.Telemetry.ReuseCount, new TileLifetime(start, end), GetUnscheduledSlot(decision.Storage)),
+                });
+            }
+
+            CheckAggregateCapacity();
+            ScheduleSharedMemorySlots();
+            FinalizeUnslottedTelemetry();
+        }
+
+        private Dictionary<BaseExpr, int> BuildDecisionExecutionOrder(BaseExpr root)
+        {
+            var order = new Dictionary<BaseExpr, int>(ReferenceEqualityComparer.Instance);
+            var visited = new HashSet<BaseExpr>(ReferenceEqualityComparer.Instance);
+            var next = 0;
+            VisitForOrder(root, order, visited, ref next);
+            return order;
+        }
+
+        private void VisitForOrder(BaseExpr expr, IDictionary<BaseExpr, int> order, ISet<BaseExpr> visited, ref int next)
+        {
+            if (!visited.Add(expr))
+            {
+                return;
+            }
+
+            switch (expr)
+            {
+                case IRBlock block:
+                    VisitForOrder(block.Body, order, visited, ref next);
+                    return;
+                case Sequential sequential:
+                    foreach (var field in sequential.Fields.ToArray())
+                    {
+                        VisitForOrder(field, order, visited, ref next);
+                    }
+
+                    return;
+                case IR.Tuple tuple:
+                    foreach (var field in tuple.Fields.ToArray().OfType<Expr>())
+                    {
+                        VisitForOrder(field, order, visited, ref next);
+                    }
+
+                    return;
+            }
+
+            foreach (var operand in expr.Operands)
+            {
+                VisitForOrder(operand, order, visited, ref next);
+            }
+
+            if (expr is Call call && _decisionIndexes.ContainsKey(call))
+            {
+                order[call] = next++;
+            }
+        }
+
+        private void CheckAggregateCapacity()
+        {
+            var capacityGroups = _decisions
+                .Where(decision => decision.Capacity.BudgetBytes.HasValue)
+                .GroupBy(decision => new StoragePressureKey(decision.Storage.Scope, decision.Storage.PhysicalLocation));
+            foreach (var group in capacityGroups)
+            {
+                var decisions = group.ToArray();
+                var budget = decisions[0].Capacity.BudgetBytes!.Value;
+                var minPoint = decisions.Min(decision => decision.Lifetime.Start);
+                var maxPoint = decisions.Max(decision => decision.Lifetime.End);
+                for (int point = minPoint; point <= maxPoint; point++)
+                {
+                    var liveBytes = decisions
+                        .Where(decision => decision.Lifetime.Start <= point && point <= decision.Lifetime.End)
+                        .Sum(decision => decision.ByteSize);
+                    if (liveBytes > budget)
+                    {
+                        throw new InvalidOperationException($"Direct affine aggregate live {group.Key.Scope}/{group.Key.Location} pressure requires {liveBytes} bytes at schedule point {point}, exceeding budget {budget} bytes. Live tiles: {string.Join(", ", decisions.Where(decision => decision.Lifetime.Start <= point && point <= decision.Lifetime.End).Select(decision => $"{decision.Id}:{decision.OpKind}:{decision.TileShape}:{decision.ByteSize}B:{decision.Lifetime}"))}.");
+                    }
+                }
+            }
+        }
+
+        private void ScheduleSharedMemorySlots()
+        {
+            var smemIndexes = _decisions
+                .Select((decision, index) => (Decision: decision, Index: index))
+                .Where(item => item.Decision.Storage is { Scope: BufferScope.BlockLocal, PhysicalLocation: PhysicalMemorySpace.SMem })
+                .OrderBy(item => item.Decision.Lifetime.Start)
+                .ThenBy(item => item.Decision.Id, StringComparer.Ordinal)
+                .ToArray();
+            if (smemIndexes.Length == 0)
+            {
+                return;
+            }
+
+            var budget = smemIndexes[0].Decision.Capacity.BudgetBytes
+                ?? throw new InvalidOperationException("Block-local SMem tile scheduling requires a shared-memory budget.");
+            var slots = new List<ScheduledTileSlot>();
+            var placements = new Dictionary<int, ScheduledTileSlot>();
+            foreach (var item in smemIndexes)
+            {
+                var decision = item.Decision;
+                var slot = slots.FirstOrDefault(candidate => candidate.LastEnd < decision.Lifetime.Start);
+                if (slot is null)
+                {
+                    var offset = slots.Count == 0 ? 0 : slots.Max(candidate => candidate.Offset + candidate.Size);
+                    slot = new ScheduledTileSlot(slots.Count, offset, decision.ByteSize, decision.Lifetime.End);
+                    slots.Add(slot);
+                }
+                else
+                {
+                    slot.Size = Math.Max(slot.Size, decision.ByteSize);
+                    slot.LastEnd = decision.Lifetime.End;
+                }
+
+                var poolBytes = slots.Max(candidate => candidate.Offset + candidate.Size);
+                if (poolBytes > budget)
+                {
+                    throw new InvalidOperationException($"Direct affine SMem slot schedule requires {poolBytes} bytes after placing {decision.Id}, exceeding shared-memory budget {budget} bytes.");
+                }
+
+                placements[item.Index] = slot;
+            }
+
+            foreach (var placement in placements)
+            {
+                var decision = _decisions[placement.Key];
+                var slot = placement.Value;
+                var slotText = $"smem-slot{slot.Id}@{slot.Offset}+{slot.Size}[{decision.Lifetime.Start},{decision.Lifetime.End}]";
+                ReplaceDecision(placement.Key, decision with
+                {
+                    Telemetry = CreateTelemetry(decision.Storage, decision.ByteSize, decision.Telemetry.ReuseCount, decision.Lifetime, slotText),
+                });
+            }
+        }
+
+        private void FinalizeUnslottedTelemetry()
+        {
+            for (int index = 0; index < _decisions.Count; index++)
+            {
+                var decision = _decisions[index];
+                if (decision.Storage.PhysicalLocation is PhysicalMemorySpace.SMem)
+                {
+                    continue;
+                }
+
+                var slot = decision.Storage.PhysicalLocation switch
+                {
+                    PhysicalMemorySpace.Register => $"register-live[{decision.Lifetime.Start},{decision.Lifetime.End}]",
+                    PhysicalMemorySpace.GMem when decision.Storage.Usage is BufferUsage.Output => "output-abi",
+                    _ => "addressable",
+                };
+                ReplaceDecision(index, decision with
+                {
+                    Telemetry = CreateTelemetry(decision.Storage, decision.ByteSize, decision.Telemetry.ReuseCount, decision.Lifetime, slot),
+                });
+            }
+        }
+
+        private void ReplaceDecision(int index, TileDecision decision)
+        {
+            _decisions[index] = decision;
+            TileDecisionMetadata.Set(_decisionExprs[index], decision);
+        }
+
+        private sealed record StoragePressureKey(BufferScope Scope, PhysicalMemorySpace Location);
+
+        private sealed class ScheduledTileSlot
+        {
+            public ScheduledTileSlot(int id, long offset, long size, int lastEnd)
+            {
+                Id = id;
+                Offset = offset;
+                Size = size;
+                LastEnd = lastEnd;
+            }
+
+            public int Id { get; }
+
+            public long Offset { get; }
+
+            public long Size { get; set; }
+
+            public int LastEnd { get; set; }
         }
     }
 }
