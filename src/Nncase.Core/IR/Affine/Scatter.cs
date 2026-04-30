@@ -14,7 +14,7 @@ namespace Nncase.IR.Affine;
 [PatternFunctionalGenerator]
 public sealed partial class Scatter : Op
 {
-    public static readonly ParameterInfo Source = new(typeof(Scatter), 0, "source");
+    public static readonly ParameterInfo Source = new(typeof(Scatter), 0, "source", ParameterKind.Input);
 
     public static readonly ParameterInfo Dest = new(typeof(Scatter), 1, "dest", IsPointer());
 

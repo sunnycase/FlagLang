@@ -337,6 +337,9 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
             case IR.Tensors.Cast op:
                 str = ConvertCast(op, arguments[0]);
                 break;
+            case IR.Tensors.Depend:
+                str = arguments[1].Name;
+                break;
             case TIR.Memcopy op:
                 WriteIndWithProfiler($"tensor_copy_sync({arguments[1].Name}, {arguments[0].Name});\n");
                 break;

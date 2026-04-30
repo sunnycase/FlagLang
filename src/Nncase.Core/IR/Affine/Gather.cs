@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -14,7 +15,7 @@ namespace Nncase.IR.Affine;
 [PatternFunctionalGenerator]
 public sealed partial class Gather : Op
 {
-    public static readonly ParameterInfo Source = new(typeof(Gather), 0, "source", IsPointer());
+    public static readonly ParameterInfo Source = new(typeof(Gather), 0, "source", IsPointer(), ParameterKind.Input);
 
     public static readonly ParameterInfo DefaultValue = new(typeof(Gather), 1, "defaultValue");
 
@@ -24,8 +25,18 @@ public sealed partial class Gather : Op
 
     public Shape Shape { get; }
 
+    [Browsable(false)]
+    public IRArray<SBP> NdSBP { get; }
+
+    [Browsable(false)]
+    public Placement Placement { get; }
+
     /// <inheritdoc/>
     public override bool CanFoldConstCall => false;
 
-    public override string DisplayProperty() => $"{Relation}, Symbols: {Symbols}, Shape: {Shape}";
+    public override string DisplayProperty()
+    {
+        var distribution = Placement.Rank == 0 ? string.Empty : $", Dist: ({string.Join(',', NdSBP)}), {Placement}";
+        return $"{Relation}, Symbols: {Symbols}, Shape: {Shape}{distribution}";
+    }
 }

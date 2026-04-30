@@ -35,7 +35,7 @@ public sealed class UnitTestTTIRToIRPass : TestClassBase
     }
 
     [Fact]
-    public async Task StoreSequenceSurvivesTTIRToIRWithoutFlattening()
+    public async Task StoreSequenceBecomesTupleDagRoot()
     {
         var (ptr, value, mask, store) = CreateStore("ordered");
         var secondValue = new Var("ordered_second_value", new TensorType(DataTypes.Float32, new RankedShape(4)));
@@ -45,13 +45,13 @@ public sealed class UnitTestTTIRToIRPass : TestClassBase
 
         var converted = Assert.IsType<Function>(await new TTIRToIRPass().RunAsync(primFunction, new RunPassContext()));
 
-        var convertedBody = Assert.IsType<Sequential>(converted.Body.Body);
-        Assert.Same(body, convertedBody);
+        var convertedBody = Assert.IsType<IR.Tuple>(converted.Body.Body);
         Assert.Equal(new Expr[] { store, secondStore }, convertedBody.Fields.ToArray());
+        Assert.DoesNotContain("Sequential", CompilerServices.Print(converted), StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task TerminalVoidReturnIsStrippedFromStatementBody()
+    public async Task TerminalVoidReturnUsesMemoryEffectRoot()
     {
         var (ptr, value, mask, store) = CreateStore("terminal_void");
         var body = new Sequential(new Expr[] { store, new Return(Array.Empty<Expr>()) }, new IVar[] { ptr, value, mask });
@@ -59,9 +59,24 @@ public sealed class UnitTestTTIRToIRPass : TestClassBase
 
         var converted = Assert.IsType<Function>(await new TTIRToIRPass().RunAsync(primFunction, new RunPassContext()));
 
-        var convertedBody = Assert.IsType<Sequential>(converted.Body.Body);
-        Assert.Equal(new Expr[] { store }, convertedBody.Fields.ToArray());
-        Assert.DoesNotContain(convertedBody.Fields.ToArray(), expr => expr is Return);
+        Assert.Same(store, converted.Body.Body);
+        Assert.DoesNotContain("Sequential", CompilerServices.Print(converted), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PureNoReturnBodyUsesTerminalValue()
+    {
+        var lhs = new Var("lhs", TensorType.Scalar(DataTypes.Float32));
+        var rhs = new Var("rhs", TensorType.Scalar(DataTypes.Float32));
+        var unused = IR.F.Math.Binary(BinaryOp.Sub, lhs, rhs);
+        var sum = IR.F.Math.Binary(BinaryOp.Add, lhs, rhs);
+        var body = new Sequential(new Expr[] { unused, sum }, new IVar[] { lhs, rhs });
+        var primFunction = new PrimFunction("pure_no_return", CUDATarget.Kind, body);
+
+        var converted = Assert.IsType<Function>(await new TTIRToIRPass().RunAsync(primFunction, new RunPassContext()));
+
+        Assert.Same(sum, converted.Body.Body);
+        Assert.DoesNotContain("Sequential", CompilerServices.Print(converted), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -80,7 +95,7 @@ public sealed class UnitTestTTIRToIRPass : TestClassBase
     }
 
     [Fact]
-    public async Task GuardedStoreSurvivesTTIRToIRWithoutFlattening()
+    public async Task GuardedStoreBecomesDagRoot()
     {
         var (ptr, value, mask, store) = CreateStore("guarded");
         var cond = new Var("guarded_cond", TensorType.Scalar(DataTypes.Boolean));
@@ -90,21 +105,31 @@ public sealed class UnitTestTTIRToIRPass : TestClassBase
 
         var converted = Assert.IsType<Function>(await new TTIRToIRPass().RunAsync(primFunction, new RunPassContext()));
 
-        var convertedBody = Assert.IsType<Sequential>(converted.Body.Body);
-        Assert.Same(body, convertedBody);
-        Assert.Same(guardedStore, convertedBody.Fields[0]);
+        Assert.Same(guardedStore, converted.Body.Body);
+        Assert.DoesNotContain("Sequential", CompilerServices.Print(converted), StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task StoreMixedWithHelperReturnFailsFast()
+    public async Task StoreMixedWithHelperReturnUsesSsaDependency()
     {
         var (ptr, value, mask, store) = CreateStore("mixed");
-        var body = new Sequential(new Expr[] { store, new Return(new Expr[] { value }) }, new IVar[] { ptr, value, mask });
+        var secondValue = new Var("mixed_second_value", new TensorType(DataTypes.Float32, new RankedShape(4)));
+        var firstStore = Assert.IsType<Call>(store);
+        var secondStore = IR.F.Triton.Store((Expr)firstStore[Nncase.IR.Triton.Store.Ptr], secondValue, mask);
+        var body = new Sequential(new Expr[] { store, secondStore, new Return(new Expr[] { value }) }, new IVar[] { ptr, value, secondValue, mask });
         var primFunction = new PrimFunction("mixed_store_return", CUDATarget.Kind, body);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new TTIRToIRPass().RunAsync(primFunction, new RunPassContext()));
-        Assert.Contains("side-effecting statements", ex.Message, StringComparison.Ordinal);
+        var converted = Assert.IsType<Function>(await new TTIRToIRPass().RunAsync(primFunction, new RunPassContext()));
+
+        var dependency = Assert.IsType<Call>(converted.Body.Body);
+        Assert.IsType<Nncase.IR.Tensors.Depend>(dependency.Target);
+        var memoryDependencies = Assert.IsType<IR.Tuple>(dependency[Nncase.IR.Tensors.Depend.Dependencies]);
+        Assert.Equal(new Expr[] { store, secondStore }, memoryDependencies.Fields.ToArray());
+        Assert.Same(value, dependency[Nncase.IR.Tensors.Depend.Value]);
+        Assert.DoesNotContain("Sequential", CompilerServices.Print(converted), StringComparison.Ordinal);
+        Assert.True(CompilerServices.InferenceType(converted), CompilerServices.Print(converted));
+        var callableType = Assert.IsType<CallableType>(converted.CheckedType);
+        Assert.Equal(value.CheckedType, callableType.ReturnType);
     }
 
     private static (Var Ptr, Var Value, Var Mask, Expr Store) CreateStore(string name)

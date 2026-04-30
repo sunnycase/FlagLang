@@ -26,7 +26,7 @@ public partial class GatherEvaluator : ITypeInferencer<Gather>, IOpPrinter<Gathe
 
     public Cost Visit(ICostEvaluateContext context, Gather target)
     {
-        var resultType = context.GetReturnType<TensorType>();
+        var resultType = context.GetReturnType<IRType>();
         var bytes = CostUtility.GetMemoryAccess(resultType);
         return new()
         {
@@ -43,6 +43,17 @@ public partial class GatherEvaluator : ITypeInferencer<Gather>, IOpPrinter<Gathe
             return new InvalidType("source is not pointer type!");
         }
 
-        return new TensorType(pointerType.ElemType, target.Shape);
+        var tensorType = new TensorType(pointerType.ElemType, target.Shape);
+        if (target.Placement.Rank == 0)
+        {
+            return tensorType;
+        }
+
+        if (target.NdSBP.Count != target.Placement.Rank)
+        {
+            return new InvalidType($"gather distribution rank mismatch: ndsbp={target.NdSBP.Count}, placement={target.Placement.Rank}");
+        }
+
+        return new DistributedType(tensorType, target.NdSBP, target.Placement);
     }
 }

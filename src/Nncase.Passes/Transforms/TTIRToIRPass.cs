@@ -28,7 +28,7 @@ public sealed class TTIRToIRPass : FunctionPass
         if (pre is PrimFunction pf)
         {
             var returns = ReturnCollector.Collect(pf.Body);
-            var body = returns.Count == 0 ? pf.Body : BuildReturnBody(pf.Body, returns);
+            var body = returns.Count == 0 ? BuildEffectRoot(pf.Body.Fields) : BuildReturnBody(pf.Body, returns);
             var newBody = new IRBlock(body, pf.Parameters);
             return Task.FromResult<BaseFunction>(new Function(pf.Name, newBody));
         }
@@ -60,15 +60,37 @@ public sealed class TTIRToIRPass : FunctionPass
     {
         if (ret.Values.Length == 0)
         {
-            return body.With(fields: body.Fields[..^1].ToArray());
+            return BuildEffectRoot(body.Fields[..^1]);
         }
 
-        if (HasSideEffectingPrefix(body))
+        var returnValue = PackReturnValues(ret);
+        return BuildMemoryDependency(body.Fields[..^1]) is { } dependency
+            ? IR.F.Tensors.Depend(dependency, returnValue)
+            : returnValue;
+    }
+
+    private static BaseExpr BuildEffectRoot(ReadOnlySpan<Expr> fields)
+    {
+        return BuildMemoryDependency(fields) ?? (fields.Length == 0 ? new IR.Tuple() : fields[^1]);
+    }
+
+    private static BaseExpr? BuildMemoryDependency(ReadOnlySpan<Expr> fields)
+    {
+        var memoryRoots = new List<Expr>();
+        foreach (var field in fields)
         {
-            throw new InvalidOperationException("Triton helper value return conversion rejects side-effecting statements before the terminal return.");
+            if (HasMemorySideEffect(field))
+            {
+                memoryRoots.Add(field);
+            }
         }
 
-        return PackReturnValues(ret);
+        return memoryRoots.Count switch
+        {
+            0 => null,
+            1 => memoryRoots[0],
+            _ => new IR.Tuple(memoryRoots.ToArray()),
+        };
     }
 
     private static BaseExpr PackReturnValues(Return ret)
@@ -82,11 +104,26 @@ public sealed class TTIRToIRPass : FunctionPass
         };
     }
 
-    private static bool HasSideEffectingPrefix(Sequential body)
+    private static bool HasMemorySideEffect(BaseExpr expr) => expr switch
     {
-        for (var i = 0; i < body.Count - 1; i++)
+        Call { Target: IR.Triton.Store } => true,
+        Call { Target: IR.Buffers.BufferStore } => true,
+        Call { Target: TIR.Store } => true,
+        Call { Target: TIR.Memcopy } => true,
+        Call { Target: IR.Affine.Scatter } => true,
+        If @if => HasMemorySideEffect(@if.Then.Body) || HasMemorySideEffect(@if.Else.Body) || HasMemorySideEffect(@if.Arguments),
+        IRBlock block => HasMemorySideEffect(block.Body),
+        Sequential sequential => HasMemorySideEffect(sequential.Fields),
+        For @for => HasMemorySideEffect(@for.Body),
+        IfThenElse ifThenElse => HasMemorySideEffect(ifThenElse.Then) || HasMemorySideEffect(ifThenElse.Else),
+        _ => false,
+    };
+
+    private static bool HasMemorySideEffect(ReadOnlySpan<BaseExpr> exprs)
+    {
+        foreach (var expr in exprs)
         {
-            if (HasSideEffect(body[i]))
+            if (HasMemorySideEffect(expr))
             {
                 return true;
             }
@@ -95,16 +132,18 @@ public sealed class TTIRToIRPass : FunctionPass
         return false;
     }
 
-    private static bool HasSideEffect(BaseExpr expr) => expr switch
+    private static bool HasMemorySideEffect(ReadOnlySpan<Expr> exprs)
     {
-        Return => true,
-        For => true,
-        IfThenElse => true,
-        Call { Target: IR.Triton.Store } => true,
-        Call { Target: IR.Buffers.BufferStore } => true,
-        Call { Target: TIR.Store } => true,
-        _ => false,
-    };
+        foreach (var expr in exprs)
+        {
+            if (HasMemorySideEffect(expr))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool IsTopLevelReturnBody(Sequential body)
     {

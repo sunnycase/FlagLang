@@ -704,6 +704,9 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
                     case IR.Tensors.Cast op:
                         str = ConvertCast(op, arguments[0]);
                         break;
+                    case IR.Tensors.Depend:
+                        str = arguments[1].Name;
+                        break;
                     case TIR.Load op:
                         str = $"{arguments[0].Name}[{arguments[1].Name}]";
                         break;
@@ -888,6 +891,19 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
 
         symbol = new(string.Empty, string.Empty);
         _exprMemo.Add(expr, symbol);
+        return symbol;
+    }
+
+    protected override CSymbol VisitTuple(IR.Tuple tp)
+    {
+        if (_exprMemo.TryGetValue(tp, out var symbol))
+        {
+            return symbol;
+        }
+
+        var fields = tp.Fields.AsValueEnumerable().Select(Visit).ToArray();
+        symbol = new(string.Empty, string.Join(",", fields.Select(x => x.Name)));
+        _exprMemo.Add(tp, symbol);
         return symbol;
     }
 

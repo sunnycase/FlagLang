@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reactive;
 using System.Threading.Tasks;
@@ -22,6 +23,7 @@ namespace Nncase.Passes
     /// </summary>
     public sealed class NTTAffineIOLoweringPass : FunctionPass
     {
+        private readonly AffineIOFusionRewriter _fusionRewriter = new();
         private readonly AffineIOLoweringRewriter _rewriter = new();
 
         /// <inheritdoc/>
@@ -34,7 +36,8 @@ namespace Nncase.Passes
 
         private PrimFunction LowerPrimFunction(PrimFunction func)
         {
-            var newBody = (Sequential)_rewriter.Visit(func.Body, default);
+            var fusedBody = (Sequential)_fusionRewriter.Visit(func.Body, default);
+            var newBody = (Sequential)_rewriter.Visit(fusedBody, default);
             return ReferenceEquals(newBody, func.Body) ? func : func.With(body: newBody);
         }
 
@@ -42,6 +45,52 @@ namespace Nncase.Passes
         {
             var loweredTarget = LowerPrimFunction(target);
             return ReferenceEquals(loweredTarget, target) ? wrapper : wrapper.With(target: loweredTarget);
+        }
+
+        private sealed class AffineIOFusionRewriter : ExprRewriter<Unit>
+        {
+            protected override BaseExpr RewriteLeafSequential(Sequential expr, Unit context)
+            {
+                var fields = expr.Fields.ToArray();
+                var rewrittenFields = new List<Expr>(fields.Length);
+                var mutated = false;
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    if (i + 1 < fields.Length && TryFuseAffineGatherTensorLoad(fields[i], fields[i + 1], out var fused))
+                    {
+                        rewrittenFields.Add(fused);
+                        i++;
+                        mutated = true;
+                    }
+                    else
+                    {
+                        rewrittenFields.Add(fields[i]);
+                    }
+                }
+
+                return mutated ? expr.With(fields: rewrittenFields.ToArray()) : expr;
+            }
+
+            private static bool TryFuseAffineGatherTensorLoad(Expr first, Expr second, [MaybeNullWhen(false)] out Expr fused)
+            {
+                fused = null;
+                if (first is not Call { Target: TIR.NTT.AffineGather gather } gatherCall ||
+                    second is not Call { Target: TIR.NTT.TensorLoad tensorLoad } tensorLoadCall ||
+                    tensorLoadCall[TIR.NTT.TensorLoad.Dest] is not TIR.Buffer { DistributedType: not null } distributedOutput ||
+                    !Equals(gatherCall[TIR.NTT.AffineGather.Output], tensorLoadCall[TIR.NTT.TensorLoad.Src]))
+                {
+                    return false;
+                }
+
+                fused = TIR.F.NTT.AffineGather(
+                    (Expr)gatherCall[TIR.NTT.AffineGather.Source],
+                    (Expr)gatherCall[TIR.NTT.AffineGather.DefaultValue],
+                    distributedOutput,
+                    gather.Relation,
+                    gather.Symbols,
+                    gather.Shape).InheritMetaData(gatherCall);
+                return true;
+            }
         }
 
         private sealed class AffineIOLoweringRewriter : ExprRewriter<Unit>
@@ -66,7 +115,8 @@ namespace Nncase.Passes
 
                 ValidateRelation(gather.Relation, output.Dimensions.Length);
 
-                var extents = output.Dimensions.ToArray();
+                var globalExtents = output.Dimensions.ToArray();
+                var iterationExtents = GetIterationExtents(output);
                 var symbolMap = BuildSymbolMap(gather.Relation, gather.Symbols);
                 Expr? defaultSetup = null;
                 if (gather.Relation.Constraint != LogicalExpr.True)
@@ -74,9 +124,10 @@ namespace Nncase.Passes
                     (defaultValue, defaultSetup) = PrepareGatherDefault(defaultValue);
                 }
 
-                var loopNest = BuildLoopNest(extents, loopVars =>
+                var loopNest = BuildLoopNest(iterationExtents, loopVars =>
                 {
-                    var address = EvaluateAddress(gather.Relation, loopVars, extents, symbolMap);
+                    var domainValues = GetDomainValues(output, loopVars, globalExtents);
+                    var address = EvaluateAddress(gather.Relation, domainValues, globalExtents, symbolMap);
                     var loaded = T.Load(source, address);
                     var indices = loopVars.AsExprs();
                     var storeLoaded = T.BufferStore(output, indices, loaded);
@@ -87,7 +138,7 @@ namespace Nncase.Passes
 
                     var fallback = ReadDefaultValue(defaultValue, indices, output.ElemType);
                     var storeFallback = T.BufferStore(output, indices, fallback);
-                    return T.If(EvaluateConstraint(gather.Relation.Constraint, loopVars)).Then(storeLoaded).Else(storeFallback).Build();
+                    return T.If(EvaluateConstraint(gather.Relation.Constraint, domainValues)).Then(storeLoaded).Else(storeFallback).Build();
                 });
                 return defaultSetup is null ? loopNest : T.Sequential(defaultSetup, loopNest);
             }
@@ -100,16 +151,18 @@ namespace Nncase.Passes
 
                 ValidateRelation(scatter.Relation, source.Dimensions.Length);
 
-                var extents = source.Dimensions.ToArray();
+                var globalExtents = source.Dimensions.ToArray();
+                var iterationExtents = GetIterationExtents(source);
                 var symbolMap = BuildSymbolMap(scatter.Relation, scatter.Symbols);
-                var loopNest = BuildLoopNest(extents, loopVars =>
+                var loopNest = BuildLoopNest(iterationExtents, loopVars =>
                 {
                     var value = T.BufferLoad(source, loopVars.AsExprs());
-                    var address = EvaluateAddress(scatter.Relation, loopVars, extents, symbolMap);
+                    var domainValues = GetDomainValues(source, loopVars, globalExtents);
+                    var address = EvaluateAddress(scatter.Relation, domainValues, globalExtents, symbolMap);
                     var store = T.Store(dest, address, value);
                     return scatter.Relation.Constraint == LogicalExpr.True
                         ? store
-                        : T.If(EvaluateConstraint(scatter.Relation.Constraint, loopVars)).Then(store).Build();
+                        : T.If(EvaluateConstraint(scatter.Relation.Constraint, domainValues)).Then(store).Build();
                 });
                 return sourceSetup is null ? loopNest : T.Sequential(sourceSetup, loopNest);
             }
@@ -146,14 +199,127 @@ namespace Nncase.Passes
                 }
             }
 
-            private Dimension EvaluateAddress(AffineRelation relation, DimVar[] loopVars, IReadOnlyList<Dimension> extents, IReadOnlyDictionary<int, Dimension>? symbolMap)
+            private Dimension[] GetIterationExtents(TIR.Buffer buffer)
             {
-                var domainValues = new Dimension[loopVars.Length];
-                for (int i = 0; i < loopVars.Length; i++)
+                var globalExtents = buffer.Dimensions.ToArray();
+                if (buffer.DistributedType is not DistributedType distributedType)
                 {
-                    domainValues[i] = loopVars[i];
+                    return globalExtents;
                 }
 
+                ValidateDistributedBuffer(buffer, distributedType);
+                return globalExtents.Select((extent, axis) => GetLocalShardExtent(distributedType, axis, extent)).ToArray();
+            }
+
+            private Dimension[] GetDomainValues(TIR.Buffer buffer, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> globalExtents)
+            {
+                if (buffer.DistributedType is not DistributedType distributedType)
+                {
+                    return loopVars.Select<DimVar, Dimension>(loopVar => loopVar).ToArray();
+                }
+
+                ValidateDistributedBuffer(buffer, distributedType);
+                var domainValues = new Dimension[loopVars.Count];
+                for (int axis = 0; axis < loopVars.Count; axis++)
+                {
+                    domainValues[axis] = loopVars[axis] + GetShardOffset(distributedType, axis, globalExtents[axis]);
+                }
+
+                return domainValues;
+            }
+
+            private void ValidateDistributedBuffer(TIR.Buffer buffer, DistributedType distributedType)
+            {
+                if (distributedType.Partial)
+                {
+                    throw new NotSupportedException("Affine IO lowering cannot directly lower partial distributed buffers. Resolve Partial with a distributed reduction before affine IO lowering.");
+                }
+
+                if (distributedType.TensorType.Shape.Rank != buffer.Rank || distributedType.AxisPolicies.Count != buffer.Rank)
+                {
+                    throw new NotSupportedException($"Distributed buffer {buffer.Name} has rank {buffer.Rank}, but its distributed type has tensor rank {distributedType.TensorType.Shape.Rank} and {distributedType.AxisPolicies.Count} axis policies.");
+                }
+            }
+
+            private Dimension GetLocalShardExtent(DistributedType distributedType, int tensorAxis, Dimension globalExtent)
+            {
+                return distributedType.AxisPolicies[tensorAxis] switch
+                {
+                    SBPBroadCast => globalExtent,
+                    SBPSplit split => GetSplitLocalShardExtent(distributedType, split, globalExtent),
+                    SBPPartial partial => throw new NotSupportedException($"Affine IO lowering cannot directly lower partial shard policy {partial}. Resolve Partial before affine IO lowering."),
+                    SBP policy => throw new NotSupportedException($"Unsupported affine IO shard policy {policy.GetType().Name}."),
+                };
+            }
+
+            private Dimension GetSplitLocalShardExtent(DistributedType distributedType, SBPSplit split, Dimension globalExtent)
+            {
+                var maxLocalExtent = Dimension.CeilDiv(globalExtent, GetSplitDivisor(distributedType, split));
+                var offset = GetSplitShardOffset(distributedType, split, globalExtent);
+                return Dimension.Min(maxLocalExtent, globalExtent - offset);
+            }
+
+            private Dimension GetShardOffset(DistributedType distributedType, int tensorAxis, Dimension globalExtent)
+            {
+                return distributedType.AxisPolicies[tensorAxis] switch
+                {
+                    SBPBroadCast => Dimension.Zero,
+                    SBPSplit split => GetSplitShardOffset(distributedType, split, globalExtent),
+                    SBPPartial partial => throw new NotSupportedException($"Affine IO lowering cannot directly lower partial shard policy {partial}. Resolve Partial before affine IO lowering."),
+                    SBP policy => throw new NotSupportedException($"Unsupported affine IO shard policy {policy.GetType().Name}."),
+                };
+            }
+
+            private Dimension GetSplitShardOffset(DistributedType distributedType, SBPSplit split, Dimension globalExtent)
+            {
+                var maxLocalExtent = Dimension.CeilDiv(globalExtent, GetSplitDivisor(distributedType, split));
+                return Dimension.Min(maxLocalExtent * GetSplitLinearShardIndex(distributedType, split), globalExtent);
+            }
+
+            private Dimension GetSplitDivisor(DistributedType distributedType, SBPSplit split)
+            {
+                Dimension divisor = Dimension.One;
+                foreach (var meshAxis in split.Axes)
+                {
+                    ValidateMeshAxis(distributedType.Placement, meshAxis);
+                    divisor *= distributedType.Placement.Hierarchy[meshAxis];
+                }
+
+                return divisor;
+            }
+
+            private Dimension GetSplitLinearShardIndex(DistributedType distributedType, SBPSplit split)
+            {
+                Dimension linearIndex = Dimension.Zero;
+                foreach (var meshAxis in split.Axes)
+                {
+                    ValidateMeshAxis(distributedType.Placement, meshAxis);
+                    linearIndex = (linearIndex * distributedType.Placement.Hierarchy[meshAxis]) + GetMeshAxisIndex(distributedType.Placement, meshAxis);
+                }
+
+                return linearIndex;
+            }
+
+            private void ValidateMeshAxis(Placement placement, int meshAxis)
+            {
+                if (meshAxis < 0 || meshAxis >= placement.Rank || meshAxis >= placement.Name.Length)
+                {
+                    throw new NotSupportedException($"Invalid distributed mesh axis {meshAxis} for placement {placement}.");
+                }
+            }
+
+            private Dimension GetMeshAxisIndex(Placement placement, int meshAxis)
+            {
+                return placement.Name[meshAxis] switch
+                {
+                    't' => IR.F.Distributed.ThreadId(),
+                    'b' => IR.F.Distributed.ProgramId(0),
+                    var name => throw new NotSupportedException($"Affine IO lowering only supports thread ('t') and block ('b') mesh axes, got '{name}' in placement {placement}."),
+                };
+            }
+
+            private Dimension EvaluateAddress(AffineRelation relation, IReadOnlyList<Dimension> domainValues, IReadOnlyList<Dimension> extents, IReadOnlyDictionary<int, Dimension>? symbolMap)
+            {
                 return EvaluateAffineExpr(relation.Results[0], domainValues, extents, symbolMap);
             }
 
@@ -179,51 +345,52 @@ namespace Nncase.Passes
                 return (buffer, setup);
             }
 
-            private LogicalExpr EvaluateConstraint(LogicalExpr constraint, DimVar[] loopVars)
+            private LogicalExpr EvaluateConstraint(LogicalExpr constraint, IReadOnlyList<Dimension> domainValues)
             {
                 return constraint switch
                 {
                     LogicalConst logicalConst => logicalConst,
-                    DimCompare compare => new DimCompare(compare.Op, EvaluateDimension(compare.Lhs, loopVars), EvaluateDimension(compare.Rhs, loopVars)),
-                    LogicalAnd logicalAnd => new LogicalAnd(logicalAnd.Operands.ToArray().Select(x => EvaluateConstraint(x, loopVars)).ToArray()),
-                    LogicalOr logicalOr => new LogicalOr(logicalOr.Operands.ToArray().Select(x => EvaluateConstraint(x, loopVars)).ToArray()),
+                    DimCompare compare => new DimCompare(compare.Op, EvaluateDimension(compare.Lhs, domainValues), EvaluateDimension(compare.Rhs, domainValues)),
+                    LogicalAnd logicalAnd => new LogicalAnd(logicalAnd.Operands.ToArray().Select(x => EvaluateConstraint(x, domainValues)).ToArray()),
+                    LogicalOr logicalOr => new LogicalOr(logicalOr.Operands.ToArray().Select(x => EvaluateConstraint(x, domainValues)).ToArray()),
                     _ => throw new NotSupportedException($"Unsupported affine IO constraint node {constraint.GetType().Name}."),
                 };
             }
 
-            private Dimension EvaluateDimension(Dimension dim, DimVar[] loopVars)
+            private Dimension EvaluateDimension(Dimension dim, IReadOnlyList<Dimension> domainValues)
             {
                 return dim switch
                 {
                     DimConst constant => constant,
-                    DimVar dimVar when TryGetDomainIndex(dimVar, loopVars.Length, out var index) => loopVars[index],
+                    DimVar dimVar when TryGetDomainIndex(dimVar, domainValues.Count, out var index) => domainValues[index],
                     DimVar dimVar => dimVar,
+                    ThreadIdDim threadId => threadId,
                     ProgramIdDim programId => programId,
-                    DimSum sum => EvaluateDimSum(sum, loopVars),
-                    DimProduct product => EvaluateDimProduct(product, loopVars),
-                    DimFraction fraction => new DimFraction(fraction.DivMode, EvaluateDimension(fraction.Numerator, loopVars), EvaluateDimension(fraction.Denominator, loopVars)),
-                    DimRemainder remainder => new DimRemainder(EvaluateDimension(remainder.Numerator, loopVars), EvaluateDimension(remainder.Denominator, loopVars)),
+                    DimSum sum => EvaluateDimSum(sum, domainValues),
+                    DimProduct product => EvaluateDimProduct(product, domainValues),
+                    DimFraction fraction => new DimFraction(fraction.DivMode, EvaluateDimension(fraction.Numerator, domainValues), EvaluateDimension(fraction.Denominator, domainValues)),
+                    DimRemainder remainder => new DimRemainder(EvaluateDimension(remainder.Numerator, domainValues), EvaluateDimension(remainder.Denominator, domainValues)),
                     _ => throw new NotSupportedException($"Unsupported affine IO constraint dimension {dim.GetType().Name}."),
                 };
             }
 
-            private Dimension EvaluateDimSum(DimSum sum, DimVar[] loopVars)
+            private Dimension EvaluateDimSum(DimSum sum, IReadOnlyList<Dimension> domainValues)
             {
                 Dimension result = sum.Bias;
                 foreach (var operand in sum.Operands)
                 {
-                    result += EvaluateDimension(operand, loopVars);
+                    result += EvaluateDimension(operand, domainValues);
                 }
 
                 return result;
             }
 
-            private Dimension EvaluateDimProduct(DimProduct product, DimVar[] loopVars)
+            private Dimension EvaluateDimProduct(DimProduct product, IReadOnlyList<Dimension> domainValues)
             {
                 Dimension result = product.Scale;
                 foreach (var operand in product.Operands)
                 {
-                    result *= EvaluateDimension(operand, loopVars);
+                    result *= EvaluateDimension(operand, domainValues);
                 }
 
                 return result;

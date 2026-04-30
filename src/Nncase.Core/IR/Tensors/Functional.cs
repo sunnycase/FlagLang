@@ -74,6 +74,8 @@ public static class Tensors
 
     public static Call ConstantOfShape(Shape shape, Expr value) => new Call(new ConstantOfShape(), shape, value);
 
+    public static Call Depend(BaseExpr dependencies, BaseExpr value) => new Call(new Depend(), dependencies, value);
+
     public static Call CumSum(Expr input, Dimension axis, Expr exclusive, Expr reverse) =>
         new Call(new CumSum(), input, axis, exclusive, reverse);
 

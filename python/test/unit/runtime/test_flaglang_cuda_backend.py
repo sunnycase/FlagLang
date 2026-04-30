@@ -412,7 +412,7 @@ def test_native_compile_helper_receives_parsed_capability_and_options(monkeypatc
     assert captured["options"]["threads_per_cta"] == options.num_warps * options.warp_size
     assert captured["options"]["binary_ext"] == "cubin"
     assert captured["options"]["cuobjdump"] == nvidia_compiler.knobs.nvidia.cuobjdump.path
-    assert captured["options"]["enable_auto_dist"] is False
+    assert captured["options"]["enable_auto_dist"] is True
     assert "ntt_cu" in captured["options"]["stage_names"]
     assert "ptx" in captured["options"]["stage_names"]
     assert "ptx_compiler_cmd" in captured["options"]["stage_names"]
@@ -895,13 +895,14 @@ def test_native_cuda_vector_add_forced_compile_dump_regression(monkeypatch):
         "QuantizePass",
         "AutoVectorizePass",
         "AutoPackingPass",
+        "AutoDistributedPass",
         "TIRPass",
         "TargetDependentBeforeCodeGen",
     ]
     pass_dump_text = _dump_text(dump_dir, "pass_dumps")
     for pass_name in required_passes:
         assert pass_name in pass_dump_text
-    assert "AutoDistributedPass" not in pass_dump_text
+    assert "AutoDistributedPass" in pass_dump_text
 
     native_stage_files = [path for path in Path(dump_dir).rglob("*") if path.is_file() and "CodeGen" not in path.parts]
     for forbidden_suffix in (".ttir", ".ttgir", ".llir"):
@@ -917,17 +918,36 @@ def test_native_cuda_vector_add_forced_compile_dump_regression(monkeypatch):
     ptx_compiler_cmd = _native_stage_text(dump_dir, "ptx_compiler_cmd")
     compiler_cmd = _native_stage_text(dump_dir, "compiler_cmd")
     cubin = _native_stage_file(dump_dir, "cubin").read_bytes()
+    codegen_prim_headers = sorted((Path(dump_dir) / "CodeGen" / "cuda").glob("*_prim.h"))
+    assert codegen_prim_headers
+    codegen_prim = codegen_prim_headers[-1].read_text()
+    auto_dist_end = sorted((Path(dump_dir) / "06_AutoDistributedPass").rglob("End__vector_add_kernel.il"))[-1].read_text()
+    tir_selection_end = sorted(
+        (Path(dump_dir) / "07_TIRPass" / "1_NTTTIRSelectionPass").rglob("End__vector_add_kernel_prim.script")
+    )[-1].read_text()
 
     for lowered_stage in (nncase_ir, after_compile, tir):
+        assert "Sequential" not in lowered_stage
         assert "Triton.Load" not in lowered_stage
         assert "Triton.Store" not in lowered_stage
         assert "IR.Triton.Load" not in lowered_stage
         assert "IR.Triton.Store" not in lowered_stage
 
     assert triton_tir != nncase_ir
+    assert "Boxing" not in auto_dist_end
+    assert "Dist: (S(0)), [t:128]" in auto_dist_end
+    assert "TensorLoad" not in tir_selection_end
+    assert "PhysicalBuffer(None, 1024)" not in tir_selection_end
+    assert "Dist(f32[256], (S(0)), [2@t])" in after_compile
+    assert "make_sharding<mesh<topology::thread, 128>>(S<0>())" in codegen_prim
+    scatter_store_lines = [line for line in codegen_prim.splitlines() if "id_param_2[" in line]
+    assert scatter_store_lines
+    assert all("program_id<topology::thread>()" in line for line in scatter_store_lines)
+    assert all(")[d0]" in line for line in scatter_store_lines)
     assert "__global__" in ntt_cu
     assert "flaglang_native_entry" in ntt_cu
     assert ".visible .entry flaglang_native_entry" in ptx
+    assert "%tid.x" in ptx
     assert "Function:flaglang_native_entry" in sass
     assert "thread_main.cu" in ptx_compiler_cmd
     assert "-ptx" in ptx_compiler_cmd

@@ -461,6 +461,11 @@ internal sealed class AutoDistributedRewriter : ExprVisitor<Unit, Unit>
             return default;
         }
 
+        if (expr.Target is IR.Affine.Gather)
+        {
+            return default;
+        }
+
         var addedBuckets = bucketMemo.Values.ToArray();
         foreach (var nType in GetLeafCandidateDistTypes(tensorType, Placements, _moduleKind, TargetOptions))
         {
@@ -547,6 +552,17 @@ internal sealed class AutoDistributedRewriter : ExprVisitor<Unit, Unit>
             var tensorType = (TensorType)calls.First().Call.CheckedType;
             calls = calls.Where(call => call.Call.CheckedType is DistributedType).Concat(GetLeafCandidateDistTypes(tensorType, Placements, _moduleKind, TargetOptions)
                 .Select(dt => ((Expr)IR.F.NN.GetPositionIds((Dimension)tempArgs[0], (Expr)tempArgs[1], dt.AxisPolicies, dt.Placement), new[] { true, true })));
+        }
+        else if (target is IR.Affine.Gather affineGather)
+        {
+            var baseType = calls.First().Call.CheckedType;
+            if (baseType is not TensorType tensorType)
+            {
+                throw new InvalidOperationException($"Affine gather must infer a tensor result before distribution, got {CompilerServices.Print(baseType)}.");
+            }
+
+            calls = calls.Concat(GetLeafCandidateDistTypes(tensorType, Placements, _moduleKind, TargetOptions)
+                .Select(dt => ((Expr)IR.F.Affine.Gather((Expr)tempArgs[0], affineGather.Relation, affineGather.Symbols, affineGather.Shape, (Expr)tempArgs[1], dt.AxisPolicies, dt.Placement), new[] { true, true })));
         }
 
         return calls;
@@ -865,6 +881,11 @@ internal sealed class AutoDistributedRewriter : ExprVisitor<Unit, Unit>
         }
 
         if (inferCluster.Kind is SearchGraphKind.StandaloneCluster)
+        {
+            return inferCluster;
+        }
+
+        if (expr.CheckedType is not TensorType and not DistributedType)
         {
             return inferCluster;
         }
@@ -1200,7 +1221,7 @@ internal sealed class ExprBuildVisitor
         if (!_memo.TryGetValue(root, out var expr))
         {
             _rootSearchGraph.TryGetOutEdges(root, out var edges);
-            var children = edges.GroupBy(e => e.InputIndex).Select(g => Visit(g.Select(e => e.InputGraph))).ToArray();
+            var children = edges.GroupBy(e => e.InputIndex).OrderBy(g => g.Key).Select(g => Visit(g.Select(e => e.InputGraph))).ToArray();
             switch (root.Expr)
             {
                 case Var or TensorConst or TupleConst or None or Shape or Padding or Paddings or Dimension or Call:

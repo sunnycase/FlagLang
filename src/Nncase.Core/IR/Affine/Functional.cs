@@ -46,7 +46,9 @@ public static class Affine
         _ => throw new ArgumentOutOfRangeException(nameof(binaryOp)),
     };
 
-    public static Call Gather(Expr source, AffineRelation relation, RankedShape symbols, Shape shape, Expr defaultValue) => new Call(new Gather(relation, symbols, shape), source, defaultValue);
+    public static Call Gather(Expr source, AffineRelation relation, RankedShape symbols, Shape shape, Expr defaultValue) => new Call(new Gather(relation, symbols, shape, new IRArray<SBP>(), new Placement(new IRArray<int>(), string.Empty)), source, defaultValue);
+
+    public static Call Gather(Expr source, AffineRelation relation, RankedShape symbols, Shape shape, Expr defaultValue, IRArray<SBP> ndsbp, Placement placement) => new Call(new Gather(relation, symbols, shape, ndsbp, placement), source, defaultValue);
 
     public static Call Scatter(Expr source, Expr dest, AffineRelation relation, RankedShape symbols) => new Call(new Scatter(relation, symbols), source, dest);
 

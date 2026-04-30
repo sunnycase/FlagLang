@@ -443,7 +443,7 @@ def _native_compile_options(src, metadata, opt, capability):
         "cuobjdump":
         knobs.nvidia.cuobjdump.path,
         "enable_auto_dist":
-        False,
+        True,
         "runtime_argument_count":
         metadata.get("runtime_argument_count", 0),
         "runtime_argument_order":

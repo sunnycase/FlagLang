@@ -20,6 +20,7 @@ internal class TensorsModule : IApplicationPart
         registrator.RegisterManyInterface<CastEvaluator>(reuse: Reuse.Singleton);
         registrator.RegisterManyInterface<ConcatEvaluator>(reuse: Reuse.Singleton);
         registrator.RegisterManyInterface<ConstantOfShapeEvaluator>(reuse: Reuse.Singleton);
+        registrator.RegisterManyInterface<DependEvaluator>(reuse: Reuse.Singleton);
         registrator.RegisterManyInterface<ExpandEvaluator>(reuse: Reuse.Singleton);
         registrator.RegisterManyInterface<FlattenEvaluator>(reuse: Reuse.Singleton);
         registrator.RegisterManyInterface<GatherEvaluator>(reuse: Reuse.Singleton);

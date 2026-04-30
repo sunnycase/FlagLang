@@ -110,6 +110,31 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
     }
 
     [Fact]
+    public async Task DistributedTensorLoadAfterAffineGatherFusesIntoLocalShardGather()
+    {
+        var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
+        var temp = CreateVectorBuffer("temp");
+        var output = CreateDistributedVectorBuffer("output", globalSize: 4, threadShards: 2);
+        var (relation, symbols) = CreateIdentityRelation();
+        var gather = Nncase.TIR.F.NTT.AffineGather(source, None.Default, temp, relation, symbols, new RankedShape(4));
+        var tensorLoad = Nncase.TIR.F.NTT.TensorLoad(output, temp, output.DistributedType!.AxisPolicies, output.DistributedType.Placement);
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(gather, tensorLoad));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var outerLoop = Assert.IsType<Nncase.TIR.For>(Assert.Single(lowered.Body.Fields.ToArray()));
+        var storeCall = AssertSingleCall<BufferStore>(outerLoop.Body);
+        var loadCall = Assert.IsType<Call>(storeCall[BufferStore.Value]);
+        Assert.IsType<Load>(loadCall.Target);
+        var loadAddress = Assert.IsAssignableFrom<Dimension>(loadCall[Load.Index]);
+
+        Assert.Equal(2, EvaluateDimension(outerLoop.Domain.Stop, outerLoop.LoopVar, lane: 0, programId: 0, nElements: 0, threadId: 0));
+        Assert.Equal(2, EvaluateDimension(outerLoop.Domain.Stop, outerLoop.LoopVar, lane: 0, programId: 0, nElements: 0, threadId: 1));
+        AssertAddresses(loadAddress, outerLoop, programId: 0, expected: [0, 1], threadId: 0);
+        AssertAddresses(loadAddress, outerLoop, programId: 0, expected: [2, 3], threadId: 1);
+        Assert.True(CompilerServices.InferenceType(lowered));
+    }
+
+    [Fact]
     public async Task MaskedSymbolicScatterLowersToGuardedStoreWithoutElseWrite()
     {
         var source = CreateVectorBuffer("source");
@@ -167,6 +192,28 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
     }
 
     [Fact]
+    public async Task DistributedScatterIteratesLocalShardAndUsesGlobalAddress()
+    {
+        var source = CreateDistributedVectorBuffer("source", globalSize: 4, threadShards: 2);
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var (relation, symbols) = CreateIdentityRelation();
+        var call = Nncase.TIR.F.NTT.AffineScatter(source, dest, relation, symbols);
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(call));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var outerLoop = Assert.IsType<Nncase.TIR.For>(Assert.Single(lowered.Body.Fields.ToArray()));
+        var storeCall = AssertSingleCall<Store>(outerLoop.Body);
+        var storeAddress = Assert.IsAssignableFrom<Dimension>(storeCall[Store.Index]);
+
+        Assert.Equal(2, EvaluateDimension(outerLoop.Domain.Stop, outerLoop.LoopVar, lane: 0, programId: 0, nElements: 0, threadId: 0));
+        Assert.Equal(2, EvaluateDimension(outerLoop.Domain.Stop, outerLoop.LoopVar, lane: 0, programId: 0, nElements: 0, threadId: 1));
+        AssertAddresses(storeAddress, outerLoop, programId: 0, expected: [0, 1], threadId: 0);
+        AssertAddresses(storeAddress, outerLoop, programId: 0, expected: [2, 3], threadId: 1);
+        AssertLocalBufferLoadIndex(storeCall, outerLoop);
+        Assert.True(CompilerServices.InferenceType(lowered));
+    }
+
+    [Fact]
     public async Task SymbolPayloadMismatchIsRejected()
     {
         var source = CreateVectorBuffer("source");
@@ -183,6 +230,24 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
     private static Nncase.TIR.Buffer CreateVectorBuffer(string name)
     {
         return T.CreateBuffer(new TensorType(DataTypes.Float32, new RankedShape(4)), MemoryLocation.Data, out _, name);
+    }
+
+    private static Nncase.TIR.Buffer CreateDistributedVectorBuffer(string name, int globalSize, int threadShards)
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(globalSize));
+        var placement = new Placement(new[] { threadShards }, "t");
+        var distributedType = new DistributedType(tensorType, new SBP[] { SBP.S(0) }, placement);
+        return T.CreateBuffer(tensorType, MemoryLocation.Data, out _, name, distributedType);
+    }
+
+    private static (AffineRelation Relation, RankedShape Symbols) CreateIdentityRelation()
+    {
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        return (relation, new RankedShape(Array.Empty<Dimension>()));
     }
 
     private static (AffineRelation Relation, RankedShape Symbols) CreateVectorAddRelation(int symbolCount)
@@ -239,30 +304,42 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         }
     }
 
-    private static void AssertGuardEvaluates(IfThenElse guard, Nncase.TIR.For loop, long programId, long nElements, bool[] expected)
+    private static void AssertGuardEvaluates(IfThenElse guard, Nncase.TIR.For loop, long programId, long nElements, bool[] expected, long threadId = 0)
     {
         var actual = Enumerable.Range(0, expected.Length)
-            .Select(lane => EvaluateLogical(guard.Condition, loop.LoopVar, lane, programId, nElements))
+            .Select(lane => EvaluateLogical(guard.Condition, loop.LoopVar, lane, programId, nElements, threadId))
             .ToArray();
         Assert.Equal(expected, actual);
     }
 
-    private static void AssertAddresses(Dimension address, Nncase.TIR.For loop, long programId, long[] expected)
+    private static void AssertAddresses(Dimension address, Nncase.TIR.For loop, long programId, long[] expected, long threadId = 0)
     {
         var actual = Enumerable.Range(0, expected.Length)
-            .Select(lane => EvaluateDimension(address, loop.LoopVar, lane, programId, nElements: 0))
+            .Select(lane => EvaluateDimension(address, loop.LoopVar, lane, programId, nElements: 0, threadId))
             .ToArray();
         Assert.Equal(expected, actual);
     }
 
-    private static bool EvaluateLogical(BaseExpr expr, DimVar loopVar, long lane, long programId, long nElements)
+    private static void AssertLocalBufferLoadIndex(Call storeCall, Nncase.TIR.For loop)
+    {
+        var loadCall = Assert.IsType<Call>(storeCall[Store.Value]);
+        Assert.IsType<BufferLoad>(loadCall.Target);
+        var indices = Assert.IsType<Nncase.IR.Tuple>(loadCall[BufferLoad.Indices]);
+        var cast = Assert.IsType<Call>(Assert.Single(indices.Fields.ToArray()));
+        Assert.IsType<Nncase.IR.Tensors.Cast>(cast.Target);
+        var asTensor = Assert.IsType<Call>(cast.Arguments[0]);
+        Assert.IsType<Nncase.IR.Shapes.AsTensor>(asTensor.Target);
+        Assert.Same(loop.LoopVar, asTensor.Arguments[0]);
+    }
+
+    private static bool EvaluateLogical(BaseExpr expr, DimVar loopVar, long lane, long programId, long nElements, long threadId = 0)
     {
         return expr switch
         {
             LogicalConst logicalConst => logicalConst.Value,
-            DimCompare compare => EvaluateCompare(compare.Op, EvaluateDimension(compare.Lhs, loopVar, lane, programId, nElements), EvaluateDimension(compare.Rhs, loopVar, lane, programId, nElements)),
-            LogicalAnd logicalAnd => logicalAnd.Operands.ToArray().All(x => EvaluateLogical(x, loopVar, lane, programId, nElements)),
-            LogicalOr logicalOr => logicalOr.Operands.ToArray().Any(x => EvaluateLogical(x, loopVar, lane, programId, nElements)),
+            DimCompare compare => EvaluateCompare(compare.Op, EvaluateDimension(compare.Lhs, loopVar, lane, programId, nElements, threadId), EvaluateDimension(compare.Rhs, loopVar, lane, programId, nElements, threadId)),
+            LogicalAnd logicalAnd => logicalAnd.Operands.ToArray().All(x => EvaluateLogical(x, loopVar, lane, programId, nElements, threadId)),
+            LogicalOr logicalOr => logicalOr.Operands.ToArray().Any(x => EvaluateLogical(x, loopVar, lane, programId, nElements, threadId)),
             _ => throw new NotSupportedException($"Unsupported logical expression {expr.GetType().Name}."),
         };
     }
@@ -281,26 +358,29 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         };
     }
 
-    private static long EvaluateDimension(Dimension dim, DimVar loopVar, long lane, long programId, long nElements)
+    private static long EvaluateDimension(Dimension dim, DimVar loopVar, long lane, long programId, long nElements, long threadId = 0)
     {
         return dim switch
         {
             DimConst constant => constant.Value,
             DimVar dimVar when ReferenceEquals(dimVar, loopVar) || dimVar.Name == loopVar.Name => lane,
             DimVar { Name: "n_elements" } => nElements,
+            ThreadIdDim => threadId,
             ProgramIdDim { Axis: 0 } => programId,
-            DimSum sum => sum.Bias + sum.Operands.ToArray().Sum(x => EvaluateDimension(x, loopVar, lane, programId, nElements)),
-            DimProduct product => product.Scale * product.Operands.ToArray().Aggregate(1L, (acc, x) => acc * EvaluateDimension(x, loopVar, lane, programId, nElements)),
-            DimFraction fraction => EvaluateFraction(fraction, loopVar, lane, programId, nElements),
-            DimRemainder remainder => EvaluateDimension(remainder.Numerator, loopVar, lane, programId, nElements) % EvaluateDimension(remainder.Denominator, loopVar, lane, programId, nElements),
+            DimSum sum => sum.Bias + sum.Operands.ToArray().Sum(x => EvaluateDimension(x, loopVar, lane, programId, nElements, threadId)),
+            DimProduct product => product.Scale * product.Operands.ToArray().Aggregate(1L, (acc, x) => acc * EvaluateDimension(x, loopVar, lane, programId, nElements, threadId)),
+            DimFraction fraction => EvaluateFraction(fraction, loopVar, lane, programId, nElements, threadId),
+            DimRemainder remainder => EvaluateDimension(remainder.Numerator, loopVar, lane, programId, nElements, threadId) % EvaluateDimension(remainder.Denominator, loopVar, lane, programId, nElements, threadId),
+            DimMin min => min.Operands.ToArray().Min(x => EvaluateDimension(x, loopVar, lane, programId, nElements, threadId)),
+            DimMax max => max.Operands.ToArray().Max(x => EvaluateDimension(x, loopVar, lane, programId, nElements, threadId)),
             _ => throw new NotSupportedException($"Unsupported dimension expression {dim.GetType().Name}: {dim}"),
         };
     }
 
-    private static long EvaluateFraction(DimFraction fraction, DimVar loopVar, long lane, long programId, long nElements)
+    private static long EvaluateFraction(DimFraction fraction, DimVar loopVar, long lane, long programId, long nElements, long threadId)
     {
-        var numerator = EvaluateDimension(fraction.Numerator, loopVar, lane, programId, nElements);
-        var denominator = EvaluateDimension(fraction.Denominator, loopVar, lane, programId, nElements);
+        var numerator = EvaluateDimension(fraction.Numerator, loopVar, lane, programId, nElements, threadId);
+        var denominator = EvaluateDimension(fraction.Denominator, loopVar, lane, programId, nElements, threadId);
         return fraction.DivMode switch
         {
             DimDivideMode.FloorDiv => numerator / denominator,
