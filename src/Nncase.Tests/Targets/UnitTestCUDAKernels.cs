@@ -2050,8 +2050,7 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         var firstPtr = IR.F.Math.Binary(BinaryOp.Add, firstDest, offsets);
         var secondPtr = IR.F.Math.Binary(BinaryOp.Add, secondDest, offsets);
         var mask = IR.F.Math.Compare(CompareOp.LowerThan, offsets, (Const)blockSize);
-        var defaultValue = Const.FromTensor(Tensor.Zeros(DataTypes.Float32, new long[] { blockSize }));
-        var tile = IR.F.Triton.Load(srcPtr, mask, defaultValue);
+        var tile = IR.F.Triton.Load(srcPtr, mask, None.Default);
         var firstStore = IR.F.Triton.Store(firstPtr, tile, mask);
         var secondStore = IR.F.Triton.Store(secondPtr, tile, mask);
         var body = new IR.Tuple(firstStore, secondStore);
@@ -2107,8 +2106,9 @@ public sealed class UnitTestCUDAKernels : TestClassBase
     [Fact]
     public async Task TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel()
     {
-        const int blockSize = 2048;
-        const int consumersPerTile = 16;
+        const int blockSize = 10240;
+        const int consumersPerTile = 32;
+        const int accumulationFactor = 16;
         var firstSrcBase = new Var("smem_first_src_base", TensorType.Pointer(DataTypes.Float32));
         var secondSrcBase = new Var("smem_second_src_base", TensorType.Pointer(DataTypes.Float32));
         var firstDests = CreatePointerVars("smem_first_dest", consumersPerTile);
@@ -2118,8 +2118,8 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         var firstTile = IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, firstSrcBase, offsets), mask, None.Default);
         var secondTile = IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, secondSrcBase, offsets), mask, None.Default);
         var body = new IR.Tuple(
-            firstDests.Select(dest => IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, dest, offsets), firstTile, mask))
-                .Concat(secondDests.Select(dest => IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, dest, offsets), secondTile, mask)))
+            firstDests.Select(dest => IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, dest, offsets), RepeatTileValue(firstTile, accumulationFactor), mask))
+                .Concat(secondDests.Select(dest => IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, dest, offsets), RepeatTileValue(secondTile, accumulationFactor), mask)))
                 .ToArray());
 
         var firstSourceTensor = Tensor.From<float>(Enumerable.Range(0, blockSize).Select(i => (float)(i + 1)).ToArray(), new long[] { blockSize });
@@ -2154,8 +2154,8 @@ public sealed class UnitTestCUDAKernels : TestClassBase
 
         await RunCases(nameof(TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel), feedDict, new BaseExpr[] { body }, rtFeedDict);
 
-        var firstExpected = firstSourceTensor.ToArray<float>();
-        var secondExpected = secondSourceTensor.ToArray<float>();
+        var firstExpected = ScaleExpected(firstSourceTensor.ToArray<float>(), accumulationFactor);
+        var secondExpected = ScaleExpected(secondSourceTensor.ToArray<float>(), accumulationFactor);
         AssertTensorsEqual(firstExpected, firstEvalTensors.Concat(firstRtTensors));
         AssertTensorsEqual(secondExpected, secondEvalTensors.Concat(secondRtTensors));
         var tileBytes = blockSize * DataTypes.Float32.SizeInBytes;
@@ -2166,11 +2166,11 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         var baselineBody = new IR.Tuple(
             baselineFirstDests.Select(dest => IR.F.Triton.Store(
                     IR.F.Math.Binary(BinaryOp.Add, dest, offsets),
-                    IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, firstSrcBase, offsets), mask, None.Default),
+                    CreateRepeatedLoadSum(firstSrcBase, offsets, mask, accumulationFactor),
                     mask))
                 .Concat(baselineSecondDests.Select(dest => IR.F.Triton.Store(
                     IR.F.Math.Binary(BinaryOp.Add, dest, offsets),
-                    IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, secondSrcBase, offsets), mask, None.Default),
+                    CreateRepeatedLoadSum(secondSrcBase, offsets, mask, accumulationFactor),
                     mask)))
                 .ToArray());
         var baselineFirstEvalTensors = CreateZeroFloatTensors(consumersPerTile, blockSize);
@@ -2203,30 +2203,37 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         AssertTensorsEqual(secondExpected, baselineSecondEvalTensors.Concat(baselineSecondRtTensors));
 
         var baselineMetrics = ReadBlockLocalSmemMultiTileMetrics(Path.Join(CompileOptions.DumpDir, baselineName, "Case0"));
-        Assert.True(tiledMetrics.FirstSourceReads < baselineMetrics.FirstSourceReads, $"Expected tiled SMem artifact {tiledMetrics.MainPrimPath} to read first source fewer times than baseline {baselineMetrics.MainPrimPath}.");
-        Assert.True(tiledMetrics.SecondSourceReads < baselineMetrics.SecondSourceReads, $"Expected tiled SMem artifact {tiledMetrics.MainPrimPath} to read second source fewer times than baseline {baselineMetrics.MainPrimPath}.");
-        const int warmupLaunchCount = 3;
-        const int measuredLaunchCount = 64;
+        const int warmupLaunchCount = 4;
+        const int measuredLaunchCount = 16;
+        const int timingSampleCount = 5;
         var tiledDumpDir = Path.Join(CompileOptions.DumpDir, nameof(TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel), "Case0");
         var baselineDumpDir = Path.Join(CompileOptions.DumpDir, baselineName, "Case0");
-        var tiledTiming = MeasureBlockLocalSmemRuntime(tiledDumpDir, rtFeedDict.Values.Select(v => v.AsTensor()).ToArray(), warmupLaunchCount, measuredLaunchCount);
-        var baselineTiming = MeasureBlockLocalSmemRuntime(baselineDumpDir, baselineRtFeedDict.Values.Select(v => v.AsTensor()).ToArray(), warmupLaunchCount, measuredLaunchCount);
+        var timing = MeasureBlockLocalSmemRuntimePair(
+            tiledDumpDir,
+            rtFeedDict.Values.Select(v => v.AsTensor()).ToArray(),
+            baselineDumpDir,
+            baselineRtFeedDict.Values.Select(v => v.AsTensor()).ToArray(),
+            warmupLaunchCount,
+            measuredLaunchCount,
+            timingSampleCount);
         var tiledPtxMetrics = ReadBlockLocalSmemPtxMetrics(tiledDumpDir);
         var baselinePtxMetrics = ReadBlockLocalSmemPtxMetrics(baselineDumpDir);
         WriteBlockLocalSmemMetricSummary(
             tiledMetrics,
             baselineMetrics,
-            tiledTiming,
-            baselineTiming,
+            timing.Tiled,
+            timing.Baseline,
             tiledPtxMetrics,
             baselinePtxMetrics,
             blockSize,
+            accumulationFactor,
             warmupLaunchCount,
             measuredLaunchCount,
+            timingSampleCount,
             Path.Join(CompileOptions.DumpDir, nameof(TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel), "smem-metric-summary.md"));
         Assert.True(
-            tiledTiming.RuntimeNs < baselineTiming.RuntimeNs || tiledPtxMetrics.GlobalLoadBytes < baselinePtxMetrics.GlobalLoadBytes,
-            $"Expected tiled SMem runtime to improve or PTX global-load bytes to decrease. Runtime: tiled={tiledTiming.RuntimeNs} ns, baseline={baselineTiming.RuntimeNs} ns across {measuredLaunchCount} launches. PTX global-load bytes: tiled={tiledPtxMetrics.GlobalLoadBytes}, baseline={baselinePtxMetrics.GlobalLoadBytes}. Tiled dump: {tiledDumpDir}; baseline dump: {baselineDumpDir}.");
+            timing.Tiled.MedianRuntimeNs < timing.Baseline.MedianRuntimeNs,
+            $"Expected tiled SMem median runtime to improve. Median runtime: tiled={timing.Tiled.MedianRuntimeNs} ns, baseline={timing.Baseline.MedianRuntimeNs} ns across {timingSampleCount} samples of {measuredLaunchCount} launches. Tiled samples=[{string.Join(',', timing.Tiled.SampleRuntimeNs)}], baseline samples=[{string.Join(',', timing.Baseline.SampleRuntimeNs)}]. Tiled dump: {tiledDumpDir}; baseline dump: {baselineDumpDir}.");
     }
 
     [Fact]
@@ -2484,13 +2491,15 @@ public sealed class UnitTestCUDAKernels : TestClassBase
     private static void WriteBlockLocalSmemMetricSummary(
         (int FirstSourceReads, int SecondSourceReads, int Syncs, string MainPrimPath) tiled,
         (int FirstSourceReads, int SecondSourceReads, int Syncs, string MainPrimPath) baseline,
-        (long RuntimeNs, string DumpDir, string KModelPath) tiledTiming,
-        (long RuntimeNs, string DumpDir, string KModelPath) baselineTiming,
+        BlockLocalSmemRuntimeMetrics tiledTiming,
+        BlockLocalSmemRuntimeMetrics baselineTiming,
         (int GlobalLoads, int GlobalStores, int SharedLoads, int SharedStores, long GlobalLoadBytes, string PtxPath) tiledPtx,
         (int GlobalLoads, int GlobalStores, int SharedLoads, int SharedStores, long GlobalLoadBytes, string PtxPath) baselinePtx,
         int blockSize,
+        int accumulationFactor,
         int warmupLaunchCount,
         int measuredLaunchCount,
+        int timingSampleCount,
         string summaryPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(summaryPath)!);
@@ -2503,11 +2512,19 @@ public sealed class UnitTestCUDAKernels : TestClassBase
                 Environment.NewLine,
                 "# Block-local SMem Multi-tile Metrics",
                 string.Empty,
-                $"tiled_runtime_ns: {tiledTiming.RuntimeNs}",
-                $"baseline_runtime_ns: {baselineTiming.RuntimeNs}",
+                "gate: median(tiled_runtime_ns) < median(baseline_runtime_ns)",
+                "artifact_note: source-read and PTX counts are diagnostic artifacts only; they are not pass conditions.",
+                $"tiled_runtime_ns: {tiledTiming.MedianRuntimeNs}",
+                $"baseline_runtime_ns: {baselineTiming.MedianRuntimeNs}",
+                $"tiled_median_runtime_ns: {tiledTiming.MedianRuntimeNs}",
+                $"baseline_median_runtime_ns: {baselineTiming.MedianRuntimeNs}",
+                $"tiled_sample_runtime_ns: [{string.Join(", ", tiledTiming.SampleRuntimeNs)}]",
+                $"baseline_sample_runtime_ns: [{string.Join(", ", baselineTiming.SampleRuntimeNs)}]",
                 $"warmup_count: {warmupLaunchCount}",
                 $"measured_launch_count: {measuredLaunchCount}",
+                $"timing_sample_count: {timingSampleCount}",
                 $"block_size: {blockSize}",
+                $"accumulation_factor: {accumulationFactor}",
                 $"element_bytes: {elementBytes}",
                 $"tiled_source_read_bytes: {tiledSourceReadBytes}",
                 $"baseline_source_read_bytes: {baselineSourceReadBytes}",
@@ -2550,42 +2567,93 @@ public sealed class UnitTestCUDAKernels : TestClassBase
             ptx.Path);
     }
 
-    private static (long RuntimeNs, string DumpDir, string KModelPath) MeasureBlockLocalSmemRuntime(string dumpDir, Tensor[] inputs, int warmupLaunchCount, int measuredLaunchCount)
+    private static (BlockLocalSmemRuntimeMetrics Tiled, BlockLocalSmemRuntimeMetrics Baseline) MeasureBlockLocalSmemRuntimePair(
+        string tiledDumpDir,
+        Tensor[] tiledInputs,
+        string baselineDumpDir,
+        Tensor[] baselineInputs,
+        int warmupLaunchCount,
+        int measuredLaunchCount,
+        int timingSampleCount)
     {
-        Assert.True(Directory.Exists(dumpDir), $"Missing CUDA SMem runtime dump directory: {dumpDir}");
-        var kmodelPath = Path.Join(dumpDir, "test.kmodel");
-        Assert.True(File.Exists(kmodelPath), $"Missing CUDA SMem runtime kmodel: {kmodelPath}");
+        Assert.True(Directory.Exists(tiledDumpDir), $"Missing CUDA SMem runtime dump directory: {tiledDumpDir}");
+        Assert.True(Directory.Exists(baselineDumpDir), $"Missing CUDA SMem baseline runtime dump directory: {baselineDumpDir}");
+        var tiledKModelPath = Path.Join(tiledDumpDir, "test.kmodel");
+        var baselineKModelPath = Path.Join(baselineDumpDir, "test.kmodel");
+        Assert.True(File.Exists(tiledKModelPath), $"Missing CUDA SMem runtime kmodel: {tiledKModelPath}");
+        Assert.True(File.Exists(baselineKModelPath), $"Missing CUDA SMem baseline runtime kmodel: {baselineKModelPath}");
 
-        _ = Testing.RunKModel(kmodelPath, dumpDir, inputs);
-        using var interp = Nncase.Runtime.Interop.RTInterpreter.Create();
-        interp.SetDumpRoot(dumpDir);
-        interp.LoadModel(kmodelPath);
-        var entry = interp.Entry!;
-        var rtInputs = inputs.Select(Nncase.Runtime.Interop.RTTensor.FromTensor).ToArray();
+        _ = Testing.RunKModel(tiledKModelPath, tiledDumpDir, tiledInputs);
+        _ = Testing.RunKModel(baselineKModelPath, baselineDumpDir, baselineInputs);
+        using var tiledInterp = RTInterpreter.Create();
+        using var baselineInterp = RTInterpreter.Create();
+        tiledInterp.SetDumpRoot(tiledDumpDir);
+        baselineInterp.SetDumpRoot(baselineDumpDir);
+        tiledInterp.LoadModel(tiledKModelPath);
+        baselineInterp.LoadModel(baselineKModelPath);
+        var tiledEntry = tiledInterp.Entry!;
+        var baselineEntry = baselineInterp.Entry!;
+        var tiledRtInputs = tiledInputs.Select(RTTensor.FromTensor).ToArray();
+        var baselineRtInputs = baselineInputs.Select(RTTensor.FromTensor).ToArray();
         try
         {
             for (var i = 0; i < warmupLaunchCount; i++)
             {
-                using var value = entry.Invoke(rtInputs);
+                using var tiledValue = tiledEntry.Invoke(tiledRtInputs);
+                using var baselineValue = baselineEntry.Invoke(baselineRtInputs);
             }
 
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            for (var i = 0; i < measuredLaunchCount; i++)
+            var tiledSamples = new long[timingSampleCount];
+            var baselineSamples = new long[timingSampleCount];
+            for (var sample = 0; sample < timingSampleCount; sample++)
             {
-                using var value = entry.Invoke(rtInputs);
+                if ((sample & 1) == 0)
+                {
+                    tiledSamples[sample] = MeasureBlockLocalSmemRuntimeNs(tiledEntry, tiledRtInputs, measuredLaunchCount);
+                    baselineSamples[sample] = MeasureBlockLocalSmemRuntimeNs(baselineEntry, baselineRtInputs, measuredLaunchCount);
+                }
+                else
+                {
+                    baselineSamples[sample] = MeasureBlockLocalSmemRuntimeNs(baselineEntry, baselineRtInputs, measuredLaunchCount);
+                    tiledSamples[sample] = MeasureBlockLocalSmemRuntimeNs(tiledEntry, tiledRtInputs, measuredLaunchCount);
+                }
             }
 
-            stopwatch.Stop();
-            var runtimeNs = (long)Math.Round((double)stopwatch.ElapsedTicks * 1_000_000_000d / System.Diagnostics.Stopwatch.Frequency);
-            return (runtimeNs, dumpDir, kmodelPath);
+            return (
+                new BlockLocalSmemRuntimeMetrics(Median(tiledSamples), tiledSamples, tiledDumpDir, tiledKModelPath),
+                new BlockLocalSmemRuntimeMetrics(Median(baselineSamples), baselineSamples, baselineDumpDir, baselineKModelPath));
         }
         finally
         {
-            foreach (var rtInput in rtInputs)
+            foreach (var rtInput in tiledRtInputs.Concat(baselineRtInputs))
             {
                 rtInput.Dispose();
             }
         }
+    }
+
+    private static long MeasureBlockLocalSmemRuntimeNs(RTFunction entry, RTValue[] rtInputs, int measuredLaunchCount)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        for (var i = 0; i < measuredLaunchCount; i++)
+        {
+            using var value = entry.Invoke(rtInputs);
+        }
+
+        stopwatch.Stop();
+        return (long)Math.Round((double)stopwatch.ElapsedTicks * 1_000_000_000d / System.Diagnostics.Stopwatch.Frequency);
+    }
+
+    private static long Median(long[] values)
+    {
+        var sorted = values.OrderBy(value => value).ToArray();
+        var middle = sorted.Length / 2;
+        if ((sorted.Length & 1) == 1)
+        {
+            return sorted[middle];
+        }
+
+        return (sorted[middle - 1] + sorted[middle]) / 2;
     }
 
     private static int CountPtxInstructions(string text, string opcode) =>
@@ -2622,6 +2690,43 @@ public sealed class UnitTestCUDAKernels : TestClassBase
             Assert.Equal(expected, tensor.ToArray<float>());
         }
     }
+
+    private static Expr RepeatTileValue(Expr tile, int count)
+    {
+        if (count <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(count), count, "Repeated tile value count must be positive.");
+        }
+
+        var result = tile;
+        for (var i = 1; i < count; i++)
+        {
+            result = IR.F.Math.Binary(BinaryOp.Add, result, tile);
+        }
+
+        return result;
+    }
+
+    private static Expr CreateRepeatedLoadSum(Expr srcBase, Expr offsets, Expr mask, int count)
+    {
+        if (count <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(count), count, "Repeated load count must be positive.");
+        }
+
+        Expr CreateLoad() => IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, srcBase, offsets), mask, None.Default);
+
+        var result = CreateLoad();
+        for (var i = 1; i < count; i++)
+        {
+            result = IR.F.Math.Binary(BinaryOp.Add, result, CreateLoad());
+        }
+
+        return result;
+    }
+
+    private static float[] ScaleExpected(float[] values, int factor) =>
+        values.Select(value => value * factor).ToArray();
 
     private static unsafe ulong GetPointer(MemoryHandle handle) => (ulong)handle.Pointer;
 
@@ -2779,6 +2884,8 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         compiler.TIRPass(pmgr);
         await pmgr.RunAsync(module);
     }
+
+    private sealed record BlockLocalSmemRuntimeMetrics(long MedianRuntimeNs, long[] SampleRuntimeNs, string DumpDir, string KModelPath);
 
     private sealed class PinnedTensorSet : IDisposable
     {

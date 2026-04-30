@@ -276,9 +276,9 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         var fields = selected.Body.Fields.ToArray();
         Assert.IsType<Nncase.TIR.NTT.AffineGather>(Assert.IsType<Call>(fields[0]).Target);
         Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[1]).Target);
-        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[2]).Target);
-        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[3]).Target);
-        Assert.IsType<Return>(fields[4]);
+        Assert.IsType<Nncase.TIR.For>(fields[2]);
+        Assert.IsType<Return>(fields[3]);
+        Assert.Equal(2, ExprCollector.Collect(fields[2]).OfType<Call>().Count(call => call.Target is Nncase.TIR.Store));
         var smemBuffer = Assert.Single(ExprCollector.Collect(selected.Body).OfType<Nncase.TIR.Buffer>());
         Assert.Equal(BufferScope.BlockLocal, smemBuffer.Storage.Scope);
         Assert.Equal(PhysicalMemorySpace.SMem, smemBuffer.Storage.PhysicalLocation);
@@ -339,14 +339,14 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         var fields = selected.Body.Fields.ToArray();
         Assert.IsType<Nncase.TIR.NTT.AffineGather>(Assert.IsType<Call>(fields[0]).Target);
         Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[1]).Target);
-        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[2]).Target);
-        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[3]).Target);
-        Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[4]).Target);
-        Assert.IsType<Nncase.TIR.NTT.AffineGather>(Assert.IsType<Call>(fields[5]).Target);
-        Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[6]).Target);
-        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[7]).Target);
-        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[8]).Target);
-        Assert.IsType<Return>(fields[9]);
+        Assert.IsType<Nncase.TIR.For>(fields[2]);
+        Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[3]).Target);
+        Assert.IsType<Nncase.TIR.NTT.AffineGather>(Assert.IsType<Call>(fields[4]).Target);
+        Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[5]).Target);
+        Assert.IsType<Nncase.TIR.For>(fields[6]);
+        Assert.IsType<Return>(fields[7]);
+        Assert.Equal(2, ExprCollector.Collect(fields[2]).OfType<Call>().Count(call => call.Target is Nncase.TIR.Store));
+        Assert.Equal(2, ExprCollector.Collect(fields[6]).OfType<Call>().Count(call => call.Target is Nncase.TIR.Store));
 
         var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(selected, new()));
         var module = new IRModule(lowered);

@@ -478,6 +478,16 @@ public sealed class DirectAffineTilingPass : FunctionPass
             {
                 if (registerCalls.Any(_blockLocalEligible.Contains))
                 {
+                    if (!_blockLocalEligible.Contains(producer))
+                    {
+                        _registerEligible.Add(producer);
+                    }
+
+                    foreach (var registerCall in registerCalls.Where(call => !_blockLocalEligible.Contains(call)))
+                    {
+                        _registerEligible.Add(registerCall);
+                    }
+
                     return;
                 }
 

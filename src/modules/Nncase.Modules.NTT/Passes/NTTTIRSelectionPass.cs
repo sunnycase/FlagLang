@@ -259,15 +259,7 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         {
             var group = groups[i];
             var sourceBuffer = EnsureBlockLocalSmemGatherLowered(group.GatherCall, buffers, loweredFields);
-            foreach (var scatterCall in group.ScatterCalls)
-            {
-                var scatter = (IR.Affine.Scatter)scatterCall.Target;
-                loweredFields.Add(TIR.F.NTT.AffineScatter(
-                    sourceBuffer,
-                    (Expr)scatterCall[IR.Affine.Scatter.Dest],
-                    scatter.Relation,
-                    scatter.Symbols).InheritMetaData(scatterCall));
-            }
+            loweredFields.Add(BuildBlockLocalSmemScatterLoop(group.ScatterCalls, group.GatherCall, sourceBuffer));
 
             if (i + 1 < groups.Count)
             {
@@ -377,15 +369,62 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
     private bool TryGetBlockLocalSmemGatherSource(Call scatterCall, [MaybeNullWhen(false)] out Call sourceGather)
     {
         sourceGather = null;
-        if (scatterCall.Target is not IR.Affine.Scatter ||
-            scatterCall[IR.Affine.Scatter.Source] is not Call { Target: IR.Affine.Gather } gatherCall ||
-            !IsBlockLocalSmem(gatherCall))
+        if (scatterCall.Target is not IR.Affine.Scatter)
         {
             return false;
         }
 
-        sourceGather = gatherCall;
+        var sources = new List<Call>();
+        if (!TryCollectBlockLocalSmemGatherSources((Expr)scatterCall[IR.Affine.Scatter.Source], sources, new HashSet<BaseExpr>(ReferenceEqualityComparer.Instance)) ||
+            sources.Count == 0)
+        {
+            return false;
+        }
+
+        var uniqueSources = sources.Distinct(new ReferenceEqualityComparer<Call>()).ToArray();
+        if (uniqueSources.Length != 1)
+        {
+            throw new NotSupportedException($"Block-local SMem affine lowering currently supports one shared Affine.Gather per scatter expression, got {uniqueSources.Length}.");
+        }
+
+        sourceGather = uniqueSources[0];
         return true;
+    }
+
+    private bool TryCollectBlockLocalSmemGatherSources(Expr expr, List<Call> sources, ISet<BaseExpr> visited)
+    {
+        if (expr is TensorConst { CheckedType: TensorType { IsScalar: true } })
+        {
+            return true;
+        }
+
+        if (expr is not Call call)
+        {
+            return false;
+        }
+
+        if (!visited.Add(call))
+        {
+            return true;
+        }
+
+        switch (call.Target)
+        {
+            case IR.Affine.Gather when IsBlockLocalSmem(call):
+                sources.Add(call);
+                return true;
+            case IR.Math.Unary:
+            case IR.Math.Binary:
+            case IR.Tensors.Cast:
+                return call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectBlockLocalSmemGatherSources(arg, sources, visited));
+            case IR.Tensors.Where where when !where.IsTfWhere:
+                return call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectBlockLocalSmemGatherSources(arg, sources, visited));
+            case PrimFunctionWrapper { Target: PrimFunction primFunction }:
+                _ = GetPrimWrapperBinaryOp(primFunction);
+                return call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectBlockLocalSmemGatherSources(arg, sources, visited));
+            default:
+                return false;
+        }
     }
 
     private TIR.Buffer CreateBlockLocalSmemBuffer(Call gatherCall, TileDecision decision, int bufferIndex)
@@ -440,6 +479,142 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             !decision.StorageLayout.LogicalShape[0].IsFixed)
         {
             throw new NotSupportedException($"{opKind} block-local SMem lowering requires a fixed rank-1 storage shape, got {decision.StorageLayout.LogicalShape}.");
+        }
+    }
+
+    private Expr BuildBlockLocalSmemScatterLoop(IReadOnlyList<Call> scatterCalls, Call sourceGather, TIR.Buffer sourceBuffer)
+    {
+        if (scatterCalls.Count == 0)
+        {
+            throw new InvalidOperationException("Block-local SMem affine lowering requires at least one Affine.Scatter consumer.");
+        }
+
+        var firstScatterCall = scatterCalls[0];
+        var scatter = (IR.Affine.Scatter)firstScatterCall.Target;
+        var gather = (IR.Affine.Gather)sourceGather.Target;
+        var gatherDecision = TileDecisionMetadata.Require(sourceGather, "Block-local SMem affine expression TIR selection");
+        ValidateBlockLocalSmemDecision(gatherDecision, "Affine.Gather");
+        foreach (var scatterCall in scatterCalls)
+        {
+            ValidateBlockLocalSmemAffineChain(scatterCall, (IR.Affine.Scatter)scatterCall.Target, sourceGather, gather);
+        }
+
+        var globalExtent = sourceBuffer.Dimensions[0];
+        var tileExtent = gatherDecision.DistributionLayout?.LocalShape[0] ?? globalExtent;
+        var symbolMap = BuildSymbolMap(scatter.Relation, scatter.Symbols);
+        return T.Serial(out var lane, new TIR.Range(Dimension.Zero, tileExtent, Dimension.One), "d0")
+            .Body(BuildBlockLocalSmemStoreBody(scatterCalls, scatter, sourceGather, gatherDecision, sourceBuffer, globalExtent, symbolMap, lane))
+            .Build()
+            .InheritMetaData(firstScatterCall);
+    }
+
+    private Expr BuildBlockLocalSmemStoreBody(
+        IReadOnlyList<Call> scatterCalls,
+        IR.Affine.Scatter scatter,
+        Call sourceGather,
+        TileDecision gatherDecision,
+        TIR.Buffer sourceBuffer,
+        Dimension globalExtent,
+        IReadOnlyDictionary<int, Dimension>? symbolMap,
+        DimVar lane)
+    {
+        var domainValue = GetBlockLocalSmemDomainValue(gatherDecision, lane, globalExtent);
+        var domainValues = new[] { domainValue };
+        var extents = new[] { globalExtent };
+        var address = EvaluateAddress(scatter.Relation, domainValues, extents, symbolMap);
+        var loaded = T.BufferLoad(sourceBuffer, new[] { address }.AsExprs());
+        return T.Let(out var smemValue, loaded).Body(BuildStore(smemValue)).Build();
+
+        Expr BuildStore(Expr sharedValue)
+        {
+            var stores = scatterCalls.Select(scatterCall => BuildBlockLocalSmemStore(scatterCall, sourceGather, sharedValue, address)).ToArray();
+            return scatter.Relation.Constraint == LogicalExpr.True
+                ? new Sequential(stores)
+                : T.If(EvaluateConstraint(scatter.Relation.Constraint, domainValues)).Then(stores.Cast<object>().ToArray()).Build();
+        }
+    }
+
+    private Expr BuildBlockLocalSmemStore(Call scatterCall, Call sourceGather, Expr sharedValue, Dimension address)
+    {
+        var source = (Expr)scatterCall[IR.Affine.Scatter.Source];
+        var dest = (Expr)scatterCall[IR.Affine.Scatter.Dest];
+        var value = BuildBlockLocalSmemScalarExpr(source, sourceGather, sharedValue);
+        return T.Store(dest, address, value);
+    }
+
+    private Expr BuildBlockLocalSmemScalarExpr(Expr expr, Call sourceGather, Expr sharedValue)
+    {
+        if (expr is TensorConst { CheckedType: TensorType { IsScalar: true } })
+        {
+            return expr;
+        }
+
+        if (ReferenceEquals(expr, sourceGather))
+        {
+            return sharedValue;
+        }
+
+        if (expr is not Call call)
+        {
+            throw new NotSupportedException($"Unsupported block-local SMem scalar expression {expr.GetType().Name}.");
+        }
+
+        return call.Target switch
+        {
+            IR.Affine.Gather when IsBlockLocalSmem(call) => throw new NotSupportedException("Block-local SMem scalar expression contains a second shared Affine.Gather that was not selected as the source value."),
+            IR.Math.Unary unary => IR.F.Math.Unary(unary.UnaryOp, BuildBlockLocalSmemScalarExpr((Expr)call[IR.Math.Unary.Input], sourceGather, sharedValue)),
+            IR.Math.Binary binary => IR.F.Math.Binary(
+                binary.BinaryOp,
+                BuildBlockLocalSmemScalarExpr((Expr)call[IR.Math.Binary.Lhs], sourceGather, sharedValue),
+                BuildBlockLocalSmemScalarExpr((Expr)call[IR.Math.Binary.Rhs], sourceGather, sharedValue)),
+            IR.Tensors.Cast cast => IR.F.Tensors.Cast(BuildBlockLocalSmemScalarExpr((Expr)call[IR.Tensors.Cast.Input], sourceGather, sharedValue), cast.NewType, cast.CastMode),
+            IR.Tensors.Where where when !where.IsTfWhere => IR.F.Math.Select(
+                BuildBlockLocalSmemScalarExpr((Expr)call[IR.Tensors.Where.Cond], sourceGather, sharedValue),
+                BuildBlockLocalSmemScalarExpr((Expr)call[IR.Tensors.Where.X], sourceGather, sharedValue),
+                BuildBlockLocalSmemScalarExpr((Expr)call[IR.Tensors.Where.Y], sourceGather, sharedValue)),
+            PrimFunctionWrapper { Target: PrimFunction primFunction } => IR.F.Math.Binary(
+                GetPrimWrapperBinaryOp(primFunction),
+                BuildBlockLocalSmemScalarExpr((Expr)call.Arguments[0], sourceGather, sharedValue),
+                BuildBlockLocalSmemScalarExpr((Expr)call.Arguments[1], sourceGather, sharedValue)),
+            _ => throw new NotSupportedException($"Unsupported block-local SMem scalar call target {call.Target}."),
+        };
+    }
+
+    private Dimension GetBlockLocalSmemDomainValue(TileDecision decision, DimVar lane, Dimension globalExtent)
+    {
+        if (decision.DistributionLayout is { Kind: "TritonBlocked" } tritonBlockedLayout)
+        {
+            return GetTritonBlockedDomainValue(tritonBlockedLayout, lane);
+        }
+
+        if (decision.DistributionLayout is null or { Kind: "SBP" })
+        {
+            return lane;
+        }
+
+        throw new NotSupportedException($"Block-local SMem affine lowering cannot evaluate {decision.DistributionLayout.Kind} layouts. Add a DistributionLayout owner-local evaluator for this layout kind.");
+    }
+
+    private void ValidateBlockLocalSmemAffineChain(Call scatterCall, IR.Affine.Scatter scatter, Call gatherCall, IR.Affine.Gather gather)
+    {
+        if (gatherCall[IR.Affine.Gather.DefaultValue] is not None)
+        {
+            throw new NotSupportedException("Block-local SMem affine expression lowering only supports masked gathers whose default is None and whose value is consumed under the scatter guard.");
+        }
+
+        if (!IsSameAffineRelation(gather.Relation, scatter.Relation))
+        {
+            throw new NotSupportedException($"Block-local SMem affine expression lowering requires gather/scatter relation and symbols to match. Gather={gather.Relation}, Scatter={scatter.Relation}.");
+        }
+
+        if (!IsSameSymbolPayload(gather.Symbols, scatter.Symbols))
+        {
+            throw new NotSupportedException($"Block-local SMem affine expression lowering requires gather/scatter symbol payloads to match. Gather={gather.Symbols}, Scatter={scatter.Symbols}.");
+        }
+
+        if (scatterCall.CheckedType != TupleType.Void)
+        {
+            throw new NotSupportedException($"Block-local SMem affine scatter must be void, got {scatterCall.CheckedType}.");
         }
     }
 
