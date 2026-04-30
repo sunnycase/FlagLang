@@ -315,7 +315,7 @@ namespace Nncase.Passes
 
                 if (distributedType.ExplicitDistributionLayout is not null)
                 {
-                    LayoutVerifier.Verify(distributedType.DistributionLayout, distributedType.StorageLayout);
+                    LayoutVerifier.Verify(distributedType, $"Affine IO lowering buffer {buffer.Name}");
                     if (distributedType.DistributionLayout.LocalShape.Rank != buffer.Rank)
                     {
                         throw new NotSupportedException($"Distributed buffer {buffer.Name} has rank {buffer.Rank}, but explicit layout {distributedType.DistributionLayout.Kind} has local shape {distributedType.DistributionLayout.LocalShape}.");

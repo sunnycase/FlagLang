@@ -259,6 +259,8 @@ public sealed record IndexMapDescriptor(
 
 public static class LayoutVerifier
 {
+    private const long MaxFiniteCompositionPoints = 16384;
+
     public static void Verify(DistributionLayout layout)
     {
         VerifyMap(layout.GlobalToOwnerLocal, layout.OwnerLocalToGlobal.Name, layout.Kind);
@@ -284,10 +286,23 @@ public static class LayoutVerifier
         }
     }
 
+    public static void Verify(DistributedType distributedType, string context)
+    {
+        var distributionLayout = distributedType.DistributionLayout;
+        var storageLayout = distributedType.StorageLayout;
+        Verify(distributionLayout, storageLayout);
+        VerifyOwnerBounds(distributionLayout, distributedType.Placement, context);
+        if (distributedType.ExplicitDistributionLayout is not null)
+        {
+            VerifyForwardInverseComposition(distributionLayout, context, requireProof: true);
+        }
+    }
+
     public static void Verify(DistributionLayout distributionLayout, StorageLayout storageLayout, Placement placement)
     {
         Verify(distributionLayout, storageLayout);
-        VerifyOwnerBounds(distributionLayout, placement);
+        VerifyOwnerBounds(distributionLayout, placement, $"layout {distributionLayout.Kind}");
+        VerifyForwardInverseComposition(distributionLayout, $"layout {distributionLayout.Kind}", requireProof: true);
     }
 
     private static void VerifyMap(IndexMapDescriptor map, string expectedInverse, string layoutKind)
@@ -350,34 +365,332 @@ public static class LayoutVerifier
         }
     }
 
-    private static void VerifyOwnerBounds(DistributionLayout layout, Placement placement)
+    private static void VerifyOwnerBounds(DistributionLayout layout, Placement placement, string context)
     {
+        var forwardOutputBounds = ParseDomainBounds(layout.GlobalToOwnerLocal.OutputDomain, $"{context} map {layout.GlobalToOwnerLocal.Name} output domain", failOnUnsupported: true);
+        var inverseInputBounds = ParseDomainBounds(layout.OwnerLocalToGlobal.InputDomain, $"{context} map {layout.OwnerLocalToGlobal.Name} input domain", failOnUnsupported: true);
         foreach (var owner in layout.GlobalToOwnerLocal.Outputs.Where(output => output.Name.StartsWith("owner", StringComparison.Ordinal)))
         {
             var ownerAxisText = owner.Name["owner".Length..];
             if (!int.TryParse(ownerAxisText, NumberStyles.None, CultureInfo.InvariantCulture, out var axis))
             {
-                throw new InvalidOperationException($"Layout {layout.Kind} owner coordinate {owner.Name} must use owner<axis> naming.");
+                throw new InvalidOperationException($"{context}: layout {layout.Kind} owner coordinate {owner.Name} must use owner<axis> naming.");
             }
 
             if (axis < 0 || axis >= placement.Rank)
             {
-                throw new InvalidOperationException($"Layout {layout.Kind} owner coordinate {owner.Name} is outside placement rank {placement.Rank} for placement {placement}.");
+                throw new InvalidOperationException($"{context}: layout {layout.Kind} owner coordinate {owner.Name} is outside placement rank {placement.Rank} for placement {placement}.");
             }
 
-            var expectedDomain = $"0<={owner.Name}<{placement.Hierarchy[axis]}";
-            if (!layout.GlobalToOwnerLocal.OutputDomain.Contains(expectedDomain) ||
-                !layout.OwnerLocalToGlobal.InputDomain.Contains(expectedDomain))
-            {
-                throw new InvalidOperationException($"Layout {layout.Kind} owner coordinate {owner.Name} must be bounded by placement axis {axis} domain {expectedDomain}.");
-            }
+            VerifyExactBound(forwardOutputBounds, owner.Name, 0, placement.Hierarchy[axis], $"{context}: layout {layout.Kind} map {layout.GlobalToOwnerLocal.Name} output domain");
+            VerifyExactBound(inverseInputBounds, owner.Name, 0, placement.Hierarchy[axis], $"{context}: layout {layout.Kind} map {layout.OwnerLocalToGlobal.Name} input domain");
 
             if (!layout.OwnerLocalToGlobal.Inputs.Contains(owner.Name))
             {
-                throw new InvalidOperationException($"Layout {layout.Kind} inverse map {layout.OwnerLocalToGlobal.Name} must consume owner coordinate {owner.Name}.");
+                throw new InvalidOperationException($"{context}: layout {layout.Kind} inverse map {layout.OwnerLocalToGlobal.Name} must consume owner coordinate {owner.Name}.");
             }
         }
     }
+
+    private static void VerifyForwardInverseComposition(DistributionLayout layout, string context, bool requireProof)
+    {
+        if (!TryVerifyForwardInverseComposition(layout.GlobalToOwnerLocal, layout.OwnerLocalToGlobal, context, requireProof, out var reason) && requireProof)
+        {
+            throw new InvalidOperationException($"{context}: layout {layout.Kind} cannot prove finite inverse composition {layout.OwnerLocalToGlobal.Name}({layout.GlobalToOwnerLocal.Name}(.)): {reason}.");
+        }
+    }
+
+    private static bool TryVerifyForwardInverseComposition(
+        IndexMapDescriptor forward,
+        IndexMapDescriptor inverse,
+        string context,
+        bool failOnUnsupported,
+        out string reason)
+    {
+        var inputBounds = ParseDomainBounds(forward.InputDomain, $"{context} map {forward.Name} input domain", failOnUnsupported);
+        var outputBounds = ParseDomainBounds(forward.OutputDomain, $"{context} map {forward.Name} output domain", failOnUnsupported);
+        if (!TryBuildFiniteDomains(forward.Inputs, inputBounds, out var domains, out reason))
+        {
+            return false;
+        }
+
+        var pointCount = domains.Aggregate(1L, (product, domain) => checked(product * global::System.Math.Max(0, domain.MaxExclusive!.Value - domain.Min!.Value)));
+        if (pointCount > MaxFiniteCompositionPoints)
+        {
+            reason = $"input domain has {pointCount} points, exceeding finite proof cap {MaxFiniteCompositionPoints}";
+            return false;
+        }
+
+        var inverseOutputs = inverse.Outputs.ToDictionary(output => output.Name, output => output.Expr, StringComparer.Ordinal);
+        foreach (var inputValues in EnumerateFiniteDomains(forward.Inputs, domains))
+        {
+            var forwardValues = EvaluateMapOutputs(forward, inputValues, context);
+            VerifyConcreteValuesInDomain(forwardValues, outputBounds, $"{context} map {forward.Name} output domain");
+            var reconstructed = EvaluateMapOutputs(inverse, forwardValues, context);
+            foreach (var input in forward.Inputs)
+            {
+                if (!inverseOutputs.ContainsKey(input))
+                {
+                    reason = $"inverse map {inverse.Name} does not reconstruct input {input}";
+                    return false;
+                }
+
+                if (!reconstructed.TryGetValue(input, out var actual))
+                {
+                    reason = $"inverse map {inverse.Name} output {input} is not concrete";
+                    return false;
+                }
+
+                var expected = inputValues[input];
+                if (actual != expected)
+                {
+                    reason = $"input {input}={expected} reconstructs as {actual}";
+                    return false;
+                }
+            }
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private static Dictionary<string, long> EvaluateMapOutputs(IndexMapDescriptor map, IReadOnlyDictionary<string, long> inputs, string context)
+    {
+        var values = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var output in map.Outputs)
+        {
+            if (output.Expr is IndexAny)
+            {
+                continue;
+            }
+
+            values.Add(output.Name, EvaluateIndexExpr(output.Expr, inputs, $"{context} map {map.Name} output {output.Name}"));
+        }
+
+        return values;
+    }
+
+    private static long EvaluateIndexExpr(IndexExpr expr, IReadOnlyDictionary<string, long> inputs, string context) => expr switch
+    {
+        IndexVar var when inputs.TryGetValue(var.Name, out var value) => value,
+        IndexVar var => throw new NotSupportedException($"{context}: missing concrete value for index variable {var.Name}."),
+        IndexConst constant => constant.Value,
+        IndexAny => throw new NotSupportedException($"{context}: cannot evaluate unconstrained `any` index expression."),
+        IndexAdd add => add.Terms.Aggregate(0L, (sum, term) => checked(sum + EvaluateIndexExpr(term, inputs, context))),
+        IndexMul mul => mul.Factors.Aggregate(1L, (product, factor) => checked(product * EvaluateIndexExpr(factor, inputs, context))),
+        IndexFloorDiv floorDiv => FloorDiv(EvaluateIndexExpr(floorDiv.Value, inputs, context), EvaluateIndexExpr(floorDiv.Divisor, inputs, context), context),
+        IndexMod mod => Mod(EvaluateIndexExpr(mod.Value, inputs, context), EvaluateIndexExpr(mod.Divisor, inputs, context), context),
+        IndexNamedPrimitive named => throw new NotSupportedException($"{context}: cannot evaluate named primitive {named.Name}; add a structured evaluator before using this layout."),
+        _ => throw new NotSupportedException($"{context}: cannot evaluate index expression {expr.GetType().Name}."),
+    };
+
+    private static long FloorDiv(long value, long divisor, string context)
+    {
+        if (divisor <= 0)
+        {
+            throw new InvalidOperationException($"{context}: floor division requires a positive divisor, got {divisor}.");
+        }
+
+        return value >= 0 ? value / divisor : -((-value + divisor - 1) / divisor);
+    }
+
+    private static long Mod(long value, long divisor, string context)
+    {
+        if (divisor <= 0)
+        {
+            throw new InvalidOperationException($"{context}: modulo requires a positive divisor, got {divisor}.");
+        }
+
+        var result = value % divisor;
+        return result < 0 ? result + divisor : result;
+    }
+
+    private static bool TryBuildFiniteDomains(
+        IRArray<string> inputs,
+        IReadOnlyDictionary<string, DomainBounds> bounds,
+        out DomainBounds[] domains,
+        out string reason)
+    {
+        domains = new DomainBounds[inputs.Count];
+        for (int i = 0; i < inputs.Count; i++)
+        {
+            var input = inputs[i];
+            if (!bounds.TryGetValue(input, out var bound) || bound.Min is null || bound.MaxExclusive is null)
+            {
+                reason = $"input {input} has no finite constant domain";
+                return false;
+            }
+
+            if (bound.MaxExclusive.Value < bound.Min.Value)
+            {
+                reason = $"input {input} has invalid domain [{bound.Min.Value}, {bound.MaxExclusive.Value})";
+                return false;
+            }
+
+            domains[i] = bound;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private static IEnumerable<Dictionary<string, long>> EnumerateFiniteDomains(IRArray<string> inputs, DomainBounds[] domains)
+    {
+        var values = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var assignment in EnumerateFiniteDomains(inputs, domains, 0, values))
+        {
+            yield return assignment;
+        }
+    }
+
+    private static IEnumerable<Dictionary<string, long>> EnumerateFiniteDomains(IRArray<string> inputs, DomainBounds[] domains, int index, Dictionary<string, long> values)
+    {
+        if (index == inputs.Count)
+        {
+            yield return new Dictionary<string, long>(values, StringComparer.Ordinal);
+            yield break;
+        }
+
+        var domain = domains[index];
+        for (var value = domain.Min!.Value; value < domain.MaxExclusive!.Value; value++)
+        {
+            values[inputs[index]] = value;
+            foreach (var assignment in EnumerateFiniteDomains(inputs, domains, index + 1, values))
+            {
+                yield return assignment;
+            }
+        }
+    }
+
+    private static Dictionary<string, DomainBounds> ParseDomainBounds(IRArray<string> domains, string context, bool failOnUnsupported)
+    {
+        var bounds = new Dictionary<string, DomainBounds>(StringComparer.Ordinal);
+        foreach (var domain in domains)
+        {
+            foreach (var condition in domain.Split("&&", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!TryParseDomainCondition(condition, out var name, out var min, out var maxExclusive))
+                {
+                    if (failOnUnsupported)
+                    {
+                        throw new NotSupportedException($"{context}: unsupported domain condition `{condition}`. Supported forms are `0<=var<N`, `0<=var`, and `var<N` joined by `&&`.");
+                    }
+
+                    continue;
+                }
+
+                MergeDomainBound(bounds, name, min, maxExclusive, context);
+            }
+        }
+
+        return bounds;
+    }
+
+    private static bool TryParseDomainCondition(string condition, out string name, out long? min, out long? maxExclusive)
+    {
+        var text = new string(condition.Where(ch => !char.IsWhiteSpace(ch)).ToArray());
+        name = string.Empty;
+        min = null;
+        maxExclusive = null;
+        if (text.StartsWith("0<=", StringComparison.Ordinal))
+        {
+            var rest = text["0<=".Length..];
+            var upperIndex = rest.IndexOf('<', StringComparison.Ordinal);
+            if (upperIndex < 0)
+            {
+                name = rest;
+                min = 0;
+                return IsValidDomainVariable(name);
+            }
+
+            name = rest[..upperIndex];
+            if (!long.TryParse(rest[(upperIndex + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var upper))
+            {
+                return false;
+            }
+
+            min = 0;
+            maxExclusive = upper;
+            return IsValidDomainVariable(name);
+        }
+
+        var lessThanIndex = text.IndexOf('<', StringComparison.Ordinal);
+        if (lessThanIndex > 0 && !text.Contains("<=", StringComparison.Ordinal))
+        {
+            name = text[..lessThanIndex];
+            if (!long.TryParse(text[(lessThanIndex + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var upper))
+            {
+                return false;
+            }
+
+            maxExclusive = upper;
+            return IsValidDomainVariable(name);
+        }
+
+        return false;
+    }
+
+    private static bool IsValidDomainVariable(string name) =>
+        name.Length > 0 && name.All(ch => char.IsLetterOrDigit(ch) || ch == '_');
+
+    private static void MergeDomainBound(Dictionary<string, DomainBounds> bounds, string name, long? min, long? maxExclusive, string context)
+    {
+        bounds.TryGetValue(name, out var existing);
+        var merged = new DomainBounds(
+            MergeLower(existing.Min, min),
+            MergeUpper(existing.MaxExclusive, maxExclusive));
+        if (merged is { Min: { } lower, MaxExclusive: { } upper } && lower > upper)
+        {
+            throw new InvalidOperationException($"{context}: domain for {name} is empty after merging bounds [{lower}, {upper}).");
+        }
+
+        bounds[name] = merged;
+    }
+
+    private static long? MergeLower(long? lhs, long? rhs) => (lhs, rhs) switch
+    {
+        (null, null) => null,
+        ({ } value, null) => value,
+        (null, { } value) => value,
+        ({ } left, { } right) => global::System.Math.Max(left, right),
+    };
+
+    private static long? MergeUpper(long? lhs, long? rhs) => (lhs, rhs) switch
+    {
+        (null, null) => null,
+        ({ } value, null) => value,
+        (null, { } value) => value,
+        ({ } left, { } right) => global::System.Math.Min(left, right),
+    };
+
+    private static void VerifyExactBound(IReadOnlyDictionary<string, DomainBounds> bounds, string name, long expectedMin, long expectedMaxExclusive, string context)
+    {
+        if (!bounds.TryGetValue(name, out var bound) || bound.Min != expectedMin || bound.MaxExclusive != expectedMaxExclusive)
+        {
+            var actual = bounds.TryGetValue(name, out var actualBound)
+                ? $"[{actualBound.Min?.ToString(CultureInfo.InvariantCulture) ?? "-inf"}, {actualBound.MaxExclusive?.ToString(CultureInfo.InvariantCulture) ?? "+inf"})"
+                : "<missing>";
+            throw new InvalidOperationException($"{context}: coordinate {name} must have domain [{expectedMin}, {expectedMaxExclusive}), got {actual}.");
+        }
+    }
+
+    private static void VerifyConcreteValuesInDomain(IReadOnlyDictionary<string, long> values, IReadOnlyDictionary<string, DomainBounds> bounds, string context)
+    {
+        foreach (var (name, value) in values)
+        {
+            if (!bounds.TryGetValue(name, out var bound))
+            {
+                continue;
+            }
+
+            if ((bound.Min is { } min && value < min) || (bound.MaxExclusive is { } maxExclusive && value >= maxExclusive))
+            {
+                throw new InvalidOperationException($"{context}: coordinate {name} value {value} is outside declared domain [{bound.Min?.ToString(CultureInfo.InvariantCulture) ?? "-inf"}, {bound.MaxExclusive?.ToString(CultureInfo.InvariantCulture) ?? "+inf"}).");
+            }
+        }
+    }
+
+    private readonly record struct DomainBounds(long? Min, long? MaxExclusive);
 }
 
 public sealed record DistributionLayout(

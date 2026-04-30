@@ -2179,7 +2179,72 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         Assert.Equal(firstExpected, firstRt1.ToArray<float>());
         Assert.Equal(secondExpected, secondRt0.ToArray<float>());
         Assert.Equal(secondExpected, secondRt1.ToArray<float>());
-        AssertBlockLocalSmemMultiTileArtifacts(Path.Join(CompileOptions.DumpDir, nameof(TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel), "Case0"));
+        var tiledMetrics = AssertBlockLocalSmemMultiTileArtifacts(Path.Join(CompileOptions.DumpDir, nameof(TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel), "Case0"));
+
+        var baselineFirstDest0 = new Var("baseline_smem_first_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var baselineFirstDest1 = new Var("baseline_smem_first_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var baselineSecondDest0 = new Var("baseline_smem_second_dest_0", TensorType.Pointer(DataTypes.Float32));
+        var baselineSecondDest1 = new Var("baseline_smem_second_dest_1", TensorType.Pointer(DataTypes.Float32));
+        var baselineFirstLoad0 = IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, firstSrcBase, offsets), mask, None.Default);
+        var baselineFirstLoad1 = IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, firstSrcBase, offsets), mask, None.Default);
+        var baselineSecondLoad0 = IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, secondSrcBase, offsets), mask, None.Default);
+        var baselineSecondLoad1 = IR.F.Triton.Load(IR.F.Math.Binary(BinaryOp.Add, secondSrcBase, offsets), mask, None.Default);
+        var baselineBody = new IR.Tuple(
+            IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, baselineFirstDest0, offsets), baselineFirstLoad0, mask),
+            IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, baselineFirstDest1, offsets), baselineFirstLoad1, mask),
+            IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, baselineSecondDest0, offsets), baselineSecondLoad0, mask),
+            IR.F.Triton.Store(IR.F.Math.Binary(BinaryOp.Add, baselineSecondDest1, offsets), baselineSecondLoad1, mask));
+        var baselineFirstEval0 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var baselineFirstEval1 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var baselineSecondEval0 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var baselineSecondEval1 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var baselineFirstRt0 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var baselineFirstRt1 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var baselineSecondRt0 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var baselineSecondRt1 = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        using var baselineFirstEval0Pinned = baselineFirstEval0.PinBuffer();
+        using var baselineFirstEval1Pinned = baselineFirstEval1.PinBuffer();
+        using var baselineSecondEval0Pinned = baselineSecondEval0.PinBuffer();
+        using var baselineSecondEval1Pinned = baselineSecondEval1.PinBuffer();
+        using var baselineFirstRt0Pinned = baselineFirstRt0.PinBuffer();
+        using var baselineFirstRt1Pinned = baselineFirstRt1.PinBuffer();
+        using var baselineSecondRt0Pinned = baselineSecondRt0.PinBuffer();
+        using var baselineSecondRt1Pinned = baselineSecondRt1.PinBuffer();
+        var baselineFeedDict = new Dictionary<IVar, IValue>
+        {
+            { firstSrcBase, firstSourceValue },
+            { secondSrcBase, secondSourceValue },
+            { baselineFirstDest0, Value.FromTensor(Tensor.FromPointer(GetPointer(baselineFirstEval0Pinned), DataTypes.Float32)) },
+            { baselineFirstDest1, Value.FromTensor(Tensor.FromPointer(GetPointer(baselineFirstEval1Pinned), DataTypes.Float32)) },
+            { baselineSecondDest0, Value.FromTensor(Tensor.FromPointer(GetPointer(baselineSecondEval0Pinned), DataTypes.Float32)) },
+            { baselineSecondDest1, Value.FromTensor(Tensor.FromPointer(GetPointer(baselineSecondEval1Pinned), DataTypes.Float32)) },
+        };
+        var baselineRtFeedDict = new Dictionary<IVar, IValue>
+        {
+            { firstSrcBase, firstSourceValue },
+            { secondSrcBase, secondSourceValue },
+            { baselineFirstDest0, Value.FromTensor(Tensor.FromPointer(GetPointer(baselineFirstRt0Pinned), DataTypes.Float32)) },
+            { baselineFirstDest1, Value.FromTensor(Tensor.FromPointer(GetPointer(baselineFirstRt1Pinned), DataTypes.Float32)) },
+            { baselineSecondDest0, Value.FromTensor(Tensor.FromPointer(GetPointer(baselineSecondRt0Pinned), DataTypes.Float32)) },
+            { baselineSecondDest1, Value.FromTensor(Tensor.FromPointer(GetPointer(baselineSecondRt1Pinned), DataTypes.Float32)) },
+        };
+
+        var baselineName = $"{nameof(TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel)}Baseline";
+        await RunCases(baselineName, baselineFeedDict, new BaseExpr[] { baselineBody }, baselineRtFeedDict);
+
+        Assert.Equal(firstExpected, baselineFirstEval0.ToArray<float>());
+        Assert.Equal(firstExpected, baselineFirstEval1.ToArray<float>());
+        Assert.Equal(secondExpected, baselineSecondEval0.ToArray<float>());
+        Assert.Equal(secondExpected, baselineSecondEval1.ToArray<float>());
+        Assert.Equal(firstExpected, baselineFirstRt0.ToArray<float>());
+        Assert.Equal(firstExpected, baselineFirstRt1.ToArray<float>());
+        Assert.Equal(secondExpected, baselineSecondRt0.ToArray<float>());
+        Assert.Equal(secondExpected, baselineSecondRt1.ToArray<float>());
+
+        var baselineMetrics = ReadBlockLocalSmemMultiTileMetrics(Path.Join(CompileOptions.DumpDir, baselineName, "Case0"));
+        Assert.True(tiledMetrics.FirstSourceReads < baselineMetrics.FirstSourceReads, $"Expected tiled SMem artifact {tiledMetrics.MainPrimPath} to read first source fewer times than baseline {baselineMetrics.MainPrimPath}.");
+        Assert.True(tiledMetrics.SecondSourceReads < baselineMetrics.SecondSourceReads, $"Expected tiled SMem artifact {tiledMetrics.MainPrimPath} to read second source fewer times than baseline {baselineMetrics.MainPrimPath}.");
+        WriteBlockLocalSmemMetricSummary(tiledMetrics, baselineMetrics, Path.Join(CompileOptions.DumpDir, nameof(TestBlockLocalSmemTwoNonOverlappingSharedAffineGatherMicroKernel), "smem-metric-summary.md"));
     }
 
     [Fact]
@@ -2373,7 +2438,7 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         AssertContains("Interval(0, 512)", blockLocalSchedule.Text, blockLocalSchedule.Path);
     }
 
-    private static void AssertBlockLocalSmemMultiTileArtifacts(string caseDumpDir)
+    private static (int FirstSourceReads, int SecondSourceReads, int Syncs, string MainPrimPath) AssertBlockLocalSmemMultiTileArtifacts(string caseDumpDir)
     {
         Assert.True(Directory.Exists(caseDumpDir), $"Missing CUDA smem multi-tile dump directory: {caseDumpDir}");
 
@@ -2388,15 +2453,23 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         AssertDoesNotContain("flaglang_block_local_data_storage[1024]", threadMain.Text, threadMain.Path);
         AssertDoesNotContain("flaglang_thread_local_data_storage[512]", threadMain.Text, threadMain.Path);
 
+        var metrics = ReadBlockLocalSmemMultiTileMetrics(caseDumpDir);
         AssertContains("topology_synchronize<ntt::distributed::topology::thread>", mainPrim.Text, mainPrim.Path);
+        AssertContainsInOrder(
+            mainPrim.Text,
+            "id_smem_first_dest_1[",
+            "topology_synchronize<ntt::distributed::topology::thread>",
+            "id_smem_second_src_base[",
+            mainPrim.Path);
         Assert.True(
             CountOccurrences(mainPrim.Text, "ntt::span<std::byte, 512>(block_local_data") >= 6,
             $"Expected {mainPrim.Path} to materialize two reused shared tiles through one 512-byte block-local pool.");
+        Assert.True(metrics.Syncs >= 3, $"Expected {mainPrim.Path} to synchronize after each gather and before reusing the SMem slot, got {metrics.Syncs} syncs.");
         Assert.True(
-            CountOccurrences(mainPrim.Text, "id_smem_first_src_base[") == 1,
+            metrics.FirstSourceReads == 1,
             $"Expected {mainPrim.Path} to read the first source exactly once.");
         Assert.True(
-            CountOccurrences(mainPrim.Text, "id_smem_second_src_base[") == 1,
+            metrics.SecondSourceReads == 1,
             $"Expected {mainPrim.Path} to read the second source exactly once.");
         AssertDoesNotContain("ntt::span<std::byte, 512>(thread_local_data", mainPrim.Text, mainPrim.Path);
 
@@ -2413,6 +2486,40 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         Assert.True(
             CountOccurrences(blockLocalSchedule.Text, "Interval(0, 512)") >= 2,
             $"Expected {blockLocalSchedule.Path} to assign both non-overlapping tiles to the same byte interval.");
+        return metrics;
+    }
+
+    private static (int FirstSourceReads, int SecondSourceReads, int Syncs, string MainPrimPath) ReadBlockLocalSmemMultiTileMetrics(string caseDumpDir)
+    {
+        var mainPrim = ReadRequiredDumpFile(Path.Join(caseDumpDir, "CodeGen", "cuda", "main_prim.h"));
+        return (
+            CountOccurrences(mainPrim.Text, "id_smem_first_src_base["),
+            CountOccurrences(mainPrim.Text, "id_smem_second_src_base["),
+            CountOccurrences(mainPrim.Text, "ntt::distributed::topology_synchronize<ntt::distributed::topology::thread>();"),
+            mainPrim.Path);
+    }
+
+    private static void WriteBlockLocalSmemMetricSummary(
+        (int FirstSourceReads, int SecondSourceReads, int Syncs, string MainPrimPath) tiled,
+        (int FirstSourceReads, int SecondSourceReads, int Syncs, string MainPrimPath) baseline,
+        string summaryPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(summaryPath)!);
+        File.WriteAllText(
+            summaryPath,
+            string.Join(
+                Environment.NewLine,
+                "# Block-local SMem Multi-tile Metrics",
+                string.Empty,
+                $"tiled_main_prim: {tiled.MainPrimPath}",
+                $"baseline_main_prim: {baseline.MainPrimPath}",
+                $"tiled_first_source_reads: {tiled.FirstSourceReads}",
+                $"baseline_first_source_reads: {baseline.FirstSourceReads}",
+                $"tiled_second_source_reads: {tiled.SecondSourceReads}",
+                $"baseline_second_source_reads: {baseline.SecondSourceReads}",
+                $"tiled_syncs: {tiled.Syncs}",
+                $"baseline_syncs: {baseline.Syncs}",
+                string.Empty));
     }
 
     private static unsafe ulong GetPointer(MemoryHandle handle) => (ulong)handle.Pointer;
@@ -2438,6 +2545,16 @@ public sealed class UnitTestCUDAKernels : TestClassBase
     private static void AssertDoesNotContain(string unexpected, string actual, string artifactPath)
     {
         Assert.True(!actual.Contains(unexpected, StringComparison.Ordinal), $"Expected {artifactPath} not to contain `{unexpected}`.");
+    }
+
+    private static void AssertContainsInOrder(string text, string first, string second, string third, string artifactPath)
+    {
+        var firstIndex = text.IndexOf(first, StringComparison.Ordinal);
+        Assert.True(firstIndex >= 0, $"Expected {artifactPath} to contain `{first}`.");
+        var secondIndex = text.IndexOf(second, firstIndex + first.Length, StringComparison.Ordinal);
+        Assert.True(secondIndex >= 0, $"Expected {artifactPath} to contain `{second}` after `{first}`.");
+        var thirdIndex = text.IndexOf(third, secondIndex + second.Length, StringComparison.Ordinal);
+        Assert.True(thirdIndex >= 0, $"Expected {artifactPath} to contain `{third}` after `{second}`.");
     }
 
     private static int CountOccurrences(string text, string value)

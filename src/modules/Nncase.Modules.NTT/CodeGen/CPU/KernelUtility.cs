@@ -45,6 +45,7 @@ public static class KernelUtility
 
     public static string ShardingToC(DistributedType distributedType)
     {
+        LayoutVerifier.Verify(distributedType, "NTT C++ sharding codegen");
         var placement = distributedType.Placement;
         var ndSBP = distributedType.AxisPolicies;
 

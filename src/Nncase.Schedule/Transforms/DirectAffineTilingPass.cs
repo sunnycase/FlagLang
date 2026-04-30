@@ -114,7 +114,7 @@ public sealed class DirectAffineTilingPass : FunctionPass
             Placement resolvedPlacement;
             if (type is DistributedType distributedType)
             {
-                LayoutVerifier.Verify(distributedType.DistributionLayout, distributedType.StorageLayout);
+                LayoutVerifier.Verify(distributedType, $"{opKind} direct affine tiling");
                 layout = distributedType.DistributionLayout;
                 axisPolicies = distributedType.AxisPolicies;
                 resolvedPlacement = distributedType.Placement;
@@ -126,7 +126,7 @@ public sealed class DirectAffineTilingPass : FunctionPass
             else
             {
                 var distributed = new DistributedType(tensorType, ndsbp, placement);
-                LayoutVerifier.Verify(distributed.DistributionLayout, distributed.StorageLayout);
+                LayoutVerifier.Verify(distributed, $"{opKind} direct affine tiling");
                 layout = distributed.DistributionLayout;
                 axisPolicies = distributed.AxisPolicies;
                 resolvedPlacement = distributed.Placement;

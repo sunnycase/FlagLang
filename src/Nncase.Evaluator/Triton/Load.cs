@@ -2,6 +2,7 @@
 // Licensed under the Apache license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Nncase.CostModel;
 using Nncase.Diagnostics;
@@ -29,7 +30,7 @@ public partial class LoadEvaluator : ITypeInferencer<Load>, IOpPrinter<Load>, IE
     public unsafe IValue Visit(IEvaluateContext context, Load target)
     {
         var ptrTensor = context.GetArgumentValue(target, Load.Ptr).AsTensor();
-        var other = context.GetArgumentValue(target, Load.Other).AsTensor();
+        var otherValue = context.GetArgumentValue(target, Load.Other);
         var maskValue = context.GetArgumentValue(target, Load.Mask);
         if (ptrTensor.ElementType is not PointerType pointerType)
         {
@@ -41,8 +42,15 @@ public partial class LoadEvaluator : ITypeInferencer<Load>, IOpPrinter<Load>, IE
             throw new InvalidOperationException("Load return type must be tensor");
         }
 
-        var destination = other.CastElementTo(resultType.DType);
         Tensor<bool>? maskTensor = maskValue is NoneValue ? null : maskValue.AsTensor().Cast<bool>();
+        if (otherValue is NoneValue && maskTensor is not null && maskTensor.ToArray<bool>().Any(value => !value))
+        {
+            throw new InvalidOperationException("Cannot evaluate masked Triton.Load with other=None when at least one lane is masked out; provide an explicit `other` value.");
+        }
+
+        var destination = otherValue is NoneValue
+            ? Tensor.Zeros(resultType.DType, resultType.Shape.ToValueArray())
+            : otherValue.AsTensor().CastElementTo(resultType.DType);
         var elemSize = pointerType.ElemType.SizeInBytes;
         for (long idx = 0; idx < destination.Length; idx++)
         {

@@ -341,11 +341,12 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[1]).Target);
         Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[2]).Target);
         Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[3]).Target);
-        Assert.IsType<Nncase.TIR.NTT.AffineGather>(Assert.IsType<Call>(fields[4]).Target);
-        Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[5]).Target);
-        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[6]).Target);
+        Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[4]).Target);
+        Assert.IsType<Nncase.TIR.NTT.AffineGather>(Assert.IsType<Call>(fields[5]).Target);
+        Assert.IsType<Nncase.TIR.NTT.SynchronizeThreads>(Assert.IsType<Call>(fields[6]).Target);
         Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[7]).Target);
-        Assert.IsType<Return>(fields[8]);
+        Assert.IsType<Nncase.TIR.NTT.AffineScatter>(Assert.IsType<Call>(fields[8]).Target);
+        Assert.IsType<Return>(fields[9]);
 
         var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(selected, new()));
         var module = new IRModule(lowered);
@@ -355,6 +356,38 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         var scheduled = Assert.IsType<PrimFunction>(module.Entry);
         Assert.True(scheduled.SchedResult.IsScheduled);
         Assert.Equal((ulong)firstDecision.ByteSize, scheduled.SchedResult.BlockLocalDataPoolSize);
+    }
+
+    [Fact]
+    public async Task BlockLocalSmemGatherRequiresPerGatherReuse()
+    {
+        const int blockSize = 128;
+        var firstSource = new Var("first_source", TensorType.Pointer(DataTypes.Float32));
+        var secondSource = new Var("second_source", TensorType.Pointer(DataTypes.Float32));
+        var firstDest = new Var("first_dest", TensorType.Pointer(DataTypes.Float32));
+        var secondDest = new Var("second_dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var firstTile = Nncase.IR.F.Affine.Gather(firstSource, relation, symbols, shape, None.Default);
+        var firstScatter = Nncase.IR.F.Affine.Scatter(firstTile, firstDest, relation, symbols);
+        var secondTile = Nncase.IR.F.Affine.Gather(secondSource, relation, symbols, shape, None.Default);
+        var secondScatter = Nncase.IR.F.Affine.Scatter(secondTile, secondDest, relation, symbols);
+        var body = new Sequential(new Expr[] { firstTile, firstScatter, secondTile, secondScatter });
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(body, firstSource, secondSource, firstDest, secondDest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+        TileDecisionMetadata.Set(firstTile, CreateBlockLocalSmemDecision("tile_0", shape, new TileLifetime(0, 1)));
+        TileDecisionMetadata.Set(secondTile, CreateBlockLocalSmemDecision("tile_1", shape, new TileLifetime(2, 3)));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(function, new()));
+        Assert.Contains("every Affine.Gather", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("at least two direct Affine.Scatter consumers", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -378,6 +411,21 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
             () => new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(function, new()));
         Assert.Contains("requires a tile decision", ex.Message, StringComparison.Ordinal);
     }
+
+    private static TileDecision CreateBlockLocalSmemDecision(string id, Shape shape, TileLifetime lifetime) =>
+        new(
+            id,
+            "Affine.Gather",
+            shape,
+            null,
+            StorageLayout.Identity(shape),
+            new BufferStorage(BufferUsage.Temp, BufferScope.BlockLocal, PhysicalMemorySpace.SMem),
+            lifetime,
+            shape[0].FixedValue * DataTypes.Float32.SizeInBytes,
+            new TileCapacity(shape[0].FixedValue * DataTypes.Float32.SizeInBytes, 49152, "test"),
+            new TileTelemetry(1, shape[0].FixedValue * DataTypes.Float32.SizeInBytes, 0, shape[0].FixedValue * DataTypes.Float32.SizeInBytes, $"{id}@0+512"),
+            true,
+            "test smem decision");
 
     private static void AssertRegisterDirectAffineLowering(PrimFunction lowered)
     {

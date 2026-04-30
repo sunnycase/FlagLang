@@ -292,6 +292,76 @@ public sealed class UnitTestTilingModel : TestClassBase
     }
 
     [Fact]
+    public void ExplicitDistributionLayoutVerifierRejectsWrongInverseFormula()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(16));
+        var placement = new Placement([2], "t");
+        var invalidLayout = CreateExplicitSplitLayout(
+            tensorType.Shape,
+            ownerOutput: IndexExpr.FloorDiv(IndexExpr.Var("g0"), IndexExpr.Const(8)),
+            localOutput: IndexExpr.Mod(IndexExpr.Var("g0"), IndexExpr.Const(8)),
+            globalOutput: IndexExpr.Var("l0"));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => DistributedType.FromLayouts(tensorType, placement, invalidLayout));
+        Assert.Contains("inverse composition", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitDistributionLayoutVerifierRejectsOwnerExpressionOutsidePlacement()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(256));
+        var placement = new Placement([2], "t");
+        var invalidLayout = CreateExplicitSplitLayout(
+            tensorType.Shape,
+            ownerOutput: IndexExpr.Var("g0"),
+            localOutput: IndexExpr.Mod(IndexExpr.Var("g0"), IndexExpr.Const(128)),
+            globalOutput: IndexExpr.Add(IndexExpr.Mul(IndexExpr.Var("owner0"), IndexExpr.Const(128)), IndexExpr.Var("l0")),
+            localExtent: 128);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => DistributedType.FromLayouts(tensorType, placement, invalidLayout));
+        Assert.Contains("ExplicitSplit", ex.Message, StringComparison.Ordinal);
+        Assert.True(
+            ex.Message.Contains("outside declared domain", StringComparison.Ordinal) ||
+            ex.Message.Contains("inverse composition", StringComparison.Ordinal),
+            ex.Message);
+    }
+
+    [Fact]
+    public async Task DirectAffineTilingPassRejectsPublicConstructorInvalidExplicitLayout()
+    {
+        const int blockSize = 16;
+        var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(blockSize));
+        var invalidLayout = CreateExplicitSplitLayout(
+            tensorType.Shape,
+            ownerOutput: IndexExpr.FloorDiv(IndexExpr.Var("g0"), IndexExpr.Const(8)),
+            localOutput: IndexExpr.Mod(IndexExpr.Var("g0"), IndexExpr.Const(8)),
+            globalOutput: IndexExpr.Var("l0"));
+        var invalidType = new DistributedType(
+            tensorType,
+            [SBP.S(0)],
+            new Placement([2], "t"),
+            ExplicitDistributionLayout: invalidLayout,
+            ExplicitStorageLayout: StorageLayout.Identity(invalidLayout.LocalShape));
+        var tile = Nncase.IR.F.Affine.Gather(source, relation, symbols, tensorType.Shape, None.Default);
+        tile.CheckedType = invalidType;
+        var scatter = Nncase.IR.F.Affine.Scatter(tile, dest, relation, symbols);
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, source, dest));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        Assert.Contains("direct affine tiling", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("inverse composition", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DirectAffineTilingPassAnnotatesGatherBinaryScatterDecisions()
     {
         const int blockSize = 256;
@@ -553,6 +623,33 @@ public sealed class UnitTestTilingModel : TestClassBase
         var ex = await Assert.ThrowsAsync<NotSupportedException>(
             () => new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
         Assert.Contains("Unsupported direct-affine DAGs must fail fast", ex.Message, StringComparison.Ordinal);
+    }
+
+    private static DistributionLayout CreateExplicitSplitLayout(
+        Shape tensorShape,
+        IndexExpr ownerOutput,
+        IndexExpr localOutput,
+        IndexExpr globalOutput,
+        int localExtent = 8)
+    {
+        var globalExtent = tensorShape[0].FixedValue;
+        return new DistributionLayout(
+            "ExplicitSplit",
+            new IndexMapDescriptor(
+                "GlobalToOwnerLocal",
+                ["g0"],
+                [new IndexMapBinding("owner0", ownerOutput), new IndexMapBinding("l0", localOutput)],
+                [$"0<=g0<{globalExtent}"],
+                ["0<=owner0 && owner0<2", $"0<=l0<{localExtent}"],
+                Inverse: "OwnerLocalToGlobal"),
+            new IndexMapDescriptor(
+                "OwnerLocalToGlobal",
+                ["owner0", "l0"],
+                [new IndexMapBinding("g0", globalOutput)],
+                ["0<=owner0 && owner0<2", $"0<=l0<{localExtent}"],
+                [$"0<=g0<{globalExtent}"],
+                Inverse: "GlobalToOwnerLocal"),
+            new RankedShape(localExtent));
     }
 
     private static (AffineRelation Relation, RankedShape Symbols, RankedShape Shape) CreateRankOneIdentity(int blockSize)
