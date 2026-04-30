@@ -133,6 +133,7 @@ public static unsafe partial class CApi
                 HierarchyNames = "t",
                 Hierarchies = new[] { new[] { request.ThreadsPerCta } },
                 CudaArchitecture = request.Capability,
+                CudaArchitectureName = request.CMakeCudaArchitecture,
                 CudaCompiler = request.CudaCompiler,
             },
         };
@@ -154,7 +155,7 @@ public static unsafe partial class CApi
         session.Compiler.Gencode(output);
 
         var codegenDir = Path.Combine(dumpDir, "CodeGen", CUDATarget.Kind);
-        var cubinPath = FindGeneratedCubin(codegenDir, request.Capability);
+        var cubinPath = FindGeneratedCubin(codegenDir, request.CMakeCudaArchitecture);
         var cubin = File.ReadAllBytes(cubinPath);
         ValidateGeneratedCubin(cubinPath, cubin, "flaglang_native_entry", request.Cuobjdump);
         var compilerLog = ReadOptional(Path.Combine(codegenDir, "compiler.log"));
@@ -177,6 +178,7 @@ public static unsafe partial class CApi
             ["cuda_compiler"] = request.CudaCompiler,
             ["cuobjdump"] = request.Cuobjdump,
             ["cuda_arch"] = request.Arch,
+            ["cuda_cmake_arch"] = request.CMakeCudaArchitecture,
             ["enable_auto_dist"] = request.EnableAutoDist,
             ["dump_dir"] = dumpDir,
             ["cubin_path"] = cubinPath,
@@ -245,12 +247,12 @@ public static unsafe partial class CApi
         return (nuint)bytes.Length;
     }
 
-    private static string FindGeneratedCubin(string codegenDir, int capability)
+    private static string FindGeneratedCubin(string codegenDir, string cudaArchitecture)
     {
         var candidates = new[]
         {
             Path.Combine(codegenDir, "build", "nncase_ntt_module.cubin"),
-            Path.Combine(codegenDir, "build", $"linked_sm_{capability}.o"),
+            Path.Combine(codegenDir, "build", $"linked_sm_{cudaArchitecture}.o"),
         };
 
         foreach (var candidate in candidates)
@@ -571,6 +573,8 @@ public static unsafe partial class CApi
         string[] RuntimeArgumentTypes,
         bool EnableAutoDist)
     {
+        public string CMakeCudaArchitecture => CSourceCompiler.NormalizeCudaArchitecture(Arch, Capability);
+
         public static NativeCudaCompileRequest Parse(string json)
         {
             using var document = JsonDocument.Parse(json);

@@ -211,10 +211,13 @@ internal sealed class LinkableModule : ILinkableModule
 
     private string CompileCSource(string sourcePath)
     {
+        var cudaArchitecture = string.IsNullOrWhiteSpace(_targetOptions.CudaArchitectureName)
+            ? _targetOptions.CudaArchitecture.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : _targetOptions.CudaArchitectureName;
         var compiler = new CSourceCompiler(
             _moduleKind == CUDATarget.Kind,
             _targetOptions.CudaCompiler,
-            _targetOptions.CudaArchitecture);
+            cudaArchitecture);
         var binDir = Path.Join(sourcePath, "build", "nncase_ntt_module");
         return compiler.Compile(sourcePath, binDir);
     }

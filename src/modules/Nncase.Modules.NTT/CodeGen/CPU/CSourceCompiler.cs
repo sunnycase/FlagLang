@@ -5,6 +5,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -24,7 +25,7 @@ public class CSourceCompiler
 
     private readonly bool _isCUDA;
     private readonly string _cudaCompiler;
-    private readonly int _cudaArchitecture;
+    private readonly string _cudaArchitecture;
 
     /// <summary>
     /// compiler exe name.
@@ -42,10 +43,15 @@ public class CSourceCompiler
     private string _ext = string.Empty;
 
     public CSourceCompiler(bool isCUDA, string cudaCompiler = "nvcc", int cudaArchitecture = 80)
+        : this(isCUDA, cudaCompiler, cudaArchitecture.ToString(CultureInfo.InvariantCulture))
+    {
+    }
+
+    public CSourceCompiler(bool isCUDA, string cudaCompiler, string cudaArchitecture)
     {
         _isCUDA = isCUDA;
         _cudaCompiler = string.IsNullOrWhiteSpace(cudaCompiler) ? "nvcc" : cudaCompiler;
-        _cudaArchitecture = cudaArchitecture <= 0 ? 80 : cudaArchitecture;
+        _cudaArchitecture = NormalizeCudaArchitecture(cudaArchitecture);
         PlatformSpecific();
         ArchSpecific();
     }
@@ -65,6 +71,27 @@ public class CSourceCompiler
     protected string Ext
     {
         get => _ext;
+    }
+
+    public static string NormalizeCudaArchitecture(string? cudaArchitecture, int fallback = 80)
+    {
+        if (string.IsNullOrWhiteSpace(cudaArchitecture))
+        {
+            return fallback.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var arch = cudaArchitecture.Trim();
+        if (arch.StartsWith("sm_", StringComparison.OrdinalIgnoreCase))
+        {
+            return arch["sm_".Length..];
+        }
+
+        if (arch.StartsWith("compute_", StringComparison.OrdinalIgnoreCase))
+        {
+            return arch["compute_".Length..];
+        }
+
+        return arch;
     }
 
     /// <summary>

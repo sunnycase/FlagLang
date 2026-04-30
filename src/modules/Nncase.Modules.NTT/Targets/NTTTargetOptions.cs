@@ -117,4 +117,9 @@ public class NTTTargetOptions : INTTTargetOptions
     [Description("CUDA SM architecture number used for cubin generation.")]
     [DefaultValue(80)]
     public int CudaArchitecture { get; set; } = 80;
+
+    [DisplayName("--cuda-architecture-name")]
+    [Description("CUDA SM architecture identifier used for cubin generation. Overrides --cuda-architecture when set and may include suffixes such as 90a.")]
+    [DefaultValue("")]
+    public string CudaArchitectureName { get; set; } = string.Empty;
 }
