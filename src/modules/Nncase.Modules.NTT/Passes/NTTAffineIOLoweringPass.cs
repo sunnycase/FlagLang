@@ -12,6 +12,7 @@ using Nncase.IR.Affine;
 using Nncase.IR.Distributed;
 using Nncase.IR.Logics;
 using Nncase.IR.Shapes;
+using Nncase.Tiling;
 using Nncase.TIR;
 using Nncase.Utilities;
 
@@ -95,6 +96,8 @@ namespace Nncase.Passes
 
         private sealed class AffineIOLoweringRewriter : ExprRewriter<Unit>
         {
+            private static readonly BufferStorage DefaultTileSourceStorage = new(BufferUsage.Temp, BufferScope.ThreadLocal, PhysicalMemorySpace.LocalAddressable);
+
             private int _bufferIndex;
 
             protected override BaseExpr RewriteLeafCall(Call expr, Unit context)
@@ -482,7 +485,15 @@ namespace Nncase.Passes
                         DistributedType { TensorType: TensorType { Shape: RankedShape } tt } dt => (tt, dt),
                         _ => throw new NotSupportedException($"{role} must be a ranked tensor or buffer."),
                     };
-                    var sourceBuffer = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, $"{bufferNamePrefix}_{_bufferIndex++}", distributedType);
+                    var storage = TileDecisionMetadata.TryGet(sourceExpr, out var tileDecision)
+                        ? tileDecision.Storage
+                        : DefaultTileSourceStorage;
+                    if (storage.PhysicalLocation is PhysicalMemorySpace.Register)
+                    {
+                        throw new InvalidOperationException($"{role} has register tile decision {storage}; affine IO lowering must consume it as SSA/register values instead of materializing an addressable buffer.");
+                    }
+
+                    var sourceBuffer = T.CreateBuffer(tensorType, storage, out _, $"{bufferNamePrefix}_{_bufferIndex++}", distributedType);
                     return (sourceBuffer, T.Memcopy(sourceBuffer, sourceExpr));
                 }
 

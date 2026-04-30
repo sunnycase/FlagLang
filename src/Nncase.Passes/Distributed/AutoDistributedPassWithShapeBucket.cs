@@ -20,6 +20,8 @@ public sealed partial class AutoDistributedWithShapeBucketPass : FunctionPass
 {
     private const int LargeTensorSizeThreshold = 1000; // Threshold for large tensors in bytes
 
+    private static readonly BufferStorage OutputStorage = new(BufferUsage.Output, BufferScope.Device, PhysicalMemorySpace.GMem);
+
     private readonly CompileOptions _compileOptions;
 
     private readonly bool _bidirectional;
@@ -129,19 +131,18 @@ public sealed partial class AutoDistributedWithShapeBucketPass : FunctionPass
 
     private TIR.Buffer[] CreateOutputBuffers(BaseExpr expr)
     {
-        var memoryLocation = MemoryLocation.Output;
         if (expr.CheckedType is TupleType tt)
         {
-            var fields = tt.Fields.AsValueEnumerable().Select(x => CreateBuffer(x, memoryLocation)).ToArray();
+            var fields = tt.Fields.AsValueEnumerable().Select(x => CreateBuffer(x, OutputStorage)).ToArray();
             return fields;
         }
         else
         {
-            return [CreateBuffer(expr.CheckedType, memoryLocation)];
+            return [CreateBuffer(expr.CheckedType, OutputStorage)];
         }
     }
 
-    private TIR.Buffer CreateBuffer(IRType type, MemoryLocation memoryLocation)
+    private TIR.Buffer CreateBuffer(IRType type, BufferStorage storage)
     {
         var tensorType = type switch
         {
@@ -149,7 +150,7 @@ public sealed partial class AutoDistributedWithShapeBucketPass : FunctionPass
             TensorType tt => tt,
             _ => throw new ArgumentException($"Unsupported type: {type}"),
         };
-        return T.CreateBuffer(tensorType, memoryLocation, out _, $"buffer_{_bufferIndex++}", type as DistributedType);
+        return T.CreateBuffer(tensorType, storage, out _, $"buffer_{_bufferIndex++}", type as DistributedType);
     }
 
     private sealed class DistributeConstCloner : ExprCloner<Unit>

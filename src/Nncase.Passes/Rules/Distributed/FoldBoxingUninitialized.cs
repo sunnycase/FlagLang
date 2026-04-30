@@ -37,7 +37,7 @@ public partial class FoldBoxingUninitialized : RewriteRule<Pattern>
         var callerType = (DistributedType)caller.CheckedType;
         return IR.F.Buffer.Uninitialized(
             target.DType,
-            target.MemoryLocation,
+            target.Storage,
             shape,
             callerType.AxisPolicies,
             callerType.Placement);

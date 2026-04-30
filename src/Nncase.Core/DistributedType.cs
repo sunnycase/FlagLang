@@ -170,13 +170,173 @@ public sealed record Placement(IRArray<int> Hierarchy, string Name, HierarchyKin
     public override string ToString() => $"[{string.Join(',', Hierarchy.Zip(Name).Select(t => t.Second.ToString() + ':' + t.First.ToString()))}]";
 }
 
-public sealed record IndexMapDescriptor(string Name, IRArray<string> Inputs, IRArray<string> Outputs, string Predicate = "true")
+public abstract record IndexExpr
+{
+    public static IndexExpr Var(string name) => new IndexVar(name);
+
+    public static IndexExpr Const(long value) => new IndexConst(value);
+
+    public static IndexExpr Add(params IndexExpr[] terms) => new IndexAdd(terms);
+
+    public static IndexExpr Mul(params IndexExpr[] factors) => new IndexMul(factors);
+
+    public static IndexExpr FloorDiv(IndexExpr value, IndexExpr divisor) => new IndexFloorDiv(value, divisor);
+
+    public static IndexExpr Mod(IndexExpr value, IndexExpr divisor) => new IndexMod(value, divisor);
+}
+
+public sealed record IndexVar(string Name) : IndexExpr
+{
+    public override string ToString() => Name;
+}
+
+public sealed record IndexConst(long Value) : IndexExpr
+{
+    public override string ToString() => Value.ToString(CultureInfo.InvariantCulture);
+}
+
+public sealed record IndexAny : IndexExpr
+{
+    public static readonly IndexAny Instance = new();
+
+    public override string ToString() => "any";
+}
+
+public sealed record IndexNamedPrimitive(string Name, IRArray<IndexExpr> Arguments) : IndexExpr
+{
+    public override string ToString() => $"{Name}({string.Join(",", Arguments)})";
+}
+
+public sealed record IndexAdd(IRArray<IndexExpr> Terms) : IndexExpr
+{
+    public override string ToString() => string.Join("+", Terms.Select(FormatTerm));
+
+    private static string FormatTerm(IndexExpr expr) => expr is IndexAdd ? $"({expr})" : expr.ToString();
+}
+
+public sealed record IndexMul(IRArray<IndexExpr> Factors) : IndexExpr
+{
+    public override string ToString() => string.Join("*", Factors.Select(FormatFactor));
+
+    private static string FormatFactor(IndexExpr expr) => expr is IndexAdd ? $"({expr})" : expr.ToString();
+}
+
+public sealed record IndexFloorDiv(IndexExpr Value, IndexExpr Divisor) : IndexExpr
+{
+    public override string ToString() => $"floor({Value}/{Divisor})";
+}
+
+public sealed record IndexMod(IndexExpr Value, IndexExpr Divisor) : IndexExpr
+{
+    public override string ToString() => $"{Format(Value)}%{Divisor}";
+
+    private static string Format(IndexExpr expr) => expr is IndexVar or IndexConst or IndexFloorDiv ? expr.ToString() : $"({expr})";
+}
+
+public sealed record IndexMapBinding(string Name, IndexExpr Expr)
+{
+    public static IndexMapBinding Any(string name) => new(name, IndexAny.Instance);
+
+    public override string ToString() => $"{Name}={Expr}";
+}
+
+public sealed record IndexMapDescriptor(
+    string Name,
+    IRArray<string> Inputs,
+    IRArray<IndexMapBinding> Outputs,
+    IRArray<string> InputDomain,
+    IRArray<string> OutputDomain,
+    string Predicate = "true",
+    string? Inverse = null)
 {
     public override string ToString()
     {
         var input = string.Join(", ", Inputs);
         var output = string.Join(", ", Outputs);
         return $"{Name}: ({input}) -> ({output}) where {Predicate}";
+    }
+}
+
+public static class LayoutVerifier
+{
+    public static void Verify(DistributionLayout layout)
+    {
+        VerifyMap(layout.GlobalToOwnerLocal, layout.OwnerLocalToGlobal.Name, layout.Kind);
+        VerifyMap(layout.OwnerLocalToGlobal, layout.GlobalToOwnerLocal.Name, layout.Kind);
+        if (layout.LocalShape.IsUnranked)
+        {
+            throw new InvalidOperationException($"DistributionLayout {layout.Kind} has unranked local shape.");
+        }
+    }
+
+    public static void Verify(DistributionLayout distributionLayout, StorageLayout storageLayout)
+    {
+        Verify(distributionLayout);
+        VerifyMap(storageLayout.LogicalToPhysical, storageLayout.LogicalToPhysical.Name, storageLayout.Kind);
+        if (storageLayout.LogicalShape != distributionLayout.LocalShape && storageLayout.ViewMap is null)
+        {
+            throw new InvalidOperationException($"StorageLayout {storageLayout.Kind} logical shape {storageLayout.LogicalShape} does not match DistributionLayout {distributionLayout.Kind} local shape {distributionLayout.LocalShape} and has no view map.");
+        }
+    }
+
+    private static void VerifyMap(IndexMapDescriptor map, string expectedInverse, string layoutKind)
+    {
+        if (map.Outputs.Count == 0)
+        {
+            throw new InvalidOperationException($"Layout {layoutKind} map {map.Name} has no outputs.");
+        }
+
+        if (map.Inverse != expectedInverse)
+        {
+            throw new InvalidOperationException($"Layout {layoutKind} map {map.Name} must declare inverse {expectedInverse}, but got {map.Inverse ?? "<none>"}.");
+        }
+
+        if (map.InputDomain.Count == 0 || map.OutputDomain.Count == 0)
+        {
+            throw new InvalidOperationException($"Layout {layoutKind} map {map.Name} must declare input and output domains.");
+        }
+
+        foreach (var output in map.Outputs)
+        {
+            VerifyExpr(output.Expr, layoutKind, map.Name);
+        }
+    }
+
+    private static void VerifyExpr(IndexExpr expr, string layoutKind, string mapName)
+    {
+        switch (expr)
+        {
+            case IndexVar:
+            case IndexConst:
+            case IndexAny:
+                return;
+            case IndexAdd add:
+                foreach (var term in add.Terms)
+                {
+                    VerifyExpr(term, layoutKind, mapName);
+                }
+
+                return;
+            case IndexMul mul:
+                foreach (var factor in mul.Factors)
+                {
+                    VerifyExpr(factor, layoutKind, mapName);
+                }
+
+                return;
+            case IndexFloorDiv floorDiv:
+                VerifyExpr(floorDiv.Value, layoutKind, mapName);
+                VerifyExpr(floorDiv.Divisor, layoutKind, mapName);
+                return;
+            case IndexMod mod:
+                VerifyExpr(mod.Value, layoutKind, mapName);
+                VerifyExpr(mod.Divisor, layoutKind, mapName);
+                return;
+            case IndexNamedPrimitive named:
+                throw new NotSupportedException($"Layout {layoutKind} map {mapName} uses unsupported named primitive {named.Name}; add forward, inverse, domain, cost, and codegen lowering before using it.");
+            default:
+                throw new NotSupportedException($"Layout {layoutKind} map {mapName} uses unsupported index expression {expr.GetType().Name}.");
+        }
     }
 }
 
@@ -214,8 +374,22 @@ public sealed record DistributionLayout(
 
         return new DistributionLayout(
             "SBP",
-            new IndexMapDescriptor("GlobalToOwnerLocal", globalInputs, ownerLocalOutputs),
-            new IndexMapDescriptor("OwnerLocalToGlobal", ownerInputs.Concat(localInputs).ToArray(), globalOutputs),
+            new IndexMapDescriptor(
+                "GlobalToOwnerLocal",
+                globalInputs,
+                ownerLocalOutputs,
+                BuildShapeDomain("g", tensorType.Shape, rank),
+                BuildOwnerLocalDomain(placement, localTensorType.Shape, rank),
+                BuildSbpValidPredicate(placement, localTensorType.Shape, rank),
+                "OwnerLocalToGlobal"),
+            new IndexMapDescriptor(
+                "OwnerLocalToGlobal",
+                ownerInputs.Concat(localInputs).ToArray(),
+                globalOutputs,
+                BuildOwnerLocalDomain(placement, localTensorType.Shape, rank),
+                BuildShapeDomain("g", tensorType.Shape, rank),
+                BuildSbpValidPredicate(placement, localTensorType.Shape, rank),
+                "GlobalToOwnerLocal"),
             localTensorType.Shape,
             BuildSbpValidPredicate(placement, localTensorType.Shape, rank),
             axisPolicies.Select((sbp, i) => $"axis{i}:{sbp}").ToArray());
@@ -237,11 +411,19 @@ public sealed record DistributionLayout(
             new IndexMapDescriptor(
                 "GlobalToOwnerLocal",
                 Enumerable.Range(0, tensorShape.Rank).Select(i => $"g{i}").ToArray(),
-                BuildTritonBlockedOwnerLocalOutputs(layout, threadsPerCTA, elementsPerCTA)),
+                BuildTritonBlockedOwnerLocalOutputs(layout, threadsPerCTA, elementsPerCTA),
+                BuildShapeDomain("g", tensorShape, tensorShape.Rank),
+                [$"0<=cta && 0<=warp<{layout.WarpsPerCTA} && 0<=lane<{layout.ThreadsPerWarp} && 0<=elem<{layout.SizePerThread}"],
+                $"0<=lane<{layout.ThreadsPerWarp} && 0<=warp<{layout.WarpsPerCTA} && 0<=elem<{layout.SizePerThread}",
+                "OwnerLocalToGlobal"),
             new IndexMapDescriptor(
                 "OwnerLocalToGlobal",
                 ["cta", "warp", "lane", "elem"],
-                BuildTritonBlockedGlobalOutputs(layout, threadsPerCTA, elementsPerCTA)),
+                BuildTritonBlockedGlobalOutputs(layout, threadsPerCTA, elementsPerCTA),
+                [$"0<=cta && 0<=warp<{layout.WarpsPerCTA} && 0<=lane<{layout.ThreadsPerWarp} && 0<=elem<{layout.SizePerThread}"],
+                BuildShapeDomain("g", tensorShape, tensorShape.Rank),
+                $"0<=lane<{layout.ThreadsPerWarp} && 0<=warp<{layout.WarpsPerCTA} && 0<=elem<{layout.SizePerThread}",
+                "GlobalToOwnerLocal"),
             localShape,
             $"0<=lane<{layout.ThreadsPerWarp} && 0<=warp<{layout.WarpsPerCTA} && 0<=elem<{layout.SizePerThread}",
             layout.ToAttributes());
@@ -253,31 +435,36 @@ public sealed record DistributionLayout(
         return $"{Kind}, LocalShape={LocalShape}, Valid={ValidPredicate}{attrs}";
     }
 
-    private static string[] BuildSbpOwnerLocalOutputs(IRArray<SBP> axisPolicies, Placement placement, Shape localShape, int rank)
+    private static IndexMapBinding[] BuildSbpOwnerLocalOutputs(IRArray<SBP> axisPolicies, Placement placement, Shape localShape, int rank)
     {
-        var ownerOutputs = new string[placement.Rank];
+        var ownerOutputs = new IndexMapBinding[placement.Rank];
         for (int i = 0; i < placement.Rank; i++)
         {
-            ownerOutputs[i] = $"owner{i}=any";
+            ownerOutputs[i] = IndexMapBinding.Any($"owner{i}");
         }
 
-        var localOutputs = new List<string>();
+        var localOutputs = new List<IndexMapBinding>();
         for (int dim = 0; dim < rank; dim++)
         {
+            var globalIndex = IndexExpr.Var($"g{dim}");
             if (axisPolicies[dim] is not SBPSplit split)
             {
-                localOutputs.Add($"l{dim}=g{dim}");
+                localOutputs.Add(new IndexMapBinding($"l{dim}", globalIndex));
             }
             else
             {
-                var localExtent = FormatDimension(localShape[dim]);
-                localOutputs.Add($"l{dim}=g{dim}%{localExtent}");
+                var localExtent = DimensionExpr(localShape[dim]);
+                localOutputs.Add(new IndexMapBinding($"l{dim}", IndexExpr.Mod(globalIndex, localExtent)));
 
                 var stride = 1;
                 foreach (var axis in split.Axes)
                 {
                     ValidatePlacementAxis(axis, placement);
-                    ownerOutputs[axis] = $"owner{axis}=floor(g{dim}/{FormatProduct(localExtent, stride)})%{placement.Hierarchy[axis]}";
+                    ownerOutputs[axis] = new IndexMapBinding(
+                        $"owner{axis}",
+                        IndexExpr.Mod(
+                            IndexExpr.FloorDiv(globalIndex, Product(localExtent, stride)),
+                            IndexExpr.Const(placement.Hierarchy[axis])));
                     stride *= placement.Hierarchy[axis];
                 }
             }
@@ -286,20 +473,21 @@ public sealed record DistributionLayout(
         return ownerOutputs.Concat(localOutputs).ToArray();
     }
 
-    private static string[] BuildSbpGlobalOutputs(IRArray<SBP> axisPolicies, Placement placement, Shape localShape, int rank)
+    private static IndexMapBinding[] BuildSbpGlobalOutputs(IRArray<SBP> axisPolicies, Placement placement, Shape localShape, int rank)
     {
-        var outputs = new List<string>();
+        var outputs = new List<IndexMapBinding>();
         for (int dim = 0; dim < rank; dim++)
         {
+            var localIndex = IndexExpr.Var($"l{dim}");
             if (axisPolicies[dim] is not SBPSplit split)
             {
-                outputs.Add($"g{dim}=l{dim}");
+                outputs.Add(new IndexMapBinding($"g{dim}", localIndex));
             }
             else
             {
-                var localExtent = FormatDimension(localShape[dim]);
+                var localExtent = DimensionExpr(localShape[dim]);
                 var ownerLinear = BuildOwnerLinearExpression(split, placement);
-                outputs.Add($"g{dim}={FormatOwnerLocalProduct(ownerLinear, localExtent)}+l{dim}");
+                outputs.Add(new IndexMapBinding($"g{dim}", IndexExpr.Add(IndexExpr.Mul(ownerLinear, localExtent), localIndex)));
             }
         }
 
@@ -322,24 +510,32 @@ public sealed record DistributionLayout(
         return string.Join(" && ", predicates);
     }
 
-    private static string BuildOwnerLinearExpression(SBPSplit split, Placement placement)
+    private static IndexExpr BuildOwnerLinearExpression(SBPSplit split, Placement placement)
     {
         var stride = 1;
-        var terms = new List<string>();
+        var terms = new List<IndexExpr>();
         foreach (var axis in split.Axes)
         {
             ValidatePlacementAxis(axis, placement);
-            terms.Add(stride == 1 ? $"owner{axis}" : $"owner{axis}*{stride}");
+            var owner = IndexExpr.Var($"owner{axis}");
+            terms.Add(stride == 1 ? owner : IndexExpr.Mul(owner, IndexExpr.Const(stride)));
             stride *= placement.Hierarchy[axis];
         }
 
-        return string.Join("+", terms);
+        return terms.Count == 1 ? terms[0] : IndexExpr.Add(terms.ToArray());
     }
 
-    private static string FormatOwnerLocalProduct(string ownerLinear, string localExtent) =>
-        ownerLinear.Contains('+', StringComparison.Ordinal) ? $"({ownerLinear})*{localExtent}" : $"{ownerLinear}*{localExtent}";
+    private static IndexExpr Product(IndexExpr extent, int multiplier) => multiplier == 1 ? extent : IndexExpr.Mul(extent, IndexExpr.Const(multiplier));
 
-    private static string FormatProduct(string extent, int multiplier) => multiplier == 1 ? extent : $"{extent}*{multiplier}";
+    private static IndexExpr DimensionExpr(Dimension dimension) => dimension.IsFixed ? IndexExpr.Const(dimension.FixedValue) : IndexExpr.Var(FormatDimension(dimension));
+
+    private static string[] BuildShapeDomain(string prefix, Shape shape, int rank) =>
+        Enumerable.Range(0, rank).Select(i => $"0<={prefix}{i}<{FormatDimension(shape[i])}").ToArray();
+
+    private static string[] BuildOwnerLocalDomain(Placement placement, Shape localShape, int rank) =>
+        Enumerable.Range(0, placement.Rank).Select(axis => $"0<=owner{axis}<{placement.Hierarchy[axis]}")
+            .Concat(Enumerable.Range(0, rank).Select(dim => $"0<=l{dim}<{FormatDimension(localShape[dim])}"))
+            .ToArray();
 
     private static string FormatDimension(Dimension dimension) => dimension.IsFixed ? dimension.FixedValue.ToString(CultureInfo.InvariantCulture) : dimension.ToString();
 
@@ -356,34 +552,51 @@ public sealed record DistributionLayout(
         }
     }
 
-    private static string[] BuildTritonBlockedOwnerLocalOutputs(TritonBlockedLayout layout, int threadsPerCTA, int elementsPerCTA) => layout.ThreadElementOrder switch
+    private static IndexMapBinding[] BuildTritonBlockedOwnerLocalOutputs(TritonBlockedLayout layout, int threadsPerCTA, int elementsPerCTA)
     {
-        TritonThreadElementOrder.Contiguous =>
-        [
-            $"cta=floor(g0/{elementsPerCTA})",
-            $"warp=floor((g0%{elementsPerCTA})/{layout.SizePerThread * layout.ThreadsPerWarp})",
-            $"lane=floor((g0%{layout.SizePerThread * layout.ThreadsPerWarp})/{layout.SizePerThread})",
-            $"elem=g0%{layout.SizePerThread}",
-        ],
-        TritonThreadElementOrder.Strided =>
-        [
-            $"cta=floor(g0/{elementsPerCTA})",
-            $"warp=floor((g0%{threadsPerCTA})/{layout.ThreadsPerWarp})",
-            $"lane=(g0%{threadsPerCTA})%{layout.ThreadsPerWarp}",
-            $"elem=floor((g0%{elementsPerCTA})/{threadsPerCTA})",
-        ],
-        _ => throw new NotSupportedException($"Unsupported Triton thread element order {layout.ThreadElementOrder}."),
-    };
+        var g0 = IndexExpr.Var("g0");
+        var elementInCta = IndexExpr.Mod(g0, IndexExpr.Const(elementsPerCTA));
+        return layout.ThreadElementOrder switch
+        {
+            TritonThreadElementOrder.Contiguous =>
+            [
+                new("cta", IndexExpr.FloorDiv(g0, IndexExpr.Const(elementsPerCTA))),
+                new("warp", IndexExpr.FloorDiv(elementInCta, IndexExpr.Const(layout.SizePerThread * layout.ThreadsPerWarp))),
+                new("lane", IndexExpr.FloorDiv(IndexExpr.Mod(g0, IndexExpr.Const(layout.SizePerThread * layout.ThreadsPerWarp)), IndexExpr.Const(layout.SizePerThread))),
+                new("elem", IndexExpr.Mod(g0, IndexExpr.Const(layout.SizePerThread))),
+            ],
+            TritonThreadElementOrder.Strided =>
+            [
+                new("cta", IndexExpr.FloorDiv(g0, IndexExpr.Const(elementsPerCTA))),
+                new("warp", IndexExpr.FloorDiv(IndexExpr.Mod(g0, IndexExpr.Const(threadsPerCTA)), IndexExpr.Const(layout.ThreadsPerWarp))),
+                new("lane", IndexExpr.Mod(IndexExpr.Mod(g0, IndexExpr.Const(threadsPerCTA)), IndexExpr.Const(layout.ThreadsPerWarp))),
+                new("elem", IndexExpr.FloorDiv(elementInCta, IndexExpr.Const(threadsPerCTA))),
+            ],
+            _ => throw new NotSupportedException($"Unsupported Triton thread element order {layout.ThreadElementOrder}."),
+        };
+    }
 
-    private static string[] BuildTritonBlockedGlobalOutputs(TritonBlockedLayout layout, int threadsPerCTA, int elementsPerCTA) => layout.ThreadElementOrder switch
+    private static IndexMapBinding[] BuildTritonBlockedGlobalOutputs(TritonBlockedLayout layout, int threadsPerCTA, int elementsPerCTA) => layout.ThreadElementOrder switch
     {
         TritonThreadElementOrder.Contiguous =>
         [
-            $"g0=cta*{elementsPerCTA}+warp*{layout.SizePerThread * layout.ThreadsPerWarp}+lane*{layout.SizePerThread}+elem",
+            new(
+                "g0",
+                IndexExpr.Add(
+                    IndexExpr.Mul(IndexExpr.Var("cta"), IndexExpr.Const(elementsPerCTA)),
+                    IndexExpr.Mul(IndexExpr.Var("warp"), IndexExpr.Const(layout.SizePerThread * layout.ThreadsPerWarp)),
+                    IndexExpr.Mul(IndexExpr.Var("lane"), IndexExpr.Const(layout.SizePerThread)),
+                    IndexExpr.Var("elem"))),
         ],
         TritonThreadElementOrder.Strided =>
         [
-            $"g0=cta*{elementsPerCTA}+warp*{layout.ThreadsPerWarp}+lane+elem*{threadsPerCTA}",
+            new(
+                "g0",
+                IndexExpr.Add(
+                    IndexExpr.Mul(IndexExpr.Var("cta"), IndexExpr.Const(elementsPerCTA)),
+                    IndexExpr.Mul(IndexExpr.Var("warp"), IndexExpr.Const(layout.ThreadsPerWarp)),
+                    IndexExpr.Var("lane"),
+                    IndexExpr.Mul(IndexExpr.Var("elem"), IndexExpr.Const(threadsPerCTA)))),
         ],
         _ => throw new NotSupportedException($"Unsupported Triton thread element order {layout.ThreadElementOrder}."),
     };
@@ -435,7 +648,8 @@ public sealed record StorageLayout(
     Shape LogicalShape,
     IndexMapDescriptor LogicalToPhysical,
     string ValidPredicate = "true",
-    IRArray<string>? Attributes = null)
+    IRArray<string>? Attributes = null,
+    IndexMapDescriptor? ViewMap = null)
 {
     public static StorageLayout Identity(Shape localShape) =>
         new(
@@ -444,20 +658,51 @@ public sealed record StorageLayout(
             new IndexMapDescriptor(
                 "LogicalToPhysical",
                 Enumerable.Range(0, localShape.Rank).Select(i => $"l{i}").ToArray(),
-                Enumerable.Range(0, localShape.Rank).Select(i => $"p{i}=l{i}").ToArray()));
+                Enumerable.Range(0, localShape.Rank).Select(i => new IndexMapBinding($"p{i}", IndexExpr.Var($"l{i}"))).ToArray(),
+                Enumerable.Range(0, localShape.Rank).Select(i => $"0<=l{i}<{FormatDimension(localShape[i])}").ToArray(),
+                Enumerable.Range(0, localShape.Rank).Select(i => $"0<=p{i}<{FormatDimension(localShape[i])}").ToArray(),
+                "true",
+                "LogicalToPhysical"));
 
     public override string ToString()
     {
         var attrs = Attributes is { Count: > 0 } ? $", Attrs=[{string.Join(", ", Attributes)}]" : string.Empty;
         return $"{Kind}, LogicalShape={LogicalShape}, Valid={ValidPredicate}{attrs}";
     }
+
+    private static string FormatDimension(Dimension dimension) => dimension.IsFixed ? dimension.FixedValue.ToString(CultureInfo.InvariantCulture) : dimension.ToString();
 }
 
-public sealed record DistributedType(TensorType TensorType, IRArray<SBP> AxisPolicies, Placement Placement, bool Partial = false) : IRType
+public sealed record DistributedType(
+    TensorType TensorType,
+    IRArray<SBP> AxisPolicies,
+    Placement Placement,
+    bool Partial = false,
+    DistributionLayout? ExplicitDistributionLayout = null,
+    StorageLayout? ExplicitStorageLayout = null) : IRType
 {
-    public DistributionLayout DistributionLayout => DistributionLayout.FromAxisPolicies(TensorType, AxisPolicies, Placement);
+    public DistributionLayout DistributionLayout => ExplicitDistributionLayout ?? DistributionLayout.FromAxisPolicies(TensorType, AxisPolicies, Placement);
 
-    public StorageLayout StorageLayout => StorageLayout.Identity(DistributionLayout.LocalShape);
+    public StorageLayout StorageLayout => ExplicitStorageLayout ?? StorageLayout.Identity(DistributionLayout.LocalShape);
+
+    public static DistributedType FromLayouts(
+        TensorType tensorType,
+        Placement placement,
+        DistributionLayout distributionLayout,
+        StorageLayout? storageLayout = null,
+        IRArray<SBP>? axisPolicies = null,
+        bool partial = false)
+    {
+        storageLayout ??= StorageLayout.Identity(distributionLayout.LocalShape);
+        LayoutVerifier.Verify(distributionLayout, storageLayout);
+        return new DistributedType(
+            tensorType,
+            axisPolicies ?? Enumerable.Range(0, tensorType.Shape.Rank).Select(_ => SBP.B).ToArray(),
+            placement,
+            partial,
+            distributionLayout,
+            storageLayout);
+    }
 
     public override string ToString() => $"{TensorType}, ({string.Join(',', AxisPolicies)}), {Placement}, Layout: {DistributionLayout.Kind}, Storage: {StorageLayout.Kind}, Partial: {Partial}";
 }

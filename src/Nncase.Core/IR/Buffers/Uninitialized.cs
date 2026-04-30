@@ -20,7 +20,10 @@ public sealed partial class Uninitialized : Op
 
     public DataType DType { get; }
 
-    public TIR.MemoryLocation MemoryLocation { get; }
+    public TIR.BufferStorage Storage { get; }
+
+    [Browsable(false)]
+    public TIR.MemoryLocation MemoryLocation => Storage.ToLegacyMemoryLocation();
 
     [Browsable(false)]
     public IRArray<SBP> NdSBP { get; }
@@ -32,7 +35,7 @@ public sealed partial class Uninitialized : Op
     public override bool CanFoldConstCall => false;
 
     /// <inheritdoc/>
-    public override string DisplayProperty() => $"{DType.GetCSharpName()}, MemoryLocation.{MemoryLocation}, Storage: {GetStorage()}, {NdSBP}, {Placement}";
+    public override string DisplayProperty() => $"{DType.GetCSharpName()}, Storage: {Storage}, Legacy: MemoryLocation.{MemoryLocation}, {NdSBP}, {Placement}";
 
-    public TIR.BufferStorage GetStorage() => TIR.BufferStorage.FromLegacy(MemoryLocation);
+    public TIR.BufferStorage GetStorage() => Storage;
 }

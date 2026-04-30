@@ -13,7 +13,12 @@ namespace Nncase.Schedule.Bufferize;
 public sealed class SATBufferScheduler : BufferScheduler
 {
     public SATBufferScheduler(MemoryLocation memoryLocation)
-        : base(memoryLocation)
+        : this(BufferStorage.FromLegacy(memoryLocation))
+    {
+    }
+
+    public SATBufferScheduler(BufferStorage storage)
+        : base(storage)
     {
     }
 

@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 using NetFabric.Hyperlinq;
 using Nncase.IR;
 using Nncase.IR.Affine;
+using Nncase.Tiling;
 using Nncase.TIR;
 using Nncase.Utilities;
 
@@ -16,6 +17,9 @@ namespace Nncase.Passes.Transforms;
 
 public abstract class TIRSelectionPass : FunctionPass
 {
+    private static readonly BufferStorage OutputStorage = new(BufferUsage.Output, BufferScope.Device, PhysicalMemorySpace.GMem);
+    private static readonly BufferStorage ThreadLocalTempStorage = new(BufferUsage.Temp, BufferScope.ThreadLocal, PhysicalMemorySpace.LocalAddressable);
+
     public TIRSelectionPass(string moduleKind)
     {
         ModuleKind = moduleKind;
@@ -74,7 +78,7 @@ public abstract class TIRSelectionPass : FunctionPass
         var outputBufferShapes = outputBuffers.Select(x => (ElemType: x.CheckedDataType, Shape: x.CheckedShape)).ToArray();
         foreach (var caller in callers)
         {
-            var outputAllocs = outputBufferShapes.Select(x => IR.F.Buffer.Uninitialized(x.ElemType, TIR.MemoryLocation.Data, x.Shape));
+            var outputAllocs = outputBufferShapes.Select(x => IR.F.Buffer.Uninitialized(x.ElemType, ThreadLocalTempStorage, x.Shape));
             var newArgs = caller.Arguments.ToArray().Concat(outputAllocs).ToArray();
             var newCaller = caller.With(arguments: newArgs);
             ReplaceUtility.ReplaceAllUsesWith(caller, newCaller);
@@ -195,8 +199,17 @@ public abstract class TIRSelectionPass : FunctionPass
 
         private BaseExpr CreateOutputBuffer(Expr expr)
         {
+            static bool IsDirectAffineExpr(Expr expr) =>
+                expr is Call { Target: IR.Affine.Gather or IR.Affine.Scatter };
+
             var root = VisitRoot!;
-            var memoryLocation = MemoryLocation.Data;
+            var storage = ThreadLocalTempStorage;
+            var hasTileDecision = TileDecisionMetadata.TryGet(expr, out var tileDecision);
+            if (!hasTileDecision && (IsDirectAffineExpr(expr) || TileDecisionMetadata.IsRequired(expr)))
+            {
+                _ = TileDecisionMetadata.Require(expr, "TIR selection");
+            }
+
             string namePrefix = "call_";
             if (ReferenceEquals(root, expr)
                 || (root is IR.Tuple tuple && tuple.Fields.AsValueEnumerable().Contains(expr, ReferenceEqualityComparer.Instance)))
@@ -204,34 +217,43 @@ public abstract class TIRSelectionPass : FunctionPass
                 namePrefix = "out_";
                 if (_isEntry)
                 {
-                    memoryLocation = MemoryLocation.Output;
+                    storage = OutputStorage;
                 }
                 else
                 {
                     return new Var($"{namePrefix}{_bufferIndex++}", expr.CheckedType);
                 }
             }
+            else if (hasTileDecision)
+            {
+                storage = tileDecision.Storage;
+            }
 
             if (expr.CheckedType is TupleType tt)
             {
-                var fields = tt.Fields.AsValueEnumerable().Select(x => CreateBuffer(x, memoryLocation)).ToArray();
+                var fields = tt.Fields.AsValueEnumerable().Select(x => CreateBuffer(x, storage)).ToArray();
                 return new IR.Tuple(fields);
             }
             else
             {
-                return CreateBuffer(expr.CheckedType, memoryLocation);
+                return CreateBuffer(expr.CheckedType, storage);
             }
         }
 
-        private TIR.Buffer CreateBuffer(IRType type, MemoryLocation memoryLocation)
+        private TIR.Buffer CreateBuffer(IRType type, BufferStorage storage)
         {
+            if (storage.PhysicalLocation is PhysicalMemorySpace.Register)
+            {
+                throw new InvalidOperationException($"TIR selection cannot materialize register storage {storage} as an addressable buffer. Run tile-aware SSA/register lowering before TIR buffer creation.");
+            }
+
             var tensorType = type switch
             {
                 DistributedType dt => dt.TensorType,
                 TensorType tt => tt,
                 _ => throw new ArgumentException($"Unsupported type: {type}"),
             };
-            return T.CreateBuffer(tensorType, memoryLocation, out _, $"buffer_{_bufferIndex++}", type as DistributedType);
+            return T.CreateBuffer(tensorType, storage, out _, $"buffer_{_bufferIndex++}", type as DistributedType);
         }
     }
 }

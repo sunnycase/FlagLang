@@ -345,6 +345,10 @@ public class Compiler : ICompiler
         passManager.Add<AddFunctionToModule>();
         passManager.Add<InferRangePass>();
         passManager.Add<OptimizeByRangePass>();
+        foreach (var moduleCompiler in _compileSession.Target.ModuleCompilers)
+        {
+            passManager.AddWithName<DirectAffineTilingPass>($"DirectAffineTiling_{moduleCompiler.ModuleKind}", moduleCompiler.ModuleKind);
+        }
     }
 
     public void TIRPass(IPassManager passManager)
@@ -401,7 +405,7 @@ public class Compiler : ICompiler
             await RunPassAsync(AutoDistributedPass, "AutoDistributedPass");
         }
 
-        // await RunPassAsync(AutoTilingPass, "AutoTilingPass");
+        await RunPassAsync(AutoTilingPass, "AutoTilingPass");
         await RunPassAsync(TIRPass, "TIRPass");
 
         await RunPassAsync(

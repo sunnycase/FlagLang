@@ -65,6 +65,8 @@ public sealed record BufferStorage(
 {
     public bool IsAddressable => PhysicalLocation is not PhysicalMemorySpace.Register;
 
+    public BufferStorage WithoutAlignment() => this with { Alignment = 0 };
+
     public static BufferStorage FromLegacy(MemoryLocation location, int hierarchy = 0) => location switch
     {
         MemoryLocation.Input => new(BufferUsage.Input, BufferScope.Device, PhysicalMemorySpace.GMem, hierarchy),

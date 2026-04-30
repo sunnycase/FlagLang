@@ -117,10 +117,10 @@ extern "C" NTT_DEVICE void thread_main(const nncase::ntt::runtime::thread_inout_
   alignas(@Model.Alignment) std::byte flaglang_rdata_storage[@NonZeroSize(Model.RDataSize)];
   alignas(@Model.Alignment) std::byte flaglang_thread_local_rdata_storage[@NonZeroSize(Model.ThreadLocalRdataPoolSize)];
   alignas(@Model.Alignment) std::byte flaglang_warp_local_rdata_storage[@NonZeroSize(Model.WarpLocalRdataPoolSize)];
-  alignas(@Model.Alignment) std::byte flaglang_block_local_rdata_storage[@NonZeroSize(Model.BlockLocalRdataPoolSize)];
+  __shared__ __align__(@Model.Alignment) std::byte flaglang_block_local_rdata_storage[@NonZeroSize(Model.BlockLocalRdataPoolSize)];
   alignas(@Model.Alignment) std::byte flaglang_thread_local_data_storage[@NonZeroSize(Model.DataSize)];
   alignas(@Model.Alignment) std::byte flaglang_warp_local_data_storage[@NonZeroSize(Model.WarpLocalDataPoolSize)];
-  alignas(@Model.Alignment) std::byte flaglang_block_local_data_storage[@NonZeroSize(Model.BlockLocalDataPoolSize)];
+  __shared__ __align__(@Model.Alignment) std::byte flaglang_block_local_data_storage[@NonZeroSize(Model.BlockLocalDataPoolSize)];
   nncase::ntt::runtime::thread_inout_desc flaglang_input_descs[@inputDescCount] = {};
   nncase::ntt::runtime::thread_inout_desc flaglang_output_descs[1] = {};
   nncase::ntt::runtime::profile_record flaglang_profile_records[1] = {};

@@ -11,7 +11,7 @@ using Nncase.Utilities;
 
 namespace Nncase.Schedule.Bufferize;
 
-public sealed record BufferScheduleResult(IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> Buffers, long MemoryPoolStart, long MemoryPoolEnd, int Alignment);
+public sealed record BufferScheduleResult(BufferStorage Storage, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> Buffers, long MemoryPoolStart, long MemoryPoolEnd, int Alignment);
 
 public sealed record BufferScheduleOptions(long StartAddress = 0);
 
@@ -21,44 +21,55 @@ public abstract class BufferScheduler
         typeof(SATBufferScheduler),
     ];
 
-    public BufferScheduler(MemoryLocation memoryLocation)
+    public BufferScheduler(BufferStorage storage)
     {
-        MemoryLocation = memoryLocation;
+        Storage = storage.WithoutAlignment();
     }
 
-    public MemoryLocation MemoryLocation { get; }
+    public BufferStorage Storage { get; }
 
-    public static BufferScheduleResult Schedule(MemoryLocation memoryLocation, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> lifetimes, BufferScheduleOptions options)
+    public MemoryLocation MemoryLocation => Storage.ToLegacyMemoryLocation();
+
+    public static BufferScheduleResult Schedule(MemoryLocation memoryLocation, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> lifetimes, BufferScheduleOptions options) =>
+        Schedule(BufferStorage.FromLegacy(memoryLocation), lifetimes, options);
+
+    public static BufferScheduleResult Schedule(BufferStorage storage, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> lifetimes, BufferScheduleOptions options)
     {
-        if (memoryLocation is MemoryLocation.Data or MemoryLocation.BlockLocalData)
+        storage = storage.WithoutAlignment();
+        if (storage.PhysicalLocation is PhysicalMemorySpace.Register)
+        {
+            throw new InvalidOperationException($"Register storage {storage} must not enter addressable buffer scheduling.");
+        }
+
+        if (UsesReusablePool(storage))
         {
             foreach (var schedulerType in _bufferSchedulerTypes)
             {
-                var scheduler = (BufferScheduler)ActivatorUtilities.CreateInstance(CompileSessionScope.GetCurrentThrowIfNull(), schedulerType, memoryLocation);
+                var scheduler = (BufferScheduler)ActivatorUtilities.CreateInstance(CompileSessionScope.GetCurrentThrowIfNull(), schedulerType, storage);
                 if (scheduler.TrySchedule(lifetimes, options, out var result))
                 {
                     return result;
                 }
             }
         }
-        else if (memoryLocation is MemoryLocation.Output or MemoryLocation.Rdata or MemoryLocation.ThreadLocalRdata or MemoryLocation.BlockLocalRdata)
+        else if (UsesLinearPool(storage))
         {
-            var scheduler = new LinearBufferScheduler(memoryLocation);
+            var scheduler = new LinearBufferScheduler(storage);
             if (scheduler.TrySchedule(lifetimes, options, out var result))
             {
                 return result;
             }
         }
 
-        throw new NotSupportedException($"Unable to schedule buffers of {memoryLocation}.");
+        throw new NotSupportedException($"Unable to schedule buffers with storage {storage}.");
     }
 
-    public static IReadOnlyDictionary<MemoryLocation, BufferScheduleResult> Schedule(IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> lifetimes, Func<MemoryLocation, BufferScheduleOptions> options)
+    public static IReadOnlyDictionary<BufferStorage, BufferScheduleResult> Schedule(IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> lifetimes, Func<BufferStorage, BufferScheduleOptions> options)
     {
-        var result = new Dictionary<MemoryLocation, BufferScheduleResult>();
-        foreach (var group in lifetimes.GroupBy(x => x.Value.Buffer.Location))
+        var result = new Dictionary<BufferStorage, BufferScheduleResult>();
+        foreach (var group in lifetimes.GroupBy(x => x.Value.Buffer.Storage.WithoutAlignment()))
         {
-            if (group.Key is MemoryLocation.Output or MemoryLocation.Data or MemoryLocation.BlockLocalData or MemoryLocation.Rdata or MemoryLocation.ThreadLocalRdata or MemoryLocation.BlockLocalRdata)
+            if (UsesReusablePool(group.Key) || UsesLinearPool(group.Key))
             {
                 var lifetimeDict = group.ToDictionary(x => x.Key, x => x.Value, (IEqualityComparer<TIR.PhysicalBuffer>)ReferenceEqualityComparer.Instance);
                 result.Add(group.Key, Schedule(group.Key, lifetimeDict, options(group.Key)));
@@ -74,9 +85,9 @@ public abstract class BufferScheduler
         int maxAlignment = 8;
         foreach (var lifetime in lifetimes.Values)
         {
-            if (lifetime.Buffer.Location != MemoryLocation)
+            if (lifetime.Buffer.Storage.WithoutAlignment() != Storage)
             {
-                throw new ArgumentException($"Memory location to schedule of {lifetime.Buffer} is not expected.");
+                throw new ArgumentException($"Storage to schedule of {lifetime.Buffer} is {lifetime.Buffer.Storage}, but expected {Storage}.");
             }
 
             var alignment = Math.Max(8, lifetime.Buffer.Alignment);
@@ -86,7 +97,7 @@ public abstract class BufferScheduler
 
         if (TryScheduleCore(lifetimes.Values, maxMemoryPoolEnd, options, out var memoryPoolEnd))
         {
-            result = new(lifetimes, options.StartAddress, memoryPoolEnd, maxAlignment);
+            result = new(Storage, lifetimes, options.StartAddress, memoryPoolEnd, maxAlignment);
             return true;
         }
         else
@@ -97,4 +108,13 @@ public abstract class BufferScheduler
     }
 
     protected abstract bool TryScheduleCore(IEnumerable<BufferLifetime> lifetimes, long maxMemoryPoolEnd, BufferScheduleOptions options, out long memoryPoolEnd);
+
+    private static bool UsesReusablePool(BufferStorage storage) =>
+        storage.Usage is BufferUsage.Temp or BufferUsage.Scratch or BufferUsage.Staging
+        && storage.Scope is BufferScope.ThreadLocal or BufferScope.WarpLocal or BufferScope.BlockLocal
+        && storage.PhysicalLocation is PhysicalMemorySpace.LocalAddressable or PhysicalMemorySpace.SMem;
+
+    private static bool UsesLinearPool(BufferStorage storage) =>
+        storage.Usage is BufferUsage.Output
+        || (storage.Usage is BufferUsage.Const && storage.PhysicalLocation is PhysicalMemorySpace.ConstMem);
 }

@@ -204,22 +204,27 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
         }
 
         var start = Visit(expr.Start);
-        string loc = (expr.Location, expr.Hierarchy) switch
+        var storage = expr.Storage.WithoutAlignment();
+        if (storage.PhysicalLocation is PhysicalMemorySpace.Register)
         {
-            (MemoryLocation.Rdata, 0) => "rdata",
-            (MemoryLocation.ThreadLocalRdata, 0) => "thread_local_rdata",
-            (MemoryLocation.WarpLocalRdata, 0) => "warp_local_rdata",
-            (MemoryLocation.BlockLocalRdata, 0) => "block_local_rdata",
-            (MemoryLocation.Data, 0) => "thread_local_data",
-            (MemoryLocation.Data, 1) => "thread_local_data",
-            (MemoryLocation.WarpLocalData, 0) => "warp_local_data",
-            (MemoryLocation.BlockLocalData, 0) => "block_local_data",
-            (MemoryLocation.Output, 0) => "output",
-            _ => throw new NotSupportedException($"{expr.Location}, {expr.Hierarchy}"),
+            throw new InvalidOperationException($"Register storage {expr.Storage} must be lowered as SSA/register fragments, not as an addressable physical buffer.");
+        }
+
+        string loc = storage switch
+        {
+            { Usage: BufferUsage.Const, Scope: BufferScope.Device, PhysicalLocation: PhysicalMemorySpace.ConstMem, Hierarchy: 0 } => "rdata",
+            { Usage: BufferUsage.Const, Scope: BufferScope.ThreadLocal, PhysicalLocation: PhysicalMemorySpace.ConstMem, Hierarchy: 0 } => "thread_local_rdata",
+            { Usage: BufferUsage.Const, Scope: BufferScope.WarpLocal, PhysicalLocation: PhysicalMemorySpace.ConstMem, Hierarchy: 0 } => "warp_local_rdata",
+            { Usage: BufferUsage.Const, Scope: BufferScope.BlockLocal, PhysicalLocation: PhysicalMemorySpace.ConstMem, Hierarchy: 0 } => "block_local_rdata",
+            { Usage: BufferUsage.Temp, Scope: BufferScope.ThreadLocal, PhysicalLocation: PhysicalMemorySpace.LocalAddressable, Hierarchy: 0 or 1 } => "thread_local_data",
+            { Usage: BufferUsage.Temp, Scope: BufferScope.WarpLocal, PhysicalLocation: PhysicalMemorySpace.LocalAddressable, Hierarchy: 0 } => "warp_local_data",
+            { Usage: BufferUsage.Temp, Scope: BufferScope.BlockLocal, PhysicalLocation: PhysicalMemorySpace.SMem, Hierarchy: 0 } => "block_local_data",
+            { Usage: BufferUsage.Output, Scope: BufferScope.Device, PhysicalLocation: PhysicalMemorySpace.GMem, Hierarchy: 0 } => "output",
+            _ => throw new NotSupportedException($"Unsupported physical buffer storage for NTT codegen: {expr.Storage}"),
         };
 
         var ptypeName = "std::byte";
-        if (expr.Location is MemoryLocation.Rdata or MemoryLocation.ThreadLocalRdata or MemoryLocation.WarpLocalRdata or MemoryLocation.BlockLocalRdata)
+        if (storage.Usage is BufferUsage.Const)
         {
             // Rdata, ThreadLocalRdata and BlockLocalRdata are const
             ptypeName = $"const {ptypeName}";
@@ -326,9 +331,9 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
             IndentScope.Writer.Write($"auto start_{CallCount} = get_ms_time();\n");
 #endif
             var args = expr.Arguments.ToArray();
-            if (args.Any(x => x is TIR.Buffer { MemSpan: { Buffer: { Location: MemoryLocation.BlockLocalData } } }))
+            if (args.Any(x => x is TIR.Buffer { MemSpan: { Buffer: { Storage: { Scope: BufferScope.BlockLocal, PhysicalLocation: PhysicalMemorySpace.SMem } } } }))
             {
-                // Ensure all threads reach this point before a kernel using BlockLocalData
+                // Ensure all threads reach this point before a kernel using block-local SMem.
                 WriteIndWithProfiler($"ntt::distributed::topology_synchronize<ntt::distributed::topology::thread>();\n");
             }
 

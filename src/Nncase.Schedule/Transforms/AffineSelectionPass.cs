@@ -14,6 +14,8 @@ namespace Nncase.Passes.Transforms;
 
 public abstract class AffineSelectionPass : FunctionPass
 {
+    private static readonly BufferStorage IntermediateStorage = new(BufferUsage.Temp, BufferScope.ThreadLocal, PhysicalMemorySpace.LocalAddressable);
+
     public AffineSelectionPass(string moduleKind)
     {
         ModuleKind = moduleKind;
@@ -70,8 +72,8 @@ public abstract class AffineSelectionPass : FunctionPass
         {
             var outBuffer = expr.CheckedType switch
             {
-                TensorType t => IR.F.Buffer.Uninitialized(t.DType, TIR.MemoryLocation.Data, t.Shape),
-                DistributedType dt => IR.F.Buffer.Uninitialized(dt.TensorType.DType, TIR.MemoryLocation.Data, dt.TensorType.Shape, dt.AxisPolicies, dt.Placement),
+                TensorType t => IR.F.Buffer.Uninitialized(t.DType, IntermediateStorage, t.Shape),
+                DistributedType dt => IR.F.Buffer.Uninitialized(dt.TensorType.DType, IntermediateStorage, dt.TensorType.Shape, dt.AxisPolicies, dt.Placement),
                 TupleType { Count: 0 } => null,
                 _ => throw new ArgumentOutOfRangeException(nameof(expr), $"Unsupported type {expr.CheckedType}"),
             };
