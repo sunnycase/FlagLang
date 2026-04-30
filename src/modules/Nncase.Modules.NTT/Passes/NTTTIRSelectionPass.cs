@@ -70,6 +70,10 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             case IR.Distributed.Boxing boxing:
                 return GenerateBoxing(call, boxing, arguments, ref output);
             case IR.Distributed.ForceBoxing forceBoxing:
+                ValidateDistributedD2DTransfer(
+                    call[IR.Distributed.ForceBoxing.Input].CheckedType,
+                    forceBoxing.NewType,
+                    "NTT ForceBoxing memcopy");
                 return T.Memcopy(output, (Expr)arguments[0]);
             case IR.Math.Binary binary:
                 return TIR.F.NTT.VectorizedBinary((Expr)arguments[0], (Expr)arguments[1], output, None.Default, binary.BinaryOp, Array.Empty<int>(), Array.Empty<Dimension>(), Array.Empty<int>(), Array.Empty<Dimension>());
@@ -1493,6 +1497,8 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
 
     private Expr GenerateReshard(Expr input, ref Expr output, DistributedType inType, DistributedType outType)
     {
+        ValidateDistributedD2DTransfer(inType, outType, "NTT GenerateReshard");
+
         // FIXME: re-balance issue.
 #if false
         if (input is TIR.Buffer inBuffer)
@@ -1509,6 +1515,31 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
 #endif
 
         return TIR.F.NTT.GatherReduceScatter(input, output, inType, outType);
+    }
+
+    private void ValidateDistributedD2DTransfer(IRType inputType, DistributedType outputType, string context)
+    {
+        if (inputType is not DistributedType inType)
+        {
+            if (outputType.HasExplicitLayout)
+            {
+                throw new NotSupportedException($"{context} requires distributed input when output has explicit layout. InputType={inputType}, OutputShape={outputType.TensorType.Shape}, OutputDistribution={outputType.DistributionLayout.Kind}, OutputStorage={outputType.StorageLayout.Kind}.");
+            }
+
+            return;
+        }
+
+        ValidateDistributedD2DTransfer(inType, outputType, context);
+    }
+
+    private void ValidateDistributedD2DTransfer(DistributedType inputType, DistributedType outputType, string context)
+    {
+        if (!inputType.HasExplicitLayout && !outputType.HasExplicitLayout)
+        {
+            return;
+        }
+
+        LayoutVerifier.VerifyEquivalentForD2DTransfer(inputType, outputType, context);
     }
 
     private void ValidateDistributedViewLayoutForReshape(TIR.Buffer input, TIR.Buffer output, DistributedType inputType, DistributedType outputType)

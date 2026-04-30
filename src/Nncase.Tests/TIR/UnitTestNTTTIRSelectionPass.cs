@@ -337,6 +337,46 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
     }
 
     [Fact]
+    public async Task BoxingD2DRejectsExplicitDistributionLayoutMismatch()
+    {
+        var shape = new RankedShape(128);
+        var inputType = CreateExplicitSbpDistributedType(shape);
+        var outputType = CreateExplicitSbpDistributedType(shape, distributionKind: "DifferentExplicitDistribution");
+        var inferredInput = new Var("inferred_input", inputType);
+        var inferredBoxing = Nncase.IR.F.Distributed.Boxing(inferredInput, outputType);
+        var inferredFunction = new Function("inferred", CUDATarget.Kind, new IRBlock(inferredBoxing, inferredInput));
+
+        Assert.False(CompilerServices.InferenceType(inferredFunction));
+        var invalidType = Assert.IsType<InvalidType>(inferredBoxing.CheckedType);
+        AssertD2DTransferDiagnostic(invalidType.Reason, "IR.Distributed.Boxing", "DifferentExplicitDistribution", "explicit distribution layouts");
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => RunD2DTransferSelectionAsync(CompileOptions, inputType, outputType, force: false));
+
+        AssertD2DTransferDiagnostic(ex.Message, "GenerateReshard", "DifferentExplicitDistribution", "explicit distribution layouts");
+    }
+
+    [Fact]
+    public async Task ForceBoxingD2DRejectsExplicitStorageLayoutMismatch()
+    {
+        var shape = new RankedShape(128);
+        var inputType = CreateExplicitSbpDistributedType(shape);
+        var outputType = CreateExplicitSbpDistributedType(shape, storageLayoutFactory: localShape => CreateReverseRegisterStorageLayout(localShape));
+        var inferredInput = new Var("inferred_input", inputType);
+        var inferredBoxing = Nncase.IR.F.Distributed.ForceBoxing(inferredInput, outputType);
+        var inferredFunction = new Function("inferred", CUDATarget.Kind, new IRBlock(inferredBoxing, inferredInput));
+
+        Assert.False(CompilerServices.InferenceType(inferredFunction));
+        var invalidType = Assert.IsType<InvalidType>(inferredBoxing.CheckedType);
+        AssertD2DTransferDiagnostic(invalidType.Reason, "IR.Distributed.ForceBoxing", "ReverseLocal", "explicit storage layouts");
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => RunD2DTransferSelectionAsync(CompileOptions, inputType, outputType, force: true));
+
+        AssertD2DTransferDiagnostic(ex.Message, "ForceBoxing memcopy", "ReverseLocal", "explicit storage layouts");
+    }
+
+    [Fact]
     public async Task RegisterDirectAffineLowersUnaryCastWhereWithoutAddressableIntermediates()
     {
         const int blockSize = 256;
@@ -793,6 +833,18 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         return Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(compileOptions, CUDATarget.Kind).RunAsync(function, new()));
     }
 
+    private static async Task<PrimFunction> RunD2DTransferSelectionAsync(CompileOptions compileOptions, DistributedType inputType, DistributedType outputType, bool force)
+    {
+        var input = new Var("input", inputType);
+        var transfer = force
+            ? Nncase.IR.F.Distributed.ForceBoxing(input, outputType)
+            : Nncase.IR.F.Distributed.Boxing(input, outputType);
+        transfer.CheckedType = outputType;
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(transfer, input));
+
+        return Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(compileOptions, CUDATarget.Kind).RunAsync(function, new()));
+    }
+
     private static void AssertBitcastDiagnostic(string message, string context)
     {
         Assert.Contains(context, message, StringComparison.Ordinal);
@@ -802,6 +854,17 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         Assert.Contains("OutputShape", message, StringComparison.Ordinal);
         Assert.Contains("ReverseLocal", message, StringComparison.Ordinal);
         Assert.Contains("element sizes differ", message, StringComparison.Ordinal);
+    }
+
+    private static void AssertD2DTransferDiagnostic(string message, string context, string layoutName, string reason)
+    {
+        Assert.Contains(context, message, StringComparison.Ordinal);
+        Assert.Contains("InputDType", message, StringComparison.Ordinal);
+        Assert.Contains("OutputDType", message, StringComparison.Ordinal);
+        Assert.Contains("InputShape", message, StringComparison.Ordinal);
+        Assert.Contains("OutputShape", message, StringComparison.Ordinal);
+        Assert.Contains(layoutName, message, StringComparison.Ordinal);
+        Assert.Contains(reason, message, StringComparison.Ordinal);
     }
 
     private static Dimension GetSingleBufferIndex(Call bufferAccess, ParameterInfo indicesParameter)

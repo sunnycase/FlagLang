@@ -342,6 +342,22 @@ public static class LayoutVerifier
         }
     }
 
+    public static void VerifyEquivalentForD2DTransfer(DistributedType input, DistributedType output, string context)
+    {
+        Verify(input, $"{context} input");
+        Verify(output, $"{context} output");
+
+        if (input.TensorType != output.TensorType)
+        {
+            ThrowD2DTransferCompatibility(input, output, context, $"tensor types differ: input={input.TensorType}, output={output.TensorType}");
+        }
+
+        if (GetViewCompatibilityReason(input, output) is { } reason)
+        {
+            ThrowD2DTransferCompatibility(input, output, context, reason);
+        }
+    }
+
     public static void VerifyEquivalentToLegacyAxisPolicies(DistributedType distributedType, string context)
     {
         if (!distributedType.HasExplicitLayout)
@@ -755,6 +771,13 @@ public static class LayoutVerifier
     private static void ThrowBitcastCompatibility(DistributedType input, DistributedType output, string context, string reason) =>
         throw new NotSupportedException(
             $"{context} cannot preserve explicit distributed layouts across bitcast. Reason: {reason}. " +
+            $"InputDType={input.TensorType.DType}, OutputDType={output.TensorType.DType}, " +
+            $"InputShape={input.TensorType.Shape}, OutputShape={output.TensorType.Shape}. " +
+            $"Input={FormatDistributedTypeForView(input)}; Output={FormatDistributedTypeForView(output)}");
+
+    private static void ThrowD2DTransferCompatibility(DistributedType input, DistributedType output, string context, string reason) =>
+        throw new NotSupportedException(
+            $"{context} requires explicit-layout distributed-to-distributed transfer proof. Reason: {reason}. " +
             $"InputDType={input.TensorType.DType}, OutputDType={output.TensorType.DType}, " +
             $"InputShape={input.TensorType.Shape}, OutputShape={output.TensorType.Shape}. " +
             $"Input={FormatDistributedTypeForView(input)}; Output={FormatDistributedTypeForView(output)}");

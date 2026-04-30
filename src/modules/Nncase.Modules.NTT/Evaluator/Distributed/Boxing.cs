@@ -19,11 +19,35 @@ public sealed class BoxingEvaluator : ITypeInferencer<Boxing>, ICostEvaluator<Bo
 {
     public static IRType VisitType(IRType inType, IRType outType, bool isReshape = false)
     {
+        InvalidType? ValidateExplicitD2D(DistributedType inv, DistributedType outv)
+        {
+            if (!inv.HasExplicitLayout && !outv.HasExplicitLayout)
+            {
+                return null;
+            }
+
+            try
+            {
+                LayoutVerifier.VerifyEquivalentForD2DTransfer(inv, outv, "IR.Distributed.Boxing type inference");
+            }
+            catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
+            {
+                return new InvalidType(ex.Message);
+            }
+
+            return null;
+        }
+
         IRType VisitD2D(DistributedType inv, DistributedType outv)
         {
             if (inv == outv)
             {
                 return new InvalidType("Same DistributedType");
+            }
+
+            if (ValidateExplicitD2D(inv, outv) is { } explicitInvalid)
+            {
+                return explicitInvalid;
             }
 
             if (inv.TensorType != outv.TensorType)

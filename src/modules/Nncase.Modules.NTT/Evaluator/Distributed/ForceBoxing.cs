@@ -16,8 +16,32 @@ public sealed class ForceBoxingEvaluator : ITypeInferencer<ForceBoxing>, ICostEv
 {
     public static IRType VisitType(IRType inType, IRType outType)
     {
+        InvalidType? ValidateExplicitD2D(DistributedType inv, DistributedType outv)
+        {
+            if (!inv.HasExplicitLayout && !outv.HasExplicitLayout)
+            {
+                return null;
+            }
+
+            try
+            {
+                LayoutVerifier.VerifyEquivalentForD2DTransfer(inv, outv, "IR.Distributed.ForceBoxing type inference");
+            }
+            catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
+            {
+                return new InvalidType(ex.Message);
+            }
+
+            return null;
+        }
+
         IRType VisitD2D(DistributedType inv, DistributedType outv)
         {
+            if (ValidateExplicitD2D(inv, outv) is { } explicitInvalid)
+            {
+                return explicitInvalid;
+            }
+
             var ndsbpsA = DistributedUtility.AxisPolicesToNDSBP(inv.AxisPolicies, inv.Placement.Rank).ToArray();
             var ndsbpsB = DistributedUtility.AxisPolicesToNDSBP(outv.AxisPolicies, outv.Placement.Rank).ToArray();
 
