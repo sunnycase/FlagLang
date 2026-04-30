@@ -377,6 +377,66 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
     }
 
     [Fact]
+    public async Task BoxingD2DWrapsInvalidInputExplicitStorageLayoutDiagnostic()
+    {
+        var shape = new RankedShape(128);
+        var inputType = CreateExplicitSbpDistributedType(shape, storageLayoutFactory: localShape => CreateUnsupportedNamedPrimitiveStorageLayout(localShape));
+        var outputType = CreateExplicitSbpDistributedType(shape);
+        var inferredInput = new Var("inferred_input", inputType);
+        var inferredBoxing = Nncase.IR.F.Distributed.Boxing(inferredInput, outputType);
+        var inferredFunction = new Function("inferred", CUDATarget.Kind, new IRBlock(inferredBoxing, inferredInput));
+
+        Assert.False(CompilerServices.InferenceType(inferredFunction));
+        var invalidType = Assert.IsType<InvalidType>(inferredBoxing.CheckedType);
+        AssertD2DLayoutVerificationDiagnostic(
+            invalidType.Reason,
+            "IR.Distributed.Boxing",
+            "Swizzle",
+            "input layout verification failed",
+            "unsupported named primitive xor_swizzle");
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => RunD2DTransferSelectionAsync(CompileOptions, inputType, outputType, force: false));
+
+        AssertD2DLayoutVerificationDiagnostic(
+            ex.Message,
+            "GenerateReshard",
+            "Swizzle",
+            "input layout verification failed",
+            "unsupported named primitive xor_swizzle");
+    }
+
+    [Fact]
+    public async Task ForceBoxingD2DWrapsInvalidOutputExplicitDistributionLayoutDiagnostic()
+    {
+        var shape = new RankedShape(128);
+        var inputType = CreateExplicitSbpDistributedType(shape);
+        var outputType = CreateExplicitSbpDistributedType(shape, distributionLayoutFactory: CreateBrokenInverseDistributionLayout);
+        var inferredInput = new Var("inferred_input", inputType);
+        var inferredBoxing = Nncase.IR.F.Distributed.ForceBoxing(inferredInput, outputType);
+        var inferredFunction = new Function("inferred", CUDATarget.Kind, new IRBlock(inferredBoxing, inferredInput));
+
+        Assert.False(CompilerServices.InferenceType(inferredFunction));
+        var invalidType = Assert.IsType<InvalidType>(inferredBoxing.CheckedType);
+        AssertD2DLayoutVerificationDiagnostic(
+            invalidType.Reason,
+            "IR.Distributed.ForceBoxing",
+            "BrokenInverseDistribution",
+            "output layout verification failed",
+            "must declare inverse OwnerLocalToGlobal, but got BrokenInverse");
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => RunD2DTransferSelectionAsync(CompileOptions, inputType, outputType, force: true));
+
+        AssertD2DLayoutVerificationDiagnostic(
+            ex.Message,
+            "ForceBoxing memcopy",
+            "BrokenInverseDistribution",
+            "output layout verification failed",
+            "must declare inverse OwnerLocalToGlobal, but got BrokenInverse");
+    }
+
+    [Fact]
     public async Task RegisterDirectAffineLowersUnaryCastWhereWithoutAddressableIntermediates()
     {
         const int blockSize = 256;
@@ -769,11 +829,34 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
                 Inverse: "LogicalToPhysical"));
     }
 
+    private static StorageLayout CreateUnsupportedNamedPrimitiveStorageLayout(Shape shape)
+    {
+        var extent = shape[0].FixedValue;
+        return new StorageLayout(
+            "Swizzle",
+            shape,
+            new IndexMapDescriptor(
+                "LogicalToPhysical",
+                ["l0"],
+                [new IndexMapBinding("p0", new IndexNamedPrimitive("xor_swizzle", [IndexExpr.Var("l0")]))],
+                [$"0<=l0<{extent}"],
+                [$"0<=p0<{extent}"],
+                Inverse: "LogicalToPhysical"));
+    }
+
+    private static DistributionLayout CreateBrokenInverseDistributionLayout(DistributionLayout layout) =>
+        layout with
+        {
+            Kind = "BrokenInverseDistribution",
+            GlobalToOwnerLocal = layout.GlobalToOwnerLocal with { Inverse = "BrokenInverse" },
+        };
+
     private static DistributedType CreateExplicitSbpDistributedType(
         Shape shape,
         DataType? dataType = null,
         string? distributionKind = null,
-        Func<Shape, StorageLayout>? storageLayoutFactory = null)
+        Func<Shape, StorageLayout>? storageLayoutFactory = null,
+        Func<DistributionLayout, DistributionLayout>? distributionLayoutFactory = null)
     {
         var tensorType = new TensorType(dataType ?? DataTypes.Float32, shape);
         var axisPolicies = new IRArray<SBP>(new SBP[] { SBP.S(0) });
@@ -782,6 +865,11 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         if (distributionKind is not null)
         {
             distributionLayout = distributionLayout with { Kind = distributionKind };
+        }
+
+        if (distributionLayoutFactory is not null)
+        {
+            distributionLayout = distributionLayoutFactory(distributionLayout);
         }
 
         return new DistributedType(
@@ -865,6 +953,24 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         Assert.Contains("OutputShape", message, StringComparison.Ordinal);
         Assert.Contains(layoutName, message, StringComparison.Ordinal);
         Assert.Contains(reason, message, StringComparison.Ordinal);
+    }
+
+    private static void AssertD2DLayoutVerificationDiagnostic(
+        string message,
+        string context,
+        string layoutName,
+        string roleReason,
+        string verifierReason)
+    {
+        Assert.Contains(context, message, StringComparison.Ordinal);
+        Assert.Contains("InputDType", message, StringComparison.Ordinal);
+        Assert.Contains("OutputDType", message, StringComparison.Ordinal);
+        Assert.Contains("InputShape", message, StringComparison.Ordinal);
+        Assert.Contains("OutputShape", message, StringComparison.Ordinal);
+        Assert.Contains(layoutName, message, StringComparison.Ordinal);
+        Assert.Contains("layout verification failed", message, StringComparison.Ordinal);
+        Assert.Contains(roleReason, message, StringComparison.Ordinal);
+        Assert.Contains(verifierReason, message, StringComparison.Ordinal);
     }
 
     private static Dimension GetSingleBufferIndex(Call bufferAccess, ParameterInfo indicesParameter)

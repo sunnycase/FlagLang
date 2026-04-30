@@ -64,6 +64,10 @@ public abstract class TIRSelectionPass : FunctionPass
 
     protected abstract Expr SelectCall(Call call, IReadOnlyList<BaseExpr> arguments, ref Expr output);
 
+    protected virtual void ValidateCallBeforeOutputBuffer(Call call)
+    {
+    }
+
     protected virtual bool TrySelectBlock(IRBlock block, bool isEntry, out Sequential body, out IReadOnlyList<Var> outputBuffers)
     {
         body = null!;
@@ -193,6 +197,7 @@ public abstract class TIRSelectionPass : FunctionPass
             }
             else
             {
+                _selectionPass.ValidateCallBeforeOutputBuffer(call);
                 var output = CreateOutputBuffer(call);
                 var newCall = call.Target switch
                 {

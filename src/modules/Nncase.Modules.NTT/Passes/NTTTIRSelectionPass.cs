@@ -56,6 +56,23 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         return false;
     }
 
+    protected override void ValidateCallBeforeOutputBuffer(Call call)
+    {
+        switch (call.Target)
+        {
+            case IR.Distributed.Boxing boxing
+                when call[IR.Distributed.Boxing.Input].CheckedType is DistributedType inType && boxing.NewType is DistributedType outType:
+                ValidateDistributedD2DTransfer(inType, outType, "NTT GenerateReshard");
+                break;
+            case IR.Distributed.ForceBoxing forceBoxing:
+                ValidateDistributedD2DTransfer(
+                    call[IR.Distributed.ForceBoxing.Input].CheckedType,
+                    forceBoxing.NewType,
+                    "NTT ForceBoxing memcopy");
+                break;
+        }
+    }
+
     protected override Expr SelectCall(Call call, IReadOnlyList<BaseExpr> arguments, ref Expr output)
     {
         var op = call.Target;

@@ -344,8 +344,8 @@ public static class LayoutVerifier
 
     public static void VerifyEquivalentForD2DTransfer(DistributedType input, DistributedType output, string context)
     {
-        Verify(input, $"{context} input");
-        Verify(output, $"{context} output");
+        VerifyD2DTransferLayout(input, output, input, context, "input");
+        VerifyD2DTransferLayout(input, output, output, context, "output");
 
         if (input.TensorType != output.TensorType)
         {
@@ -791,6 +791,18 @@ public static class LayoutVerifier
         catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
         {
             ThrowBitcastCompatibility(input, output, context, $"{role} layout verification failed: {ex.Message}");
+        }
+    }
+
+    private static void VerifyD2DTransferLayout(DistributedType input, DistributedType output, DistributedType type, string context, string role)
+    {
+        try
+        {
+            Verify(type, $"{context} {role}");
+        }
+        catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
+        {
+            ThrowD2DTransferCompatibility(input, output, context, $"{role} layout verification failed: {ex.Message}");
         }
     }
 
