@@ -426,7 +426,18 @@ def _native_compile_options(src, metadata, opt, capability):
             "profile_scratch_size",
             "profile_scratch_align",
         ],
-        "stage_names": ["triton_tir", "nncase_ir", "after_compile", "tir", "ntt_cu", "compiler_log", "cubin"],
+        "stage_names": [
+            "triton_tir",
+            "nncase_ir",
+            "after_compile",
+            "tir",
+            "ntt_cu",
+            "ptx",
+            "ptx_compiler_cmd",
+            "ptx_compiler_log",
+            "compiler_log",
+            "cubin",
+        ],
         "dump_dir":
         os.environ.get("TRITON_DUMP_DIR"),
         "cuobjdump":

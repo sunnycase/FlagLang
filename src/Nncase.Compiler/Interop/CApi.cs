@@ -43,6 +43,7 @@ public unsafe struct CApiMT
     public delegate* unmanaged<IntPtr, IntPtr> ClrHandleDuplicatePtr;
     public delegate* unmanaged<IntPtr, void> ClrHandleFreePtr;
     public delegate* unmanaged<CStreamMT*, IntPtr, IntPtr> StreamCreatePtr;
+    public delegate* unmanaged<byte*, nuint, nuint> LastErrorGetPtr;
 
     // Hosting functions.
     public delegate* unmanaged<void> CompilerInitializePtr;
@@ -55,7 +56,7 @@ public unsafe struct CApiMT
 
     public delegate* unmanaged<IntPtr, byte> CompilerServices_InferenceTypePtr;
 
-    public delegate* unmanaged<IntPtr, int, void> PassManagerAddOptimizeTTIRPtr;
+    public delegate* unmanaged<IntPtr, int, byte> PassManagerAddOptimizeTTIRPtr;
     public delegate* unmanaged<IntPtr, IntPtr, IntPtr> PassManagerRunPtr;
     public delegate* unmanaged<IntPtr, byte*, nuint, IntPtr> IRModuleCompileToCubinPtr;
     public delegate* unmanaged<IntPtr, byte*, nuint, nuint> NativeCudaCompileResultGetJsonPtr;
@@ -145,6 +146,9 @@ public unsafe struct CApiMT
 /// </summary>
 public static unsafe partial class CApi
 {
+    [ThreadStatic]
+    private static string? _lastError;
+
     [UnmanagedCallersOnly]
     public static void Initialize(CApiMT* mt)
     {
@@ -156,6 +160,7 @@ public static unsafe partial class CApi
         mt->ClrHandleDuplicatePtr = &ClrHandleDuplicate;
         mt->ClrHandleFreePtr = &ClrHandleFree;
         mt->StreamCreatePtr = &StreamCreate;
+        mt->LastErrorGetPtr = &LastErrorGet;
 
         // Hosting functions.
         mt->CompilerInitializePtr = &CompilerInitialize;
@@ -260,6 +265,18 @@ public static unsafe partial class CApi
             .ConfigureCompiler()
             .Build();
         CompilerServices.Configure(host.Services);
+    }
+
+    [UnmanagedCallersOnly]
+    private static nuint LastErrorGet(byte* buffer, nuint bufferLength) =>
+        WriteUtf8(_lastError ?? string.Empty, buffer, bufferLength);
+
+    private static void ClearLastError() => _lastError = null;
+
+    private static byte SetLastError(Exception ex)
+    {
+        _lastError = ex.ToString();
+        return 0;
     }
 
     [UnmanagedCallersOnly]

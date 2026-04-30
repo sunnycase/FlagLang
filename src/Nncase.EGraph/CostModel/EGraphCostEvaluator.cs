@@ -130,9 +130,10 @@ internal sealed class EGraphCostEvaluator
             Marker marker => Visit(enode, marker),
             None none => Visit(enode, none),
             BaseFunction baseFunction => Visit(enode, baseFunction),
+            TIR.Sequential sequential => Visit(enode, sequential),
             DimConst dimConst => VisitLeaf(enode, () => Cost.Zero),
             Dimension or Shape or Padding or Paddings => Visit(enode, costs => new Cost { [CostFactorNames.CPUCycles] = 1 } + (_accumulate ? costs.Sum() : Cost.Zero)),
-            _ => throw new ArgumentException("Unsupported expression type."),
+            _ => throw new ArgumentException($"Unsupported expression type: {enode.Expr.GetType().FullName}."),
         };
     }
 
@@ -162,6 +163,11 @@ internal sealed class EGraphCostEvaluator
     }
 
     private Cost? Visit(ENode enode, IR.Tuple tuple)
+    {
+        return Visit(enode, costs => _accumulate ? costs.Sum() : Cost.Zero);
+    }
+
+    private Cost? Visit(ENode enode, TIR.Sequential sequential)
     {
         return Visit(enode, costs => _accumulate ? costs.Sum() : Cost.Zero);
     }

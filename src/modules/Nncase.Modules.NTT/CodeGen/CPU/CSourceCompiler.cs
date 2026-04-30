@@ -121,6 +121,8 @@ public class CSourceCompiler
 
         if (_isCUDA)
         {
+            GenerateCudaPtxDump(sourcePath);
+
             var linkedCubin = Path.Join(sourcePath, "build", $"linked_sm_{_cudaArchitecture}.o");
             var namedCubin = Path.Join(sourcePath, "build", "nncase_ntt_module.cubin");
             if (File.Exists(linkedCubin))
@@ -167,6 +169,57 @@ public class CSourceCompiler
         }
     }
 
+    private static string FindNinjaBuildBlock(string buildNinja, string buildOutputSuffix)
+    {
+        var lines = File.ReadAllLines(buildNinja);
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (!lines[i].StartsWith("build ", StringComparison.Ordinal) ||
+                !lines[i].Contains(buildOutputSuffix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var block = new StringBuilder(lines[i]);
+            for (var j = i + 1; j < lines.Length && lines[j].StartsWith("  ", StringComparison.Ordinal); j++)
+            {
+                block.AppendLine();
+                block.Append(lines[j]);
+            }
+
+            return block.ToString();
+        }
+
+        throw new InvalidOperationException($"CUDA PTX dump could not find the Ninja build block for '{buildOutputSuffix}' in {buildNinja}.");
+    }
+
+    private static string GetNinjaVariable(string block, string name)
+    {
+        var prefix = $"  {name} =";
+        foreach (var line in block.Split(Environment.NewLine))
+        {
+            if (line.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return line[prefix.Length..].Trim();
+            }
+        }
+
+        throw new InvalidOperationException($"CUDA PTX dump could not find Ninja variable '{name}' for thread_main.cu.");
+    }
+
+    private static void WriteProcessLine(StringWriter writer, string? line)
+    {
+        try
+        {
+            writer.WriteLine(line);
+        }
+        catch (ArgumentException)
+        {
+        }
+    }
+
+    private static string QuotePath(string path) => $"\"{path}\"";
+
     /// <summary>
     /// select current pattern's exe.
     /// </summary>
@@ -203,6 +256,61 @@ public class CSourceCompiler
             Architecture.Arm64 => "arm64",
             _ => throw new NotSupportedException(RuntimeInformation.OSArchitecture.ToString()),
         };
+    }
+
+    private void GenerateCudaPtxDump(string sourcePath)
+    {
+        sourcePath = Path.GetFullPath(sourcePath);
+        var buildNinja = Path.Join(sourcePath, "build", "build.ninja");
+        var threadMain = Path.Join(sourcePath, "thread_main.cu");
+        var outputPtx = Path.Join(sourcePath, "build", "thread_main.ptx");
+        if (!File.Exists(buildNinja))
+        {
+            throw new FileNotFoundException($"CUDA PTX dump requires the generated Ninja build file: {buildNinja}");
+        }
+
+        if (!File.Exists(threadMain))
+        {
+            throw new FileNotFoundException($"CUDA PTX dump requires the generated CUDA entry source: {threadMain}");
+        }
+
+        var compileBlock = FindNinjaBuildBlock(buildNinja, "thread_main.cu.o");
+        var defines = GetNinjaVariable(compileBlock, "DEFINES");
+        var includes = GetNinjaVariable(compileBlock, "INCLUDES");
+        var flags = GetNinjaVariable(compileBlock, "FLAGS");
+        var arguments = $"-forward-unknown-to-host-compiler {defines} {includes} {flags} -x cu -ptx {QuotePath(threadMain)} -o {QuotePath(outputPtx)}";
+        RunCudaPtxCompiler(sourcePath, arguments, outputPtx);
+    }
+
+    private void RunCudaPtxCompiler(string sourcePath, string arguments, string outputPtx)
+    {
+        var logPath = Path.Join(sourcePath, "ptx_compiler.log");
+        var cmdPath = Path.Join(sourcePath, "ptx_compiler.cmd");
+        var errMsg = new StringBuilder(8192);
+        using var errWriter = new StringWriter(errMsg);
+        using var proc = new Process();
+        proc.StartInfo.FileName = _cudaCompiler;
+        proc.StartInfo.Arguments = arguments;
+        proc.StartInfo.WorkingDirectory = sourcePath;
+        proc.StartInfo.RedirectStandardError = true;
+        proc.StartInfo.RedirectStandardOutput = true;
+        File.WriteAllText(cmdPath, $"{proc.StartInfo.FileName} {proc.StartInfo.Arguments}");
+        proc.OutputDataReceived += (_, e) => WriteProcessLine(errWriter, e.Data);
+        proc.ErrorDataReceived += (_, e) => WriteProcessLine(errWriter, e.Data);
+        proc.Start();
+        proc.BeginErrorReadLine();
+        proc.BeginOutputReadLine();
+        proc.WaitForExit();
+        File.WriteAllText(logPath, errMsg.ToString());
+        if (proc.ExitCode != 0)
+        {
+            throw new InvalidOperationException(errMsg.ToString());
+        }
+
+        if (!File.Exists(outputPtx))
+        {
+            throw new FileNotFoundException($"CUDA PTX compiler completed without producing PTX: {outputPtx}");
+        }
     }
 
     private string ArgumentsSpecific(string sourcePath, string outPath)

@@ -65,19 +65,37 @@ public static unsafe partial class CApi
     }
 
     [UnmanagedCallersOnly]
-    private static void PassManagerAddOptimizeTTIR(IntPtr pmHandle, int capability)
+    private static byte PassManagerAddOptimizeTTIR(IntPtr pmHandle, int capability)
     {
-        var pm = Get<IPassManager>(pmHandle);
-        TargetIndependentPass(pm);
+        try
+        {
+            ClearLastError();
+            var pm = Get<IPassManager>(pmHandle);
+            TargetIndependentPass(pm);
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            return SetLastError(ex);
+        }
     }
 
     [UnmanagedCallersOnly]
     private static IntPtr PassManagerRun(IntPtr pmHandle, IntPtr moduleHandle)
     {
-        var pm = Get<IPassManager>(pmHandle);
-        var module = Get<IR.IRModule>(moduleHandle);
-        var result = pm.RunAsync(module).ConfigureAwait(false).GetAwaiter().GetResult();
-        return GCHandle.ToIntPtr(GCHandle.Alloc(result));
+        try
+        {
+            ClearLastError();
+            var pm = Get<IPassManager>(pmHandle);
+            var module = Get<IR.IRModule>(moduleHandle);
+            var result = pm.RunAsync(module).ConfigureAwait(false).GetAwaiter().GetResult();
+            return GCHandle.ToIntPtr(GCHandle.Alloc(result));
+        }
+        catch (Exception ex)
+        {
+            SetLastError(ex);
+            return IntPtr.Zero;
+        }
     }
 
     [UnmanagedCallersOnly]
@@ -266,6 +284,9 @@ public static unsafe partial class CApi
 
         AddIfExists(stages, "ntt_cu", Path.Combine(codegenDir, "thread_main.cu"));
         AddIfExists(stages, "kernel_header", Path.Combine(codegenDir, "kernel_functions.h"));
+        AddIfExists(stages, "ptx", Path.Combine(codegenDir, "build", "thread_main.ptx"));
+        AddIfExists(stages, "ptx_compiler_cmd", Path.Combine(codegenDir, "ptx_compiler.cmd"));
+        AddIfExists(stages, "ptx_compiler_log", Path.Combine(codegenDir, "ptx_compiler.log"));
         AddIfExists(stages, "compiler_cmd", Path.Combine(codegenDir, "compiler.cmd"));
         if (!string.IsNullOrWhiteSpace(compilerLog))
         {

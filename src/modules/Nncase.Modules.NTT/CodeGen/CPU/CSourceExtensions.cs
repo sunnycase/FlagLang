@@ -108,7 +108,7 @@ public static class CSourceExtensions
         MaskVectorType vtype => $"vector<bool, {vtype.Lanes}>",
         PrimType ptype => ptype.ToC(),
         PagedAttentionKVCacheType => $"paged_attention_kv_cache_t",
-        PointerType => "uint8_t *",
+        PointerType pointerType => $"{pointerType.ElemType.ToC()} *",
         ReferenceType rtype => $"{rtype.ElemType.ToC()}",
         VectorType vtype => $"vector<{vtype.ElemType.ToC()}, {string.Join(",", vtype.Lanes)}>",
         _ => throw new NotSupportedException(dataType.ToString()),

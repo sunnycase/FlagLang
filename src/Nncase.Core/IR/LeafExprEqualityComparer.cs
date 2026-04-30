@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Nncase.IR.Distributed;
 using Nncase.IR.Shapes;
 
 namespace Nncase.IR;
@@ -47,6 +48,7 @@ public sealed class LeafExprEqualityComparer : IEqualityComparer<BaseExpr>
 
             // note think of primfunc/primfunc wrapper as a black box.
             (TIR.PrimFunction tx, TIR.PrimFunction ty) => ReferenceEquals(tx, ty),
+            (TIR.Sequential tx, TIR.Sequential ty) => tx.Count == ty.Count && tx.Parameters.Length == ty.Parameters.Length,
             (PrimFunctionWrapper tx, PrimFunctionWrapper ty) => ReferenceEquals(tx, ty),
             (Function tx, Function ty) => tx.Parameters.Length == ty.Parameters.Length,
             (Tuple tx, Tuple ty) => tx.Count == ty.Count,
@@ -70,6 +72,7 @@ public sealed class LeafExprEqualityComparer : IEqualityComparer<BaseExpr>
             (DimAt, DimAt) => true,
             (DimVar tx, DimVar ty) => tx.Equals(ty),
             (DimConst tx, DimConst ty) => tx.Equals(ty),
+            (ProgramIdDim tx, ProgramIdDim ty) => tx.Equals(ty),
             (DimPower tx, DimPower ty) => tx.Power.Equals(ty.Power),
             (DimProduct tx, DimProduct ty) => tx.Scale.Equals(ty.Scale) && tx.Operands.Length == ty.Operands.Length,
             (DimSum tx, DimSum ty) => tx.Bias.Equals(ty.Bias) && tx.Operands.Length == ty.Operands.Length,
@@ -98,6 +101,7 @@ public sealed class LeafExprEqualityComparer : IEqualityComparer<BaseExpr>
             Fusion x => x.GetHashCode(),
             IRBlock x => x.GetHashCode(),
             TIR.PrimFunction x => ReferenceEqualityComparer.Instance.GetHashCode(x),
+            TIR.Sequential x => HashCode.Combine(x.Count, x.Parameters.Length),
             PrimFunctionWrapper x => ReferenceEqualityComparer.Instance.GetHashCode(x),
             Tuple x => x.Count.GetHashCode(),
             Call x => x.Arguments.Length.GetHashCode(),
@@ -109,7 +113,7 @@ public sealed class LeafExprEqualityComparer : IEqualityComparer<BaseExpr>
             // Dimension
             AsDim or UnknownDim or DimFraction or DimRemainder or DimAbs or DimClamp or DimCompareAndSelect
             or DimMin or DimMax or DimPositive or DimAt => obj.GetType().GetHashCode(),
-            DimVar or DimConst => obj.GetHashCode(),
+            DimVar or DimConst or ProgramIdDim => obj.GetHashCode(),
             DimPower x => x.Power.GetHashCode(),
             DimProduct x => HashCode.Combine(x.Scale, x.Operands.Length),
             DimSum x => HashCode.Combine(x.Bias, x.Operands.Length),

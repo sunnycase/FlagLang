@@ -103,6 +103,18 @@ public sealed class UnitTestDumpper : TestClassBase
     }
 
     [Fact]
+    public void TestDumpDotIRSequentialBody()
+    {
+        var input = new Var("input", new TensorType(DataTypes.Float32, Shape.Scalar));
+        var body = new Sequential(new Expr[] { input + 1 }, new IVar[] { input });
+        var main = new Function("main", new IRBlock(body, input));
+        CompilerServices.InferenceType(main);
+
+        Dumpper.DumpDotIR(main, "sequential");
+        Assert.True(File.Exists(Path.Join(Dumpper.Directory, "sequential_main.dot")));
+    }
+
+    [Fact]
     public async Task TestDumpDataflowRewrite()
     {
         var weights = new Var("weights", new TensorType(DataTypes.Float32, new RankedShape(1, 3, 224, 224)));

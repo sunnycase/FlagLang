@@ -242,6 +242,7 @@ typedef struct {
     void (*handle_free)(clr_object_handle_t handle);
     clr_object_handle_t (*stream_create)(const nncase_stream_mt_t *mt,
                                          void *handle);
+    size_t (*last_error_get)(char *buffer, size_t buffer_length);
 
     // Hosting functions.
     void (*compiler_initialize)();
@@ -257,7 +258,7 @@ typedef struct {
 
     bool (*compiler_services_inference_type)(clr_object_handle_t expr);
 
-    void (*pass_manager_add_optimize_ttir)(clr_object_handle_t pass_manager,
+    bool (*pass_manager_add_optimize_ttir)(clr_object_handle_t pass_manager,
                                            int capability);
     clr_object_handle_t (*pass_manager_run)(clr_object_handle_t pass_manager,
                                             clr_object_handle_t module);
@@ -1026,6 +1027,25 @@ struct compiler_services {
     }
 };
 
+inline std::string last_error() {
+    auto length = nncase_clr_api()->last_error_get(nullptr, 0);
+    std::string text(length, '\0');
+    if (length != 0) {
+        nncase_clr_api()->last_error_get(text.data(), text.size());
+    }
+
+    return text;
+}
+
+inline void throw_last_error(std::string_view context) {
+    auto error = last_error();
+    if (error.empty()) {
+        throw std::runtime_error(std::string(context));
+    }
+
+    throw std::runtime_error(std::string(context) + ": " + error);
+}
+
 class pass_manager : public clr_object_base {
   public:
     using clr_object_base::clr_object_base;
@@ -1036,13 +1056,20 @@ class pass_manager : public clr_object_base {
     }
 
     void add_optimize_ttir(int capability) {
-        nncase_clr_api()->pass_manager_add_optimize_ttir(obj_.get(),
-                                                         capability);
+        if (!nncase_clr_api()->pass_manager_add_optimize_ttir(obj_.get(),
+                                                              capability)) {
+            throw_last_error("Failed to add optimize TTIR passes");
+        }
     }
 
     void run(ir_module &module) {
-        module = {std::in_place,
-                  nncase_clr_api()->pass_manager_run(obj_.get(), module.get())};
+        auto result =
+            nncase_clr_api()->pass_manager_run(obj_.get(), module.get());
+        if (!result) {
+            throw_last_error("Failed to run pass manager");
+        }
+
+        module = {std::in_place, result};
     }
 };
 } // namespace nncase::clr

@@ -75,6 +75,25 @@ public class UnitTestInteropIntegrated : TestClassBase
             Assert.Equal(new[] { 3.0f }, MemoryMarshal.Cast<byte, float>(outHostSlice.Span).ToArray());
         }
     }
+
+    [Fact]
+    public void TestLogicalAndKernelCodegen()
+    {
+        var type = new TensorType(DataTypes.Boolean, new[] { 1 });
+        var lhs = new Var("lhs", type);
+        var rhs = new Var("rhs", type);
+        var body = T.Sequential().Body(
+            TIR.F.NTT.VectorizedBinary(lhs, rhs, T.CreateBuffer(type, MemoryLocation.Output, out var outBuffer), None.Default, BinaryOp.LogicalAnd),
+            T.Return(outBuffer)).Build().With(parameters: new IVar[] { lhs, rhs });
+        var main = new PrimFunction("logical_and_prim", CPUTarget.Kind, body);
+        var module = new IRModule(main);
+        var funcGroups = module.Functions.ToArray().OfType<PrimFunction>().GroupBy(f => f.ModuleKind);
+        new BufferizeVisitor(funcGroups.First()).Bufferize();
+        var target = CompilerServices.GetTarget(CPUTarget.Kind);
+        var modelBuilder = new ModelBuilder(target, CompileOptions);
+
+        Assert.NotNull(modelBuilder.Build(module));
+    }
 }
 
 public class UnitTestInterop

@@ -102,6 +102,7 @@ public abstract class TIRSelectionPass : FunctionPass
 
             var outBuffers = block.Body switch
             {
+                Sequential => Array.Empty<Expr>(),
                 IR.Tuple tuple => tuple.Fields.AsValueEnumerable().Select(x => (Expr)ExprMemo[x]).ToArray(),
                 var body => ExprMemo[block.Body] switch
                 {
@@ -161,6 +162,11 @@ public abstract class TIRSelectionPass : FunctionPass
                     .Then(then)
                     .Else(@else))
                 .Build();
+        }
+
+        protected override BaseExpr VisitLeafSequential(Sequential expr, Unit context)
+        {
+            return expr;
         }
 
         private BaseExpr SelectCall(Call call, IReadOnlyList<BaseExpr> arguments)

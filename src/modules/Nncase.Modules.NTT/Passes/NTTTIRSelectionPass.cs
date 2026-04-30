@@ -159,6 +159,8 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
                 return TIR.F.NTT.Cast((Expr)arguments[0], output, cast.NewType, cast.CastMode, cast.VectorizeAxes, (Expr)arguments[1]);
             case IR.Tensors.Where where:
                 return TIR.F.NTT.Where((Expr)arguments[0], (Expr)arguments[1], (Expr)arguments[2], output);
+            case IR.Tensors.Broadcast:
+                return TIR.F.NTT.Expand((Expr)arguments[0], output);
             case IR.Tensors.Expand expand:
                 return TIR.F.NTT.Expand((Expr)arguments[0], output);
             case IR.NN.Erf erf:

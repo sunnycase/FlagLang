@@ -16,6 +16,7 @@
 #include "nncase/ntt/shape.h"
 #include "tensor.h"
 #include "tensor_traits.h"
+#include <type_traits>
 
 namespace nncase::ntt::tensor_ops {
 template <Tensor TTensor> struct tload {
@@ -50,5 +51,14 @@ basic_tensor<T, TShape, TStrides, IsView>::from_scalar(T value) noexcept {
 template <Tensor TTensor, Scalar T>
 constexpr TTensor tload(const T *src) noexcept {
     return tensor_ops::tload<TTensor>()(src);
+}
+
+template <class T>
+    requires(Scalar<T> || std::is_pointer_v<T>)
+constexpr auto as_tensor(T value) noexcept {
+    using element_type = std::remove_cv_t<T>;
+    auto result = make_tensor<element_type>(shape_t<>{});
+    result(shape_t<>{}) = static_cast<element_type>(value);
+    return result;
 }
 } // namespace nncase::ntt

@@ -11,6 +11,9 @@
                     BinaryOp.Min => "ops::min",
                     BinaryOp.Max => "ops::max",
                     BinaryOp.Pow => "ops::pow",
+                    BinaryOp.LogicalAnd => "ops::logical_and",
+                    BinaryOp.LogicalOr => "ops::logical_or",
+                    BinaryOp.LogicalXor => "ops::logical_xor",
                     _ => throw new NotSupportedException($"Unsupported binary: {op}."),
                 };
     string postOps = Model.Arguments[3].Symbol.Name;

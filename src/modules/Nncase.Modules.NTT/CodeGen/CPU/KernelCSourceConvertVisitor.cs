@@ -536,7 +536,7 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
                             postOps = $"<{lambda.Name}>";
                         }
 
-                        WriteWithProfiler($"cast{postOps}({VisitBuffer(args[0], local: true).Name}, {VisitBuffer(args[1], local: true).Name}, fixed_shape_v<{string.Join(",", cast.VectorizeAxes.ToArray())}>);\n");
+                        WriteWithProfiler($"cast{postOps}({VisitBuffer(args[0], local: true).Name}, {VisitBuffer(args[1], local: true).Name}, {FixedShapeValue(cast.VectorizeAxes.ToArray())});\n");
                     }
 
                     break;
@@ -755,7 +755,7 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
         else if (expr is TensorConst { Value: Tensor { ElementType: PointerType { ElemType: DataType }, Shape: { IsScalar: true } } pointer })
         {
             str = pointer.ToScalar<ulong>().ToString();
-            type = "uint8_t *";
+            type = pointer.ElementType.ToC();
         }
         else
         {
@@ -983,8 +983,21 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
             return new CSymbol(symbol.Type, $"{symbol.Name}.local()");
         }
 
+        if (NeedsRankZeroTensorMaterialization(buffer))
+        {
+            return new CSymbol($"decltype(ntt::as_tensor({symbol.Name}))", $"ntt::as_tensor({symbol.Name})");
+        }
+
         return symbol;
     }
+
+    private bool NeedsRankZeroTensorMaterialization(BaseExpr expr) =>
+        expr is not TIR.Buffer &&
+        expr is not Call { Target: IR.Shapes.AsTensor } &&
+        expr.CheckedType is TensorType { Shape.IsScalar: true };
+
+    private string FixedShapeValue(IReadOnlyList<int> dims) =>
+        dims.Count == 0 ? "shape_t<>{}" : $"fixed_shape_v<{string.Join(",", dims)}>";
 
     private void DeclBuffer(TIR.Buffer buffer, CSymbol symbol)
     {

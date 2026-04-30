@@ -51,6 +51,35 @@ public sealed class UnitTestTTIRToIRPass : TestClassBase
     }
 
     [Fact]
+    public async Task TerminalVoidReturnIsStrippedFromStatementBody()
+    {
+        var (ptr, value, mask, store) = CreateStore("terminal_void");
+        var body = new Sequential(new Expr[] { store, new Return(Array.Empty<Expr>()) }, new IVar[] { ptr, value, mask });
+        var primFunction = new PrimFunction("terminal_void_store", CUDATarget.Kind, body);
+
+        var converted = Assert.IsType<Function>(await new TTIRToIRPass().RunAsync(primFunction, new RunPassContext()));
+
+        var convertedBody = Assert.IsType<Sequential>(converted.Body.Body);
+        Assert.Equal(new Expr[] { store }, convertedBody.Fields.ToArray());
+        Assert.DoesNotContain(convertedBody.Fields.ToArray(), expr => expr is Return);
+    }
+
+    [Fact]
+    public async Task PureHelperReturnCanUseTerminalValue()
+    {
+        var lhs = new Var("lhs", TensorType.Scalar(DataTypes.Float32));
+        var rhs = new Var("rhs", TensorType.Scalar(DataTypes.Float32));
+        var sum = IR.F.Math.Binary(BinaryOp.Add, lhs, rhs);
+        var body = new Sequential(new Expr[] { sum, new Return(new Expr[] { sum }) }, new IVar[] { lhs, rhs });
+        var primFunction = new PrimFunction("pure_helper_return", CUDATarget.Kind, body);
+
+        var converted = Assert.IsType<Function>(await new TTIRToIRPass().RunAsync(primFunction, new RunPassContext()));
+
+        Assert.Same(sum, converted.Body.Body);
+        Assert.True(CompilerServices.InferenceType(converted), CompilerServices.Print(converted));
+    }
+
+    [Fact]
     public async Task GuardedStoreSurvivesTTIRToIRWithoutFlattening()
     {
         var (ptr, value, mask, store) = CreateStore("guarded");
@@ -75,7 +104,7 @@ public sealed class UnitTestTTIRToIRPass : TestClassBase
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => new TTIRToIRPass().RunAsync(primFunction, new RunPassContext()));
-        Assert.Contains("only top-level return statements", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("side-effecting statements", ex.Message, StringComparison.Ordinal);
     }
 
     private static (Var Ptr, Var Value, Var Mask, Expr Store) CreateStore(string name)

@@ -265,6 +265,24 @@ template <class T1, class T2> struct pow {
     }
 };
 
+template <class T1, class T2> struct logical_and {
+    constexpr auto operator()(const T1 &v1, const T2 &v2) const noexcept {
+        return v1 && v2;
+    }
+};
+
+template <class T1, class T2> struct logical_or {
+    constexpr auto operator()(const T1 &v1, const T2 &v2) const noexcept {
+        return v1 || v2;
+    }
+};
+
+template <class T1, class T2> struct logical_xor {
+    constexpr auto operator()(const T1 &v1, const T2 &v2) const noexcept {
+        return static_cast<bool>(v1) != static_cast<bool>(v2);
+    }
+};
+
 template <class T, class B> struct swishb {
     constexpr T operator()(const T &v, const B &beta) const noexcept;
 };

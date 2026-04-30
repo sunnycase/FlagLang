@@ -414,6 +414,8 @@ def test_native_compile_helper_receives_parsed_capability_and_options(monkeypatc
     assert captured["options"]["cuobjdump"] == nvidia_compiler.knobs.nvidia.cuobjdump.path
     assert captured["options"]["enable_auto_dist"] is False
     assert "ntt_cu" in captured["options"]["stage_names"]
+    assert "ptx" in captured["options"]["stage_names"]
+    assert "ptx_compiler_cmd" in captured["options"]["stage_names"]
     assert "compiler_log" in captured["options"]["stage_names"]
 
 
@@ -427,12 +429,13 @@ def test_native_compile_result_cache_artifacts_uses_truthful_stage_names():
             "after_compile": "compiled module text",
             "tir": "tir module text",
             "ntt_cu": "__global__ void block_entry() {}",
+            "ptx": ".visible .entry flaglang_native_entry() { ret; }",
         },
         compiler_log="nvcc --gpu-architecture=sm_80",
     )
 
     artifacts = result.cache_artifacts()
-    assert "ptx" not in artifacts
+    assert artifacts["ptx"] == ".visible .entry flaglang_native_entry() { ret; }"
     assert artifacts["triton_tir"] == "triton module text"
     assert artifacts["compiler_log"] == "nvcc --gpu-architecture=sm_80"
     assert result.suppress_stage_file is True
@@ -844,12 +847,28 @@ def _dump_text(dump_dir, suffix):
     return _dump_file(dump_dir, suffix).read_text()
 
 
+def _native_stage_file(dump_dir, suffix):
+    matches = sorted(
+        path
+        for path in Path(dump_dir).rglob(f"*.{suffix}")
+        if path.is_file() and "CodeGen" not in path.parts
+    )
+    assert matches, f"missing native stage dump '*.{suffix}' under {dump_dir}"
+    return matches[-1]
+
+
+def _native_stage_text(dump_dir, suffix):
+    return _native_stage_file(dump_dir, suffix).read_text()
+
+
 def test_native_cuda_vector_add_forced_compile_dump_regression(monkeypatch):
     torch = _torch_cuda()
     dump_dir = _repo_dump_dir("test_native_cuda_vector_add_forced_compile_dump_regression")
+    repo_root = Path(__file__).resolve().parents[4]
+    relative_dump_dir = dump_dir.relative_to(repo_root)
     monkeypatch.setenv("TRITON_ALWAYS_COMPILE", "1")
     monkeypatch.setenv("TRITON_KERNEL_DUMP", "1")
-    monkeypatch.setenv("TRITON_DUMP_DIR", str(dump_dir))
+    monkeypatch.setenv("TRITON_DUMP_DIR", str(relative_dump_dir))
 
     n_elements = 4096
     block_size = 256
@@ -865,7 +884,7 @@ def test_native_cuda_vector_add_forced_compile_dump_regression(monkeypatch):
         assert torch.max(torch.abs(output - (x + y))).item() == 0.0
 
     run_once()
-    first_cubin = _dump_file(dump_dir, "cubin")
+    first_cubin = _native_stage_file(dump_dir, "cubin")
     first_cubin_mtime = first_cubin.stat().st_mtime_ns
 
     required_passes = [
@@ -885,16 +904,19 @@ def test_native_cuda_vector_add_forced_compile_dump_regression(monkeypatch):
     assert "AutoDistributedPass" not in pass_dump_text
 
     native_stage_files = [path for path in Path(dump_dir).rglob("*") if path.is_file() and "CodeGen" not in path.parts]
-    for forbidden_suffix in (".ttir", ".ttgir", ".llir", ".ptx"):
+    for forbidden_suffix in (".ttir", ".ttgir", ".llir"):
         assert not [path for path in native_stage_files if path.name.endswith(forbidden_suffix)]
 
-    triton_tir = _dump_text(dump_dir, "triton_tir")
-    nncase_ir = _dump_text(dump_dir, "nncase_ir")
-    after_compile = _dump_text(dump_dir, "after_compile")
-    tir = _dump_text(dump_dir, "tir")
-    ntt_cu = _dump_text(dump_dir, "ntt_cu")
-    compiler_cmd = _dump_text(dump_dir, "compiler_cmd")
-    cubin = _dump_file(dump_dir, "cubin").read_bytes()
+    triton_tir = _native_stage_text(dump_dir, "triton_tir")
+    nncase_ir = _native_stage_text(dump_dir, "nncase_ir")
+    after_compile = _native_stage_text(dump_dir, "after_compile")
+    tir = _native_stage_text(dump_dir, "tir")
+    ntt_cu = _native_stage_text(dump_dir, "ntt_cu")
+    ptx = _native_stage_text(dump_dir, "ptx")
+    sass = _native_stage_text(dump_dir, "sass")
+    ptx_compiler_cmd = _native_stage_text(dump_dir, "ptx_compiler_cmd")
+    compiler_cmd = _native_stage_text(dump_dir, "compiler_cmd")
+    cubin = _native_stage_file(dump_dir, "cubin").read_bytes()
 
     for lowered_stage in (nncase_ir, after_compile, tir):
         assert "Triton.Load" not in lowered_stage
@@ -905,10 +927,14 @@ def test_native_cuda_vector_add_forced_compile_dump_regression(monkeypatch):
     assert triton_tir != nncase_ir
     assert "__global__" in ntt_cu
     assert "flaglang_native_entry" in ntt_cu
+    assert ".visible .entry flaglang_native_entry" in ptx
+    assert "Function:flaglang_native_entry" in sass
+    assert "thread_main.cu" in ptx_compiler_cmd
+    assert "-ptx" in ptx_compiler_cmd
     assert "nvcc" in compiler_cmd or "clang" in compiler_cmd
     assert cubin.startswith(b"\x7fELF")
 
     time.sleep(0.1)
     run_once()
-    second_cubin_mtime = _dump_file(dump_dir, "cubin").stat().st_mtime_ns
+    second_cubin_mtime = _native_stage_file(dump_dir, "cubin").stat().st_mtime_ns
     assert second_cubin_mtime > first_cubin_mtime

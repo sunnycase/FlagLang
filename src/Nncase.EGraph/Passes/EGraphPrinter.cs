@@ -282,6 +282,8 @@ public partial class EGraphPrinter
 
         protected override string VisitIf(IR.If expr) => "If";
 
+        protected override string VisitSequential(TIR.Sequential expr) => $"Sequential fields={expr.Fields.Length} parameters={expr.Parameters.Length}";
+
         protected override string VisitTuple(IR.Tuple expr) => "Tuple";
 
         protected override string VisitNone(None expr) => "None";

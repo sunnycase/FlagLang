@@ -45,6 +45,7 @@ public static class PassUtility
             or IR.NN.PagedAttention
             or IR.NN.Qwen3MoE
             or IR.Tensors.Cast
+            or IR.Tensors.Broadcast
             or IR.Tensors.Concat
             or IR.Tensors.ConstantOfShape
             or IR.Tensors.Expand

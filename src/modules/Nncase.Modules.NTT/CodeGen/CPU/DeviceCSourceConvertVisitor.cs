@@ -421,7 +421,7 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
                         postOps = $"<{lambda.Name}>";
                     }
 
-                    IndentScope.Writer.IndWrite($"cast{postOps}({arguments[0].Name}, {arguments[1].Name}, fixed_shape_v<{string.Join(",", cast.VectorizeAxes.ToArray())}>);\n");
+                    IndentScope.Writer.IndWrite($"cast{postOps}({arguments[0].Name}, {arguments[1].Name}, {FixedShapeValue(cast.VectorizeAxes.ToArray())});\n");
                 }
 
                 break;
@@ -664,6 +664,9 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
 
         return $"(({op.NewType.ToC()}){input.Name})";
     }
+
+    private static string FixedShapeValue(IReadOnlyList<int> dims) =>
+        dims.Count == 0 ? "shape_t<>{}" : $"fixed_shape_v<{string.Join(",", dims)}>";
 
     private static BaseExpr UnwrapDimValue(BaseExpr value)
     {

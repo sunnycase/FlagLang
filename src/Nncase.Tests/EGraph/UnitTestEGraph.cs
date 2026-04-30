@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Nncase.IR;
+using Nncase.IR.Distributed;
 using Nncase.IR.Math;
 using Nncase.Passes;
 using Nncase.Tests.TestFixture;
@@ -124,6 +125,34 @@ public class UnitTestEGraph : TestClassBase
     }
 
     [Fact]
+    public void TestEgraphDumpSequential()
+    {
+        Var input = "input";
+        var sequential = new TIR.Sequential(new Expr[] { input + 1 }, new IVar[] { input });
+        var graph = new EGraph();
+        graph.Add(sequential);
+
+        using var stream = new MemoryStream();
+        EGraphPrinter.DumpEgraphAsDot(graph, stream);
+        stream.Position = 0;
+        using var reader = new StreamReader(stream);
+        Assert.Contains("Sequential fields=1 parameters=1", reader.ReadToEnd(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TestEgraphExtractSequential()
+    {
+        Var input = "input";
+        var sequential = new TIR.Sequential(new Expr[] { input + 1 }, new IVar[] { input });
+        Assert.True(CompilerServices.InferenceType(sequential));
+
+        var graph = new EGraph();
+        var root = graph.Add(sequential);
+
+        Assert.IsType<TIR.Sequential>(graph.Extract(root, CompileOptions, null));
+    }
+
+    [Fact]
     public void TestEgraphMerge()
     {
         var graph = new EGraph();
@@ -223,5 +252,32 @@ public class UnitTestEGraph : TestClassBase
         Assert.Equal(LeafExprEqualityComparer.Instance.GetHashCode(f1), LeafExprEqualityComparer.Instance.GetHashCode(f2));
         Assert.False(LeafExprEqualityComparer.Instance.Equals(f1, f3));
         Assert.NotEqual(LeafExprEqualityComparer.Instance.GetHashCode(f1), LeafExprEqualityComparer.Instance.GetHashCode(f3));
+    }
+
+    [Fact]
+    public void TestLeafExprEqualityComparerProgramIdDim()
+    {
+        var pid0A = new ProgramIdDim(0);
+        var pid0B = new ProgramIdDim(0);
+        var pid1 = new ProgramIdDim(1);
+
+        Assert.True(LeafExprEqualityComparer.Instance.Equals(pid0A, pid0B));
+        Assert.Equal(LeafExprEqualityComparer.Instance.GetHashCode(pid0A), LeafExprEqualityComparer.Instance.GetHashCode(pid0B));
+        Assert.False(LeafExprEqualityComparer.Instance.Equals(pid0A, pid1));
+        Assert.NotEqual(LeafExprEqualityComparer.Instance.GetHashCode(pid0A), LeafExprEqualityComparer.Instance.GetHashCode(pid1));
+    }
+
+    [Fact]
+    public void TestLeafExprEqualityComparerSequential()
+    {
+        Var input = "input";
+        var seqA = new TIR.Sequential(new Expr[] { input + 1 }, new IVar[] { input });
+        var seqB = new TIR.Sequential(new Expr[] { input + 2 }, new IVar[] { input });
+        var seqC = new TIR.Sequential(new Expr[] { input + 1, input + 2 }, new IVar[] { input });
+
+        Assert.True(LeafExprEqualityComparer.Instance.Equals(seqA, seqB));
+        Assert.Equal(LeafExprEqualityComparer.Instance.GetHashCode(seqA), LeafExprEqualityComparer.Instance.GetHashCode(seqB));
+        Assert.False(LeafExprEqualityComparer.Instance.Equals(seqA, seqC));
+        Assert.NotEqual(LeafExprEqualityComparer.Instance.GetHashCode(seqA), LeafExprEqualityComparer.Instance.GetHashCode(seqC));
     }
 }

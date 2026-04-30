@@ -543,7 +543,7 @@ def compile(src, target=None, options=None, _env_vars=None):
             if not suppress_stage_file:
                 fn_dump_manager.put(_serialize_ir_for_storage(next_module, ext), ir_filename)
             if ext == "cubin":
-                sass = get_sass(next_module)
+                sass = get_sass(next_module, metadata.get("name"))
                 fn_dump_manager.put(sass, file_name + ".sass")
         cache_artifacts = getattr(next_module, "cache_artifacts", None)
         if callable(cache_artifacts):

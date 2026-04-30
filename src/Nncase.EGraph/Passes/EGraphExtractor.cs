@@ -308,6 +308,11 @@ internal sealed class SatExprBuildVisitor
             case IR.Tuple tp:
                 expr = tp.With(fields: children);
                 break;
+            case TIR.Sequential sequential:
+                expr = sequential.With(
+                    fields: children[..sequential.Count].Cast<Expr>().ToArray(),
+                    parameters: children[sequential.Count..].Cast<IVar>().ToArray());
+                break;
             case Marker mk:
                 expr = mk.With(target: (Expr)children[0], attribute: children[1], metadata: mk.Metadata);
                 break;

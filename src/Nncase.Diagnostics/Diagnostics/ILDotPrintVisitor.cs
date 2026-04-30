@@ -343,6 +343,55 @@ internal sealed class ILDotPrintVisitor : ExprFunctor<ILDotOption, string>
         return result;
     }
 
+    protected override ILDotOption VisitSequential(TIR.Sequential expr)
+    {
+        if (!_exprMemo.TryGetValue(expr, out var result))
+        {
+            var id = _idCounter++;
+            string exprId = "\"" + id.ToString() + "\"";
+
+            var table = new DotHtmlTable
+            {
+                BorderWidth = 0,
+                CellBorderWidth = 1,
+                CellSpacing = 0,
+            };
+
+            var connect_list = new List<(BaseExpr, string)>();
+
+            table.AddRow(row =>
+            {
+                row.AddCell($"Sequential fields={expr.Fields.Length} parameters={expr.Parameters.Length}");
+                int count = 0;
+                foreach (var child in expr.Fields)
+                {
+                    AddSequentialCell(row, child, ref count, connect_list);
+                }
+
+                foreach (var parameter in expr.Parameters)
+                {
+                    AddSequentialCell(row, (Expr)parameter, ref count, connect_list);
+                }
+            });
+
+            var dotNode = _dotGraph.Nodes.Add(exprId);
+            dotNode.ToPlainHtmlNode(table);
+
+            foreach (var (child, port_name) in connect_list)
+            {
+                _dotGraph.Edges.Add(Visit(child).DotNode, dotNode, edge =>
+                {
+                    edge.Head.Endpoint.Port = new DotEndpointPort(port_name);
+                });
+            }
+
+            result = new(dotNode);
+            _exprMemo.Add(expr, result);
+        }
+
+        return result;
+    }
+
     protected override ILDotOption VisitOp(Op expr)
     {
         if (!_exprMemo.TryGetValue(expr, out var result))
@@ -724,6 +773,17 @@ internal sealed class ILDotPrintVisitor : ExprFunctor<ILDotOption, string>
         string dump_path = Path.Combine(dumpDir, $"{nprefix}{name}.dot");
         dotGraph.Build();
         dotGraph.SaveToFile(dump_path);
+    }
+
+    private void AddSequentialCell(DotHtmlTableRow row, BaseExpr child, ref int count, List<(BaseExpr Child, string PortName)> connectList)
+    {
+        var childnode = Visit(child);
+        var portName = $"P{count++}";
+        row.AddCell(childnode.IsDotNode ? string.Empty : childnode.Str, cell => cell.PortName = portName);
+        if (childnode.IsDotNode)
+        {
+            connectList.Add((child, portName));
+        }
     }
 
     private void VisitArray<T>(ReadOnlySpan<T> exprs)
