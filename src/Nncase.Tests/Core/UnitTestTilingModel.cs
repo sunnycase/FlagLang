@@ -287,6 +287,35 @@ public sealed class UnitTestTilingModel : TestClassBase
     }
 
     [Fact]
+    public void TensorUtilitiesRejectsUnrankedExplicitStorageBeforeContiguousSizing()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(1024));
+        var placement = new Placement([128], "t");
+        var layout = DistributionLayout.FromAxisPolicies(tensorType, [SBP.S(0)], placement);
+        var unrankedStorage = new StorageLayout(
+            "UnrankedStorage",
+            Shape.Unranked,
+            new IndexMapDescriptor(
+                "LogicalToPhysical",
+                ["l0"],
+                [new IndexMapBinding("p0", IndexExpr.Var("l0"))],
+                ["0<=l0<1"],
+                ["0<=p0<1"],
+                Inverse: "LogicalToPhysical"));
+        var distributedType = new DistributedType(
+            tensorType,
+            [SBP.S(0)],
+            placement,
+            ExplicitDistributionLayout: layout,
+            ExplicitStorageLayout: unrankedStorage);
+
+        var ex = Assert.Throws<NotSupportedException>(() => TensorUtilities.GetTensorSizeAndContiguousStrides(tensorType, distributedType));
+        Assert.Contains(nameof(TensorUtilities.GetTensorSizeAndContiguousStrides), ex.Message, StringComparison.Ordinal);
+        Assert.Contains("UnrankedStorage", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("DistributionLayout", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExplicitDistributionLayoutVerifierRejectsOwnerDomainOutsidePlacement()
     {
         var tensorType = new TensorType(DataTypes.Float32, new RankedShape(1024));

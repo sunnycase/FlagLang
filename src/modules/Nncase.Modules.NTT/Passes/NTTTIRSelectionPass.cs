@@ -84,6 +84,9 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             case IR.NTT.VectorizedBinary vectorizedBinary:
                 return TIR.F.NTT.VectorizedBinary((Expr)arguments[0], (Expr)arguments[1], output, (Expr)arguments[2], vectorizedBinary.BinaryOp, vectorizedBinary.LhsVectorizedAxes, vectorizedBinary.LhsPadedNums, vectorizedBinary.RhsVectorizedAxes, vectorizedBinary.RhsPadedNums);
             case IR.NTT.VectorizedMatMul vectorizedMatMul when GetArgumentType(arguments[0]) is DistributedType dta && GetArgumentType(arguments[1]) is DistributedType dtb:
+                ValidateLegacyAxisPolicySelection(dta, "VectorizedMatMul lhs");
+                ValidateLegacyAxisPolicySelection(dtb, "VectorizedMatMul rhs");
+                ValidateLegacyAxisPolicySelection(output, "VectorizedMatMul output");
                 var dinfo = vectorizedMatMul.GetDimInfo(dta.TensorType.Shape.Rank, dtb.TensorType.Shape.Rank);
                 if (dta.AxisPolicies[^2..].AsValueEnumerable().All(x => x is SBPSplit) &&
                     dtb.AxisPolicies[^2..].AsValueEnumerable().All(x => x is SBPSplit) &&
@@ -98,6 +101,9 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
                 }
 
             case IR.Math.MatMul when GetArgumentType(arguments[0]) is DistributedType dta && GetArgumentType(arguments[1]) is DistributedType dtb:
+                ValidateLegacyAxisPolicySelection(dta, "MatMul lhs");
+                ValidateLegacyAxisPolicySelection(dtb, "MatMul rhs");
+                ValidateLegacyAxisPolicySelection(output, "MatMul output");
                 if (dta.AxisPolicies[^2..].AsValueEnumerable().All(x => x is SBPSplit) &&
                     dtb.AxisPolicies[^2..].AsValueEnumerable().All(x => x is SBPSplit) &&
                     dta.AxisPolicies[^2] == dtb.AxisPolicies[^2] &&
@@ -1367,7 +1373,10 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         var bitcast = outBuffer.DistributedType is DistributedType ? false : true;
         if (!bitcast)
         {
-            if (inBuffer.DistributedType!.AxisPolicies.Where(sbp => sbp is not SBPBroadCast).ToArray().SequenceEqual(outBuffer.DistributedType!.AxisPolicies.Where(sbp => sbp is not SBPBroadCast).ToArray()))
+            var inDistributedType = inBuffer.DistributedType ?? throw new NotSupportedException("Reshape distributed output requires distributed buffer input.");
+            var outDistributedType = outBuffer.DistributedType!;
+            ValidateDistributedViewLayoutForReshape(inBuffer, outBuffer, inDistributedType, outDistributedType);
+            if (inDistributedType.AxisPolicies.Where(sbp => sbp is not SBPBroadCast).ToArray().SequenceEqual(outDistributedType.AxisPolicies.Where(sbp => sbp is not SBPBroadCast).ToArray()))
             {
                 bitcast = true;
             }
@@ -1443,8 +1452,10 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         switch (call[IR.Distributed.Boxing.Input].CheckedType, boxing.NewType)
         {
             case (TensorType, DistributedType distTensorType):
+                ValidateLegacyAxisPolicySelection(distTensorType, "TensorLoad output");
                 return TIR.F.NTT.TensorLoad(output, (Expr)arguments[0], distTensorType.AxisPolicies, distTensorType.Placement);
             case (DistributedType distTensorType, TensorType):
+                ValidateLegacyAxisPolicySelection(distTensorType, "TensorStore input");
                 return TIR.F.NTT.TensorStore((Expr)arguments[0], output, distTensorType.AxisPolicies, distTensorType.Placement);
             case (DistributedType inType, DistributedType outType):
                 return GenerateReshard((Expr)arguments[0], ref output, inType, outType);
@@ -1471,6 +1482,41 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
 #endif
 
         return TIR.F.NTT.GatherReduceScatter(input, output, inType, outType);
+    }
+
+    private void ValidateDistributedViewLayoutForReshape(TIR.Buffer input, TIR.Buffer output, DistributedType inputType, DistributedType outputType)
+    {
+        if (!inputType.HasExplicitLayout && !outputType.HasExplicitLayout)
+        {
+            return;
+        }
+
+        LayoutVerifier.VerifyEquivalentForView(
+            inputType,
+            outputType,
+            $"NTT GenerateReshape bitcast {input.Name}->{output.Name}, InputShape={FormatBufferShape(input)}, OutputShape={FormatBufferShape(output)}");
+    }
+
+    private string FormatBufferShape(TIR.Buffer buffer) =>
+        $"[{string.Join(",", buffer.Dimensions.ToArray().Select(dimension => dimension.ToString()))}]";
+
+    private void ValidateLegacyAxisPolicySelection(Expr expr, string context)
+    {
+        if (expr is TIR.Buffer { DistributedType: { } distributedType })
+        {
+            ValidateLegacyAxisPolicySelection(distributedType, context);
+        }
+        else if (expr.CheckedType is DistributedType checkedDistributedType)
+        {
+            ValidateLegacyAxisPolicySelection(checkedDistributedType, context);
+        }
+    }
+
+    private void ValidateLegacyAxisPolicySelection(DistributedType distributedType, string context)
+    {
+        LayoutVerifier.VerifyEquivalentToLegacyAxisPolicies(
+            distributedType,
+            $"NTT TIR selection {context}");
     }
 
     private bool TryGenerateGatherThreadsReshard(TIR.Buffer inBuffer, ref Expr output, DistributedType inType, DistributedType outType, [MaybeNullWhen(false)] out Expr newCall)

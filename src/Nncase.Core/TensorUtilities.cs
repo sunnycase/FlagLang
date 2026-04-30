@@ -515,9 +515,18 @@ public static class TensorUtilities
             dims = ((RankedShape)tensorType.Shape).Dimensions.ToArray();
             strides = GetDefaultStrides(dims);
         }
-        else if (distributedType.ExplicitStorageLayout is { LogicalShape: RankedShape storageShape })
+        else if (distributedType.ExplicitStorageLayout is { } storageLayout)
         {
             VerifyExplicitStorageLayoutForContiguousAllocation(distributedType, nameof(GetTensorSizeAndContiguousStrides));
+            if (storageLayout.LogicalShape is not RankedShape storageShape)
+            {
+                throw new NotSupportedException(CreateExplicitStorageAllocationMessage(
+                    distributedType,
+                    storageLayout,
+                    nameof(GetTensorSizeAndContiguousStrides),
+                    $"StorageLayout {storageLayout.Kind} logical shape must be ranked, got {storageLayout.LogicalShape}."));
+            }
+
             dims = storageShape.Dimensions.ToArray();
             strides = GetDefaultStrides(dims);
         }
@@ -545,7 +554,11 @@ public static class TensorUtilities
         var storageLayout = distributedType.ExplicitStorageLayout!;
         if (storageLayout.LogicalShape.IsUnranked)
         {
-            throw new NotSupportedException($"{context} cannot allocate explicit StorageLayout {storageLayout.Kind} with unranked logical shape. Layout={distributedType.DistributionLayout.Kind}, TensorShape={distributedType.TensorType.Shape}, Placement={distributedType.Placement}.");
+            throw new NotSupportedException(CreateExplicitStorageAllocationMessage(
+                distributedType,
+                storageLayout,
+                context,
+                $"StorageLayout {storageLayout.Kind} logical shape must be ranked, got {storageLayout.LogicalShape}."));
         }
 
         try

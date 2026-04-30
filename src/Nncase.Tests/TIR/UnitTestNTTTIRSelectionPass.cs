@@ -213,6 +213,49 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
     }
 
     [Fact]
+    public async Task ReshapeBitcastAcceptsEquivalentExplicitLayouts()
+    {
+        var shape = new RankedShape(128);
+        var inputType = CreateExplicitSbpDistributedType(shape);
+        var outputType = CreateExplicitSbpDistributedType(shape);
+
+        var lowered = await RunReshapeSelectionAsync(CompileOptions, inputType, outputType);
+        var calls = ExprCollector.Collect(lowered.Body).OfType<Call>().ToArray();
+
+        Assert.DoesNotContain(calls, call => call.Target is Nncase.TIR.NTT.Reshape);
+    }
+
+    [Fact]
+    public async Task ReshapeBitcastRejectsExplicitDistributionLayoutMismatch()
+    {
+        var shape = new RankedShape(128);
+        var inputType = CreateExplicitSbpDistributedType(shape);
+        var outputType = CreateExplicitSbpDistributedType(shape, distributionKind: "DifferentExplicitDistribution");
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => RunReshapeSelectionAsync(CompileOptions, inputType, outputType));
+
+        Assert.Contains("GenerateReshape", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("distribution layouts", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("DifferentExplicitDistribution", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReshapeBitcastRejectsExplicitStorageLayoutMismatch()
+    {
+        var shape = new RankedShape(128);
+        var inputType = CreateExplicitSbpDistributedType(shape);
+        var outputType = CreateExplicitSbpDistributedType(shape, storageLayoutFactory: localShape => CreateReverseRegisterStorageLayout(localShape));
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => RunReshapeSelectionAsync(CompileOptions, inputType, outputType));
+
+        Assert.Contains("GenerateReshape", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("storage layouts", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("ReverseLocal", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RegisterDirectAffineLowersUnaryCastWhereWithoutAddressableIntermediates()
     {
         const int blockSize = 256;
@@ -603,6 +646,40 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
                 [$"0<=l0<{extent}"],
                 [$"0<=p0<{extent}"],
                 Inverse: "LogicalToPhysical"));
+    }
+
+    private static DistributedType CreateExplicitSbpDistributedType(
+        Shape shape,
+        string? distributionKind = null,
+        Func<Shape, StorageLayout>? storageLayoutFactory = null)
+    {
+        var tensorType = new TensorType(DataTypes.Float32, shape);
+        var axisPolicies = new IRArray<SBP>(new SBP[] { SBP.S(0) });
+        var placement = new Placement([4], "t");
+        var distributionLayout = DistributionLayout.FromAxisPolicies(tensorType, axisPolicies, placement);
+        if (distributionKind is not null)
+        {
+            distributionLayout = distributionLayout with { Kind = distributionKind };
+        }
+
+        return new DistributedType(
+            tensorType,
+            axisPolicies,
+            placement,
+            ExplicitDistributionLayout: distributionLayout,
+            ExplicitStorageLayout: storageLayoutFactory?.Invoke(distributionLayout.LocalShape) ?? StorageLayout.Identity(distributionLayout.LocalShape));
+    }
+
+    private static async Task<PrimFunction> RunReshapeSelectionAsync(CompileOptions compileOptions, DistributedType inputType, DistributedType outputType)
+    {
+        var input = new Var("input", inputType.TensorType);
+        var boxed = Nncase.IR.F.Distributed.Boxing(input, inputType);
+        var reshape = Nncase.IR.F.Tensors.Reshape(boxed, outputType.TensorType.Shape);
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(reshape, input));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+        reshape.CheckedType = outputType;
+
+        return Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(compileOptions, CUDATarget.Kind).RunAsync(function, new()));
     }
 
     private static Dimension GetSingleBufferIndex(Call bufferAccess, ParameterInfo indicesParameter)

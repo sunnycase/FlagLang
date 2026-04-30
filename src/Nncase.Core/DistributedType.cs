@@ -305,6 +305,52 @@ public static class LayoutVerifier
         VerifyForwardInverseComposition(distributionLayout, $"layout {distributionLayout.Kind}", requireProof: true);
     }
 
+    public static void VerifyEquivalentForView(DistributedType input, DistributedType output, string context)
+    {
+        Verify(input, $"{context} input");
+        Verify(output, $"{context} output");
+
+        if (input.Partial != output.Partial)
+        {
+            ThrowViewCompatibility(input, output, context, $"partial flags differ: input={input.Partial}, output={output.Partial}");
+        }
+
+        if (!IsSamePlacement(input.Placement, output.Placement))
+        {
+            ThrowViewCompatibility(input, output, context, $"placements differ: input={input.Placement}, output={output.Placement}");
+        }
+
+        if (!input.AxisPolicies.SequenceEqual(output.AxisPolicies))
+        {
+            ThrowViewCompatibility(input, output, context, $"AxisPolicies differ: input=({string.Join(',', input.AxisPolicies)}), output=({string.Join(',', output.AxisPolicies)})");
+        }
+
+        if (!IsSameDistributionLayout(input.DistributionLayout, output.DistributionLayout))
+        {
+            ThrowViewCompatibility(input, output, context, "explicit distribution layouts are not equivalent");
+        }
+
+        if (!IsSameStorageLayout(input.StorageLayout, output.StorageLayout))
+        {
+            ThrowViewCompatibility(input, output, context, "explicit storage layouts are not equivalent");
+        }
+    }
+
+    public static void VerifyEquivalentToLegacyAxisPolicies(DistributedType distributedType, string context)
+    {
+        if (!distributedType.HasExplicitLayout)
+        {
+            return;
+        }
+
+        var legacyType = new DistributedType(
+            distributedType.TensorType,
+            distributedType.AxisPolicies,
+            distributedType.Placement,
+            distributedType.Partial);
+        VerifyEquivalentForView(distributedType, legacyType, $"{context} legacy AxisPolicies compatibility");
+    }
+
     private static void VerifyMap(IndexMapDescriptor map, string expectedInverse, string layoutKind)
     {
         if (map.Outputs.Count == 0)
@@ -695,6 +741,103 @@ public static class LayoutVerifier
         }
     }
 
+    private static void ThrowViewCompatibility(DistributedType input, DistributedType output, string context, string reason) =>
+        throw new NotSupportedException(
+            $"{context} requires layout-equivalent distributed view/bitcast operands. Reason: {reason}. " +
+            $"Input={FormatDistributedTypeForView(input)}; Output={FormatDistributedTypeForView(output)}");
+
+    private static string FormatDistributedTypeForView(DistributedType type) =>
+        $"Shape={type.TensorType.Shape}, AxisPolicies=({string.Join(',', type.AxisPolicies)}), Placement={type.Placement}, Partial={type.Partial}, " +
+        $"Distribution={FormatDistributionLayout(type.DistributionLayout)}, Storage={FormatStorageLayout(type.StorageLayout)}";
+
+    private static string FormatDistributionLayout(DistributionLayout layout) =>
+        $"{layout.Kind}, LocalShape={layout.LocalShape}, Valid={layout.ValidPredicate}, Attrs=[{FormatStringArray(layout.Attributes)}], " +
+        $"GlobalToOwnerLocal={layout.GlobalToOwnerLocal}, OwnerLocalToGlobal={layout.OwnerLocalToGlobal}";
+
+    private static string FormatStorageLayout(StorageLayout layout) =>
+        $"{layout.Kind}, LogicalShape={layout.LogicalShape}, Valid={layout.ValidPredicate}, Attrs=[{FormatStringArray(layout.Attributes)}], " +
+        $"LogicalToPhysical={layout.LogicalToPhysical}, ViewMap={layout.ViewMap?.ToString() ?? "<none>"}";
+
+    private static string FormatStringArray(IRArray<string>? values) =>
+        values is { Count: > 0 } ? string.Join(", ", values) : string.Empty;
+
+    private static bool IsSamePlacement(Placement lhs, Placement rhs) =>
+        lhs.Name == rhs.Name &&
+        lhs.HierarchyKind == rhs.HierarchyKind &&
+        lhs.Hierarchy.SequenceEqual(rhs.Hierarchy);
+
+    private static bool IsSameDistributionLayout(DistributionLayout lhs, DistributionLayout rhs) =>
+        lhs.Kind == rhs.Kind &&
+        lhs.LocalShape == rhs.LocalShape &&
+        lhs.ValidPredicate == rhs.ValidPredicate &&
+        IsSameStringArray(lhs.Attributes, rhs.Attributes) &&
+        IsSameIndexMap(lhs.GlobalToOwnerLocal, rhs.GlobalToOwnerLocal) &&
+        IsSameIndexMap(lhs.OwnerLocalToGlobal, rhs.OwnerLocalToGlobal);
+
+    private static bool IsSameStorageLayout(StorageLayout lhs, StorageLayout rhs) =>
+        lhs.Kind == rhs.Kind &&
+        lhs.LogicalShape == rhs.LogicalShape &&
+        lhs.ValidPredicate == rhs.ValidPredicate &&
+        IsSameStringArray(lhs.Attributes, rhs.Attributes) &&
+        IsSameIndexMap(lhs.LogicalToPhysical, rhs.LogicalToPhysical) &&
+        IsSameNullableIndexMap(lhs.ViewMap, rhs.ViewMap);
+
+    private static bool IsSameNullableIndexMap(IndexMapDescriptor? lhs, IndexMapDescriptor? rhs)
+    {
+        if (lhs is null || rhs is null)
+        {
+            return lhs is null && rhs is null;
+        }
+
+        return IsSameIndexMap(lhs, rhs);
+    }
+
+    private static bool IsSameIndexMap(IndexMapDescriptor lhs, IndexMapDescriptor rhs) =>
+        lhs.Name == rhs.Name &&
+        lhs.Predicate == rhs.Predicate &&
+        lhs.Inverse == rhs.Inverse &&
+        IsSameStringArray(lhs.Inputs, rhs.Inputs) &&
+        IsSameStringArray(lhs.InputDomain, rhs.InputDomain) &&
+        IsSameStringArray(lhs.OutputDomain, rhs.OutputDomain) &&
+        lhs.Outputs.Count == rhs.Outputs.Count &&
+        lhs.Outputs.ToArray().Zip(rhs.Outputs.ToArray()).All(pair =>
+            pair.First.Name == pair.Second.Name && IsSameIndexExpr(pair.First.Expr, pair.Second.Expr));
+
+    private static bool IsSameStringArray(IRArray<string>? lhs, IRArray<string>? rhs)
+    {
+        if (lhs is null || rhs is null)
+        {
+            return lhs is null && rhs is null;
+        }
+
+        return lhs.Value.SequenceEqual(rhs.Value);
+    }
+
+    private static bool IsSameIndexExpr(IndexExpr lhs, IndexExpr rhs)
+    {
+        if (lhs.GetType() != rhs.GetType())
+        {
+            return false;
+        }
+
+        return (lhs, rhs) switch
+        {
+            (IndexVar l, IndexVar r) => l.Name == r.Name,
+            (IndexConst l, IndexConst r) => l.Value == r.Value,
+            (IndexAny, IndexAny) => true,
+            (IndexAdd l, IndexAdd r) => l.Terms.Count == r.Terms.Count &&
+                l.Terms.ToArray().Zip(r.Terms.ToArray()).All(pair => IsSameIndexExpr(pair.First, pair.Second)),
+            (IndexMul l, IndexMul r) => l.Factors.Count == r.Factors.Count &&
+                l.Factors.ToArray().Zip(r.Factors.ToArray()).All(pair => IsSameIndexExpr(pair.First, pair.Second)),
+            (IndexFloorDiv l, IndexFloorDiv r) => IsSameIndexExpr(l.Value, r.Value) && IsSameIndexExpr(l.Divisor, r.Divisor),
+            (IndexMod l, IndexMod r) => IsSameIndexExpr(l.Value, r.Value) && IsSameIndexExpr(l.Divisor, r.Divisor),
+            (IndexNamedPrimitive l, IndexNamedPrimitive r) => l.Name == r.Name &&
+                l.Arguments.Count == r.Arguments.Count &&
+                l.Arguments.ToArray().Zip(r.Arguments.ToArray()).All(pair => IsSameIndexExpr(pair.First, pair.Second)),
+            _ => false,
+        };
+    }
+
     private readonly record struct DomainBounds(long? Min, long? MaxExclusive);
 }
 
@@ -1079,6 +1222,8 @@ public sealed record DistributedType(
     public DistributionLayout DistributionLayout => ExplicitDistributionLayout ?? DistributionLayout.FromAxisPolicies(TensorType, AxisPolicies, Placement);
 
     public StorageLayout StorageLayout => ExplicitStorageLayout ?? StorageLayout.Identity(DistributionLayout.LocalShape);
+
+    public bool HasExplicitLayout => ExplicitDistributionLayout is not null || ExplicitStorageLayout is not null;
 
     public static DistributedType FromLayouts(
         TensorType tensorType,
