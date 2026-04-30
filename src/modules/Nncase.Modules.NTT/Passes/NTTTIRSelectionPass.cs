@@ -1427,11 +1427,38 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             }
         }
 
-        var distributedType = inBuffer.DistributedType is DistributedType dt
-            ? dt with { TensorType = new TensorType(newType, newDimensions) }
-            : null;
-        output = inBuffer.With(name: ((TIR.Buffer)output).Name, elemType: newType, dimensions: newDimensions, strides: newStrides, distributedType: distributedType);
+        var outBuffer = (TIR.Buffer)output;
+        var distributedType = ResolveBitcastDistributedType(inBuffer, outBuffer, newType, newDimensions);
+        output = inBuffer.With(name: outBuffer.Name, elemType: newType, dimensions: newDimensions, strides: newStrides, distributedType: distributedType);
         return T.Nop();
+    }
+
+    private DistributedType? ResolveBitcastDistributedType(TIR.Buffer input, TIR.Buffer output, DataType newType, Dimension[] newDimensions)
+    {
+        var inputType = input.DistributedType;
+        var outputType = output.DistributedType;
+        if (inputType is null && outputType is null)
+        {
+            return null;
+        }
+
+        if ((inputType?.HasExplicitLayout ?? false) || (outputType?.HasExplicitLayout ?? false))
+        {
+            if (inputType is null || outputType is null)
+            {
+                throw new NotSupportedException(
+                    $"NTT GenerateBitcast {input.Name}->{output.Name} requires both input and output distributed types when either side has an explicit layout. " +
+                    $"InputDType={input.ElemType}, OutputDType={newType}, InputShape={FormatBufferShape(input)}, OutputShape={FormatBufferShape(output)}.");
+            }
+
+            LayoutVerifier.VerifyEquivalentForBitcast(
+                inputType,
+                outputType,
+                $"NTT GenerateBitcast {input.Name}->{output.Name}, InputDType={input.ElemType}, OutputDType={newType}, InputShape={FormatBufferShape(input)}, OutputShape=[{string.Join(",", newDimensions.Select(dimension => dimension.ToString()))}]");
+            return outputType;
+        }
+
+        return outputType ?? inputType! with { TensorType = new TensorType(newType, newDimensions) };
     }
 
     private Expr GenerateUnary(UnaryOp unaryOp, IReadOnlyList<BaseExpr> arguments, Expr output)

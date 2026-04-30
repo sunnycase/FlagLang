@@ -310,29 +310,34 @@ public static class LayoutVerifier
         Verify(input, $"{context} input");
         Verify(output, $"{context} output");
 
-        if (input.Partial != output.Partial)
+        if (GetViewCompatibilityReason(input, output) is { } reason)
         {
-            ThrowViewCompatibility(input, output, context, $"partial flags differ: input={input.Partial}, output={output.Partial}");
+            ThrowViewCompatibility(input, output, context, reason);
+        }
+    }
+
+    public static void VerifyEquivalentForBitcast(DistributedType input, DistributedType output, string context)
+    {
+        Verify(input, $"{context} input");
+        Verify(output, $"{context} output");
+
+        if (input.TensorType.DType.SizeInBytes != output.TensorType.DType.SizeInBytes)
+        {
+            ThrowBitcastCompatibility(
+                input,
+                output,
+                context,
+                $"element sizes differ: input={input.TensorType.DType}({input.TensorType.DType.SizeInBytes} bytes), output={output.TensorType.DType}({output.TensorType.DType.SizeInBytes} bytes)");
         }
 
-        if (!IsSamePlacement(input.Placement, output.Placement))
+        if (input.TensorType.Shape != output.TensorType.Shape)
         {
-            ThrowViewCompatibility(input, output, context, $"placements differ: input={input.Placement}, output={output.Placement}");
+            ThrowBitcastCompatibility(input, output, context, $"logical shapes differ: input={input.TensorType.Shape}, output={output.TensorType.Shape}");
         }
 
-        if (!input.AxisPolicies.SequenceEqual(output.AxisPolicies))
+        if (GetViewCompatibilityReason(input, output) is { } reason)
         {
-            ThrowViewCompatibility(input, output, context, $"AxisPolicies differ: input=({string.Join(',', input.AxisPolicies)}), output=({string.Join(',', output.AxisPolicies)})");
-        }
-
-        if (!IsSameDistributionLayout(input.DistributionLayout, output.DistributionLayout))
-        {
-            ThrowViewCompatibility(input, output, context, "explicit distribution layouts are not equivalent");
-        }
-
-        if (!IsSameStorageLayout(input.StorageLayout, output.StorageLayout))
-        {
-            ThrowViewCompatibility(input, output, context, "explicit storage layouts are not equivalent");
+            ThrowBitcastCompatibility(input, output, context, reason);
         }
     }
 
@@ -745,6 +750,43 @@ public static class LayoutVerifier
         throw new NotSupportedException(
             $"{context} requires layout-equivalent distributed view/bitcast operands. Reason: {reason}. " +
             $"Input={FormatDistributedTypeForView(input)}; Output={FormatDistributedTypeForView(output)}");
+
+    private static void ThrowBitcastCompatibility(DistributedType input, DistributedType output, string context, string reason) =>
+        throw new NotSupportedException(
+            $"{context} cannot preserve explicit distributed layouts across bitcast. Reason: {reason}. " +
+            $"InputDType={input.TensorType.DType}, OutputDType={output.TensorType.DType}, " +
+            $"InputShape={input.TensorType.Shape}, OutputShape={output.TensorType.Shape}. " +
+            $"Input={FormatDistributedTypeForView(input)}; Output={FormatDistributedTypeForView(output)}");
+
+    private static string? GetViewCompatibilityReason(DistributedType input, DistributedType output)
+    {
+        if (input.Partial != output.Partial)
+        {
+            return $"partial flags differ: input={input.Partial}, output={output.Partial}";
+        }
+
+        if (!IsSamePlacement(input.Placement, output.Placement))
+        {
+            return $"placements differ: input={input.Placement}, output={output.Placement}";
+        }
+
+        if (!input.AxisPolicies.SequenceEqual(output.AxisPolicies))
+        {
+            return $"AxisPolicies differ: input=({string.Join(',', input.AxisPolicies)}), output=({string.Join(',', output.AxisPolicies)})";
+        }
+
+        if (!IsSameDistributionLayout(input.DistributionLayout, output.DistributionLayout))
+        {
+            return "explicit distribution layouts are not equivalent";
+        }
+
+        if (!IsSameStorageLayout(input.StorageLayout, output.StorageLayout))
+        {
+            return "explicit storage layouts are not equivalent";
+        }
+
+        return null;
+    }
 
     private static string FormatDistributedTypeForView(DistributedType type) =>
         $"Shape={type.TensorType.Shape}, AxisPolicies=({string.Join(',', type.AxisPolicies)}), Placement={type.Placement}, Partial={type.Partial}, " +

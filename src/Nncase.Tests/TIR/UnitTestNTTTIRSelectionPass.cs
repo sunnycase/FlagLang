@@ -256,6 +256,60 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
     }
 
     [Fact]
+    public async Task BitcastAcceptsSameSizeExplicitLayouts()
+    {
+        var shape = new RankedShape(128);
+        var inputType = CreateExplicitSbpDistributedType(shape, storageLayoutFactory: localShape => CreateReverseRegisterStorageLayout(localShape));
+        var inferredInput = new Var("inferred_input", inputType);
+        var inferredBitcast = Nncase.IR.F.Tensors.Bitcast(inferredInput, DataTypes.UInt32);
+        var inferredFunction = new Function("inferred", CUDATarget.Kind, new IRBlock(inferredBitcast, inferredInput));
+        Assert.True(CompilerServices.InferenceType(inferredFunction), CompilerServices.Print(inferredFunction));
+        var inferredType = Assert.IsType<DistributedType>(inferredBitcast.CheckedType);
+        Assert.True(inferredType.HasExplicitLayout);
+        Assert.Equal(DataTypes.UInt32, inferredType.TensorType.DType);
+        Assert.Equal("ReverseLocal", inferredType.StorageLayout.Kind);
+
+        var lowered = await RunBitcastSelectionAsync(
+            CompileOptions,
+            inputType,
+            inputType with { TensorType = new TensorType(DataTypes.UInt32, shape) });
+        var calls = ExprCollector.Collect(lowered.Body).OfType<Call>().ToArray();
+        var ret = Assert.IsType<Return>(lowered.Body.Fields[^1]);
+        var output = Assert.IsType<TIR.Buffer>(ret.Values.ToArray().Single());
+
+        Assert.DoesNotContain(calls, call => call.Target is Nncase.TIR.NTT.Cast);
+        Assert.Equal(DataTypes.UInt32, output.ElemType);
+        Assert.Equal("ReverseLocal", output.DistributedType!.StorageLayout.Kind);
+    }
+
+    [Fact]
+    public async Task BitcastRejectsElementSizeChangingExplicitLayout()
+    {
+        var inputShape = new RankedShape(128);
+        var outputShape = new RankedShape(512);
+        var inputType = CreateExplicitSbpDistributedType(inputShape, storageLayoutFactory: localShape => CreateReverseRegisterStorageLayout(localShape));
+        var outputType = inputType with { TensorType = new TensorType(DataTypes.UInt8, outputShape) };
+        var inferredInput = new Var("inferred_input", inputType);
+        var inferredBitcast = Nncase.IR.F.Tensors.Bitcast(inferredInput, DataTypes.UInt8);
+        var inferredFunction = new Function("inferred", CUDATarget.Kind, new IRBlock(inferredBitcast, inferredInput));
+
+        Assert.False(CompilerServices.InferenceType(inferredFunction));
+        var invalidType = Assert.IsType<InvalidType>(inferredBitcast.CheckedType);
+        Assert.Contains("IR.Tensors.Bitcast type inference", invalidType.Reason, StringComparison.Ordinal);
+        Assert.Contains("element sizes differ", invalidType.Reason, StringComparison.Ordinal);
+        Assert.Contains("ReverseLocal", invalidType.Reason, StringComparison.Ordinal);
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => RunBitcastSelectionAsync(CompileOptions, inputType, outputType));
+
+        Assert.Contains("GenerateBitcast", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("element sizes differ", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("InputDType", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("OutputDType", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("ReverseLocal", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RegisterDirectAffineLowersUnaryCastWhereWithoutAddressableIntermediates()
     {
         const int blockSize = 256;
@@ -650,10 +704,11 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
 
     private static DistributedType CreateExplicitSbpDistributedType(
         Shape shape,
+        DataType? dataType = null,
         string? distributionKind = null,
         Func<Shape, StorageLayout>? storageLayoutFactory = null)
     {
-        var tensorType = new TensorType(DataTypes.Float32, shape);
+        var tensorType = new TensorType(dataType ?? DataTypes.Float32, shape);
         var axisPolicies = new IRArray<SBP>(new SBP[] { SBP.S(0) });
         var placement = new Placement([4], "t");
         var distributionLayout = DistributionLayout.FromAxisPolicies(tensorType, axisPolicies, placement);
@@ -678,6 +733,18 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         var function = new Function("main", CUDATarget.Kind, new IRBlock(reshape, input));
         Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
         reshape.CheckedType = outputType;
+
+        return Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(compileOptions, CUDATarget.Kind).RunAsync(function, new()));
+    }
+
+    private static async Task<PrimFunction> RunBitcastSelectionAsync(CompileOptions compileOptions, DistributedType inputType, DistributedType outputType)
+    {
+        var input = new Var("input", inputType);
+        var unary = Nncase.IR.F.Math.Unary(UnaryOp.Neg, input);
+        unary.CheckedType = inputType;
+        var bitcast = Nncase.IR.F.Tensors.Bitcast(unary, outputType.TensorType.DType);
+        bitcast.CheckedType = outputType;
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(bitcast, input));
 
         return Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(compileOptions, CUDATarget.Kind).RunAsync(function, new()));
     }

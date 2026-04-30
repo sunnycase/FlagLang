@@ -1,6 +1,7 @@
 ﻿// Copyright (c) SunnyCase. All rights reserved.
 // Licensed under the Apache license. See LICENSE file in the project root for full license information.
 
+using System;
 using Nncase.CostModel;
 using Nncase.IR;
 using Nncase.IR.Tensors;
@@ -92,6 +93,22 @@ public class BitcastEvaluator : IEvaluator<Bitcast>, ITypeInferencer<Bitcast>, I
             ndsbp[i] = input.AxisPolicies[i];
         }
 
-        return new DistributedType(outTensorType, ndsbp, input.Placement);
+        var output = input.HasExplicitLayout
+            ? input with { TensorType = outTensorType }
+            : new DistributedType(outTensorType, ndsbp, input.Placement, input.Partial);
+
+        if (input.HasExplicitLayout)
+        {
+            try
+            {
+                LayoutVerifier.VerifyEquivalentForBitcast(input, output, "IR.Tensors.Bitcast type inference");
+            }
+            catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
+            {
+                return new InvalidType(ex.Message);
+            }
+        }
+
+        return output;
     }
 }
