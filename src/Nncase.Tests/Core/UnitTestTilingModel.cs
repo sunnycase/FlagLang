@@ -266,6 +266,32 @@ public sealed class UnitTestTilingModel : TestClassBase
     }
 
     [Fact]
+    public void ExplicitDistributionLayoutVerifierRejectsOwnerDomainOutsidePlacement()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(1024));
+        var placement = new Placement([128], "t");
+        var invalidLayout = new DistributionLayout(
+            "InvalidOwnerBounds",
+            new IndexMapDescriptor(
+                "GlobalToOwnerLocal",
+                ["g0"],
+                [new IndexMapBinding("owner0", IndexExpr.Var("g0")), new IndexMapBinding("l0", IndexExpr.Var("g0"))],
+                ["0<=g0<1024"],
+                ["0<=owner0<256", "0<=l0<8"],
+                Inverse: "OwnerLocalToGlobal"),
+            new IndexMapDescriptor(
+                "OwnerLocalToGlobal",
+                ["owner0", "l0"],
+                [new IndexMapBinding("g0", IndexExpr.Add(IndexExpr.Mul(IndexExpr.Var("owner0"), IndexExpr.Const(8)), IndexExpr.Var("l0")))],
+                ["0<=owner0<256", "0<=l0<8"],
+                ["0<=g0<1024"],
+                Inverse: "GlobalToOwnerLocal"),
+            new RankedShape(8));
+
+        Assert.Throws<InvalidOperationException>(() => DistributedType.FromLayouts(tensorType, placement, invalidLayout));
+    }
+
+    [Fact]
     public async Task DirectAffineTilingPassAnnotatesGatherBinaryScatterDecisions()
     {
         const int blockSize = 256;

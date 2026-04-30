@@ -284,6 +284,12 @@ public static class LayoutVerifier
         }
     }
 
+    public static void Verify(DistributionLayout distributionLayout, StorageLayout storageLayout, Placement placement)
+    {
+        Verify(distributionLayout, storageLayout);
+        VerifyOwnerBounds(distributionLayout, placement);
+    }
+
     private static void VerifyMap(IndexMapDescriptor map, string expectedInverse, string layoutKind)
     {
         if (map.Outputs.Count == 0)
@@ -341,6 +347,35 @@ public static class LayoutVerifier
                 throw new NotSupportedException($"Layout {layoutKind} map {mapName} uses unsupported named primitive {named.Name}; add forward, inverse, domain, cost, and codegen lowering before using it.");
             default:
                 throw new NotSupportedException($"Layout {layoutKind} map {mapName} uses unsupported index expression {expr.GetType().Name}.");
+        }
+    }
+
+    private static void VerifyOwnerBounds(DistributionLayout layout, Placement placement)
+    {
+        foreach (var owner in layout.GlobalToOwnerLocal.Outputs.Where(output => output.Name.StartsWith("owner", StringComparison.Ordinal)))
+        {
+            var ownerAxisText = owner.Name["owner".Length..];
+            if (!int.TryParse(ownerAxisText, NumberStyles.None, CultureInfo.InvariantCulture, out var axis))
+            {
+                throw new InvalidOperationException($"Layout {layout.Kind} owner coordinate {owner.Name} must use owner<axis> naming.");
+            }
+
+            if (axis < 0 || axis >= placement.Rank)
+            {
+                throw new InvalidOperationException($"Layout {layout.Kind} owner coordinate {owner.Name} is outside placement rank {placement.Rank} for placement {placement}.");
+            }
+
+            var expectedDomain = $"0<={owner.Name}<{placement.Hierarchy[axis]}";
+            if (!layout.GlobalToOwnerLocal.OutputDomain.Contains(expectedDomain) ||
+                !layout.OwnerLocalToGlobal.InputDomain.Contains(expectedDomain))
+            {
+                throw new InvalidOperationException($"Layout {layout.Kind} owner coordinate {owner.Name} must be bounded by placement axis {axis} domain {expectedDomain}.");
+            }
+
+            if (!layout.OwnerLocalToGlobal.Inputs.Contains(owner.Name))
+            {
+                throw new InvalidOperationException($"Layout {layout.Kind} inverse map {layout.OwnerLocalToGlobal.Name} must consume owner coordinate {owner.Name}.");
+            }
         }
     }
 }
@@ -722,7 +757,7 @@ public sealed record DistributedType(
         bool partial = false)
     {
         storageLayout ??= StorageLayout.Identity(distributionLayout.LocalShape);
-        LayoutVerifier.Verify(distributionLayout, storageLayout);
+        LayoutVerifier.Verify(distributionLayout, storageLayout, placement);
         return new DistributedType(
             tensorType,
             axisPolicies ?? Enumerable.Range(0, tensorType.Shape.Rank).Select(_ => SBP.B).ToArray(),
