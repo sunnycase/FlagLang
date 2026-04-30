@@ -112,6 +112,7 @@ public sealed class TTIRToIRPass : FunctionPass
         Call { Target: TIR.Memcopy } => true,
         Call { Target: IR.Affine.Scatter } => true,
         If @if => HasMemorySideEffect(@if.Then.Body) || HasMemorySideEffect(@if.Else.Body) || HasMemorySideEffect(@if.Arguments),
+        Let let => HasMemorySideEffect(let.Expression) || HasMemorySideEffect(let.Body),
         IRBlock block => HasMemorySideEffect(block.Body),
         Sequential sequential => HasMemorySideEffect(sequential.Fields),
         For @for => HasMemorySideEffect(@for.Body),

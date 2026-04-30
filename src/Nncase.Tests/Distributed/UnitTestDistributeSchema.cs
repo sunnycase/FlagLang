@@ -67,6 +67,19 @@ public class UnitTestDistributeSchema : TestClassBase
     }
 
     [Fact]
+    public void SBPConverterReadsSplitAxesBeforeType()
+    {
+        var options = new JsonSerializerOptions();
+        options.Converters.Add(new SBPConverter());
+
+        var sbp = JsonSerializer.Deserialize<SBP>(@"{""Axes"":[0],""$type"":""S""}", options);
+
+        var split = Assert.IsType<SBPSplit>(sbp);
+        Assert.Single(split.Axes);
+        Assert.Equal(0, split.Axes[0]);
+    }
+
+    [Fact]
     public async Task TestLoadScheme()
     {
         var path = Path.Join(SolutionDirectory, "src/Nncase.Tests/Distributed/hidden_in.json");

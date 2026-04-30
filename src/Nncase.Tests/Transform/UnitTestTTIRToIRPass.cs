@@ -132,6 +132,24 @@ public sealed class UnitTestTTIRToIRPass : TestClassBase
         Assert.Equal(value.CheckedType, callableType.ReturnType);
     }
 
+    [Fact]
+    public async Task LetWrappedStoreMixedWithHelperReturnUsesSsaDependency()
+    {
+        var (ptr, value, mask, store) = CreateStore("let_mixed");
+        var letVar = new Var("let_mixed_bound");
+        var letStore = new Let(letVar, (Const)0, new Sequential(new Expr[] { store }, Array.Empty<IVar>()));
+        var body = new Sequential(new Expr[] { letStore, new Return(new Expr[] { value }) }, new IVar[] { ptr, value, mask });
+        var primFunction = new PrimFunction("let_mixed_store_return", CUDATarget.Kind, body);
+
+        var converted = Assert.IsType<Function>(await new TTIRToIRPass().RunAsync(primFunction, new RunPassContext()));
+
+        var dependency = Assert.IsType<Call>(converted.Body.Body);
+        Assert.IsType<Nncase.IR.Tensors.Depend>(dependency.Target);
+        Assert.Same(letStore, dependency[Nncase.IR.Tensors.Depend.Dependencies]);
+        Assert.Same(value, dependency[Nncase.IR.Tensors.Depend.Value]);
+        Assert.True(CompilerServices.InferenceType(converted));
+    }
+
     private static (Var Ptr, Var Value, Var Mask, Expr Store) CreateStore(string name)
     {
         var ptr = new Var($"{name}_ptr", TensorType.Pointer(DataTypes.Float32));

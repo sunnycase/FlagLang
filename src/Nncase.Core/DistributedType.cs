@@ -6,7 +6,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -71,8 +70,8 @@ public class SBPConverter : JsonConverter<SBP>
         }
 
         string? typeDiscriminator = null;
-        SBPSplit? sbpSplit = null;
-        SBPPartial? sbpPartial = null;
+        int[]? axes = null;
+        ReduceOp? partialOp = null;
 
         while (reader.Read())
         {
@@ -92,21 +91,10 @@ public class SBPConverter : JsonConverter<SBP>
                         typeDiscriminator = reader.GetString();
                         break;
                     case "Axes":
-                        int[] axes = JsonSerializer.Deserialize<int[]>(ref reader, options)!;
-                        var irAxes = new IRArray<int>(axes);
-                        if (typeDiscriminator == "S")
-                        {
-                            sbpSplit = new SBPSplit(irAxes);
-                        }
-                        else
-                        {
-                            throw new InvalidDataException("Axes must be used in SBP split");
-                        }
-
+                        axes = JsonSerializer.Deserialize<int[]>(ref reader, options)!;
                         break;
                     case "Op":
-                        ReduceOp partialOp = JsonSerializer.Deserialize<ReduceOp>(ref reader, options);
-                        sbpPartial = new SBPPartial(partialOp);
+                        partialOp = JsonSerializer.Deserialize<ReduceOp>(ref reader, options);
                         break;
                     default:
                         reader.Skip();
@@ -118,11 +106,36 @@ public class SBPConverter : JsonConverter<SBP>
         switch (typeDiscriminator)
         {
             case "B":
+                if (axes is not null || partialOp is not null)
+                {
+                    throw new JsonException("Broadcast SBP must not contain Axes or Op.");
+                }
+
                 return SBP.B;
             case "P":
-                return sbpPartial!;
+                if (axes is not null)
+                {
+                    throw new JsonException("Axes must be used in SBP split.");
+                }
+
+                if (partialOp is null)
+                {
+                    throw new JsonException("Partial SBP requires Op.");
+                }
+
+                return new SBPPartial(partialOp.Value);
             case "S":
-                return sbpSplit!;
+                if (partialOp is not null)
+                {
+                    throw new JsonException("Op must be used in SBP partial.");
+                }
+
+                if (axes is null)
+                {
+                    throw new JsonException("Split SBP requires Axes.");
+                }
+
+                return new SBPSplit(new IRArray<int>(axes));
             default:
                 throw new JsonException($"Unknown '$type' discriminator: {typeDiscriminator}");
         }
