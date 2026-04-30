@@ -302,6 +302,98 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
     }
 
     [Fact]
+    public async Task BlockLocalSmemFusedConsumerUsesSharedStorageLayoutIndex()
+    {
+        const int blockSize = 128;
+        const int threadsPerCta = 32;
+        const int elementsPerThread = blockSize / threadsPerCta;
+        var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
+        var firstDest = new Var("first_dest", TensorType.Pointer(DataTypes.Float32));
+        var secondDest = new Var("second_dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var ndsbp = new IRArray<SBP>(new SBP[] { SBP.S(0) });
+        var placement = new Placement([threadsPerCta], "t");
+        var tile = Nncase.IR.F.Affine.Gather(source, relation, symbols, shape, None.Default, ndsbp, placement);
+        var firstScatter = Nncase.IR.F.Affine.Scatter(tile, firstDest, relation, symbols);
+        var secondScatter = Nncase.IR.F.Affine.Scatter(tile, secondDest, relation, symbols);
+        var body = new Sequential(new Expr[] { tile, firstScatter, secondScatter });
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(body, source, firstDest, secondDest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var tiled = Assert.IsType<Function>(await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new()));
+        Assert.True(TileDecisionMetadata.TryGet(tile, out var decision));
+        Assert.Equal("TritonBlocked", decision.DistributionLayout?.Kind);
+        Assert.Equal("SharedBlock", decision.StorageLayout.Kind);
+
+        var selected = Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(tiled, new()));
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(selected, new()));
+        var fields = lowered.Body.Fields.ToArray();
+        var gatherLoop = Assert.IsType<Nncase.TIR.For>(fields[0]);
+        var consumerLoop = Assert.IsType<Nncase.TIR.For>(fields[2]);
+        var smemStore = Assert.Single(ExprCollector.Collect(gatherLoop.Body).OfType<Call>().Where(call => call.Target is BufferStore));
+        var smemLoad = Assert.Single(ExprCollector.Collect(consumerLoop.Body).OfType<Call>().Where(call => call.Target is BufferLoad));
+        var storeIndex = GetSingleBufferIndex(smemStore, BufferStore.Indices);
+        var loadIndex = GetSingleBufferIndex(smemLoad, BufferLoad.Indices);
+
+        for (long programId = 0; programId <= 1; programId++)
+        {
+            var storeValues = EvaluateIndexValues(storeIndex, gatherLoop.LoopVar, elementsPerThread, programId, threadId: 7);
+            var loadValues = EvaluateIndexValues(loadIndex, consumerLoop.LoopVar, elementsPerThread, programId, threadId: 7);
+            Assert.Equal(storeValues, loadValues);
+        }
+
+        Assert.Equal(new long[] { 135, 167, 199, 231 }, EvaluateIndexValues(loadIndex, consumerLoop.LoopVar, elementsPerThread, programId: 1, threadId: 7));
+        Assert.True(CompilerServices.InferenceType(lowered), CompilerServices.Print(lowered, PrinterFlags.Script));
+    }
+
+    [Fact]
+    public async Task BlockLocalSmemUnsupportedExplicitLayoutFailsFast()
+    {
+        const int blockSize = 128;
+        const int threadsPerCta = 32;
+        var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
+        var firstDest = new Var("first_dest", TensorType.Pointer(DataTypes.Float32));
+        var secondDest = new Var("second_dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var ndsbp = new IRArray<SBP>(new SBP[] { SBP.S(0) });
+        var placement = new Placement([threadsPerCta], "t");
+        var tile = Nncase.IR.F.Affine.Gather(source, relation, symbols, shape, None.Default, ndsbp, placement);
+        var firstScatter = Nncase.IR.F.Affine.Scatter(tile, firstDest, relation, symbols);
+        var secondScatter = Nncase.IR.F.Affine.Scatter(tile, secondDest, relation, symbols);
+        var body = new Sequential(new Expr[] { tile, firstScatter, secondScatter });
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(body, source, firstDest, secondDest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var unsupported = CreateUnsupportedTritonBlockedLayout(shape);
+        TileDecisionMetadata.Set(tile, CreateBlockLocalSmemDecision(
+            "tile_0",
+            shape,
+            new TileLifetime(0, 2),
+            unsupported,
+            StorageLayout.SharedBlock(shape, unsupported)));
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(
+            () => new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(function, new()));
+        Assert.Contains("UnsupportedLayout", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("smem_tile_0", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Add a DistributionLayout evaluator", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task BlockLocalSmemMultipleSharedGathersPreserveNonOverlappingSchedule()
     {
         const int blockSize = 128;
@@ -412,13 +504,18 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
         Assert.Contains("requires a tile decision", ex.Message, StringComparison.Ordinal);
     }
 
-    private static TileDecision CreateBlockLocalSmemDecision(string id, Shape shape, TileLifetime lifetime) =>
+    private static TileDecision CreateBlockLocalSmemDecision(
+        string id,
+        Shape shape,
+        TileLifetime lifetime,
+        DistributionLayout? distributionLayout = null,
+        StorageLayout? storageLayout = null) =>
         new(
             id,
             "Affine.Gather",
             shape,
-            null,
-            StorageLayout.Identity(shape),
+            distributionLayout,
+            storageLayout ?? StorageLayout.Identity(shape),
             new BufferStorage(BufferUsage.Temp, BufferScope.BlockLocal, PhysicalMemorySpace.SMem),
             lifetime,
             shape[0].FixedValue * DataTypes.Float32.SizeInBytes,
@@ -426,6 +523,67 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
             new TileTelemetry(1, shape[0].FixedValue * DataTypes.Float32.SizeInBytes, 0, shape[0].FixedValue * DataTypes.Float32.SizeInBytes, $"{id}@0+512"),
             true,
             "test smem decision");
+
+    private static DistributionLayout CreateUnsupportedTritonBlockedLayout(Shape shape)
+    {
+        var baseLayout = DistributionLayout.TritonBlocked(
+            shape,
+            new TritonBlockedLayout(
+                SizePerThread: checked((int)(shape[0].FixedValue / 32)),
+                ThreadsPerWarp: 32,
+                WarpsPerCTA: 1,
+                Order: [0],
+                CTAsPerCGA: [1],
+                CTASplitNum: [1],
+                CTAOrder: [0],
+                ThreadElementOrder: TritonThreadElementOrder.Strided));
+        return baseLayout with { Kind = "UnsupportedLayout" };
+    }
+
+    private static Dimension GetSingleBufferIndex(Call bufferAccess, ParameterInfo indicesParameter)
+    {
+        var indices = Assert.IsType<Nncase.IR.Tuple>(bufferAccess[indicesParameter]);
+        var cast = Assert.IsType<Call>(Assert.Single(indices.Fields.ToArray()));
+        Assert.IsType<Nncase.IR.Tensors.Cast>(cast.Target);
+        var asTensor = Assert.IsType<Call>(cast.Arguments[0]);
+        Assert.IsType<Nncase.IR.Shapes.AsTensor>(asTensor.Target);
+        return Assert.IsAssignableFrom<Dimension>(asTensor.Arguments[0]);
+    }
+
+    private static long[] EvaluateIndexValues(Dimension dimension, DimVar loopVar, int extent, long programId, long threadId) =>
+        Enumerable.Range(0, extent)
+            .Select(lane => EvaluateDimension(dimension, loopVar, lane, programId, threadId))
+            .ToArray();
+
+    private static long EvaluateDimension(Dimension dim, DimVar loopVar, long lane, long programId, long threadId)
+    {
+        return dim switch
+        {
+            DimConst constant => constant.Value,
+            DimVar dimVar when ReferenceEquals(dimVar, loopVar) || dimVar.Name == loopVar.Name => lane,
+            ThreadIdDim => threadId,
+            ProgramIdDim { Axis: 0 } => programId,
+            DimSum sum => sum.Bias + sum.Operands.ToArray().Sum(x => EvaluateDimension(x, loopVar, lane, programId, threadId)),
+            DimProduct product => product.Scale * product.Operands.ToArray().Aggregate(1L, (acc, x) => acc * EvaluateDimension(x, loopVar, lane, programId, threadId)),
+            DimFraction fraction => EvaluateFraction(fraction, loopVar, lane, programId, threadId),
+            DimRemainder remainder => EvaluateDimension(remainder.Numerator, loopVar, lane, programId, threadId) % EvaluateDimension(remainder.Denominator, loopVar, lane, programId, threadId),
+            DimMin min => min.Operands.ToArray().Min(x => EvaluateDimension(x, loopVar, lane, programId, threadId)),
+            DimMax max => max.Operands.ToArray().Max(x => EvaluateDimension(x, loopVar, lane, programId, threadId)),
+            _ => throw new NotSupportedException($"Unsupported dimension expression {dim.GetType().Name}: {dim}"),
+        };
+    }
+
+    private static long EvaluateFraction(DimFraction fraction, DimVar loopVar, long lane, long programId, long threadId)
+    {
+        var numerator = EvaluateDimension(fraction.Numerator, loopVar, lane, programId, threadId);
+        var denominator = EvaluateDimension(fraction.Denominator, loopVar, lane, programId, threadId);
+        return fraction.DivMode switch
+        {
+            DimDivideMode.FloorDiv => numerator / denominator,
+            DimDivideMode.CeilDiv => (numerator + denominator - 1) / denominator,
+            _ => throw new ArgumentOutOfRangeException(nameof(fraction), $"Unsupported divide mode {fraction.DivMode}."),
+        };
+    }
 
     private static void AssertRegisterDirectAffineLowering(PrimFunction lowered)
     {

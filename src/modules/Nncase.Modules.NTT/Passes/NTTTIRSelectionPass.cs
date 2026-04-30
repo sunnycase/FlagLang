@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Linq;
 using System.Reactive;
 using System.Text;
@@ -500,10 +499,15 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         }
 
         var globalExtent = sourceBuffer.Dimensions[0];
-        var tileExtent = gatherDecision.DistributionLayout?.LocalShape[0] ?? globalExtent;
+        var iterationExtents = AffineIOLayoutEvaluator.GetIterationExtents(sourceBuffer);
+        if (iterationExtents.Length != 1)
+        {
+            throw new NotSupportedException($"Block-local SMem affine lowering requires a rank-1 source buffer, got {iterationExtents.Length} iteration axes.");
+        }
+
         var symbolMap = BuildSymbolMap(scatter.Relation, scatter.Symbols);
-        return T.Serial(out var lane, new TIR.Range(Dimension.Zero, tileExtent, Dimension.One), "d0")
-            .Body(BuildBlockLocalSmemStoreBody(scatterCalls, scatter, sourceGather, gatherDecision, sourceBuffer, globalExtent, symbolMap, lane))
+        return T.Serial(out var lane, new TIR.Range(Dimension.Zero, iterationExtents[0], Dimension.One), "d0")
+            .Body(BuildBlockLocalSmemStoreBody(scatterCalls, scatter, sourceGather, sourceBuffer, globalExtent, symbolMap, lane))
             .Build()
             .InheritMetaData(firstScatterCall);
     }
@@ -512,17 +516,16 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         IReadOnlyList<Call> scatterCalls,
         IR.Affine.Scatter scatter,
         Call sourceGather,
-        TileDecision gatherDecision,
         TIR.Buffer sourceBuffer,
         Dimension globalExtent,
         IReadOnlyDictionary<int, Dimension>? symbolMap,
         DimVar lane)
     {
-        var domainValue = GetBlockLocalSmemDomainValue(gatherDecision, lane, globalExtent);
-        var domainValues = new[] { domainValue };
+        var loopVars = new[] { lane };
         var extents = new[] { globalExtent };
+        var domainValues = AffineIOLayoutEvaluator.GetDomainValues(sourceBuffer, loopVars, extents);
         var address = EvaluateAddress(scatter.Relation, domainValues, extents, symbolMap);
-        var loaded = T.BufferLoad(sourceBuffer, new[] { address }.AsExprs());
+        var loaded = T.BufferLoad(sourceBuffer, AffineIOLayoutEvaluator.GetStorageIndices(sourceBuffer, loopVars, domainValues));
         return T.Let(out var smemValue, loaded).Body(BuildStore(smemValue)).Build();
 
         Expr BuildStore(Expr sharedValue)
@@ -578,21 +581,6 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
                 BuildBlockLocalSmemScalarExpr((Expr)call.Arguments[1], sourceGather, sharedValue)),
             _ => throw new NotSupportedException($"Unsupported block-local SMem scalar call target {call.Target}."),
         };
-    }
-
-    private Dimension GetBlockLocalSmemDomainValue(TileDecision decision, DimVar lane, Dimension globalExtent)
-    {
-        if (decision.DistributionLayout is { Kind: "TritonBlocked" } tritonBlockedLayout)
-        {
-            return GetTritonBlockedDomainValue(tritonBlockedLayout, lane);
-        }
-
-        if (decision.DistributionLayout is null or { Kind: "SBP" })
-        {
-            return lane;
-        }
-
-        throw new NotSupportedException($"Block-local SMem affine lowering cannot evaluate {decision.DistributionLayout.Kind} layouts. Add a DistributionLayout owner-local evaluator for this layout kind.");
     }
 
     private void ValidateBlockLocalSmemAffineChain(Call scatterCall, IR.Affine.Scatter scatter, Call gatherCall, IR.Affine.Gather gather)
@@ -1118,7 +1106,7 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
     {
         if (decision.DistributionLayout is { Kind: "TritonBlocked" } tritonBlockedLayout)
         {
-            return GetTritonBlockedDomainValue(tritonBlockedLayout, lane);
+            return AffineIOLayoutEvaluator.GetTritonBlockedLocalDomainValue(tritonBlockedLayout, lane, "Register direct affine lowering");
         }
 
         if (decision.DistributionLayout is { Kind: not "SBP" } unsupportedLayout)
@@ -1155,88 +1143,6 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             SBPPartial partial => throw new NotSupportedException($"Register direct affine lowering cannot directly lower partial shard policy {partial}."),
             SBP policy => throw new NotSupportedException($"Unsupported register direct affine shard policy {policy.GetType().Name}."),
         };
-    }
-
-    private Dimension GetTritonBlockedDomainValue(DistributionLayout distributionLayout, DimVar elem)
-    {
-        var layout = ParseTritonBlockedLayout(distributionLayout);
-        if (distributionLayout.LocalShape is not { IsUnranked: false, Rank: 1 } || distributionLayout.LocalShape[0] != layout.SizePerThread)
-        {
-            throw new NotSupportedException($"TritonBlocked register lowering requires LocalShape=[sizePerThread], got LocalShape={distributionLayout.LocalShape}, sizePerThread={layout.SizePerThread}.");
-        }
-
-        var threadId = IR.F.Distributed.ThreadId();
-        var threadsPerCTA = (Dimension)(layout.ThreadsPerWarp * layout.WarpsPerCTA);
-        return layout.ThreadElementOrder switch
-        {
-            TritonThreadElementOrder.Contiguous => (threadId * layout.SizePerThread) + elem,
-            TritonThreadElementOrder.Strided => threadId + (elem * threadsPerCTA),
-            _ => throw new NotSupportedException($"Unsupported TritonBlocked thread element order {layout.ThreadElementOrder}."),
-        };
-    }
-
-    private TritonBlockedLayout ParseTritonBlockedLayout(DistributionLayout distributionLayout)
-    {
-        if (distributionLayout.Attributes is null)
-        {
-            throw new NotSupportedException("TritonBlocked register lowering requires layout attributes.");
-        }
-
-        return new TritonBlockedLayout(
-            SizePerThread: RequireTritonBlockedIntAttribute(distributionLayout, "sizePerThread"),
-            ThreadsPerWarp: RequireTritonBlockedIntAttribute(distributionLayout, "threadsPerWarp"),
-            WarpsPerCTA: RequireTritonBlockedIntAttribute(distributionLayout, "warpsPerCTA"),
-            Order: RequireTritonBlockedIntListAttribute(distributionLayout, "order"),
-            CTAsPerCGA: RequireTritonBlockedIntListAttribute(distributionLayout, "ctasPerCGA"),
-            CTASplitNum: RequireTritonBlockedIntListAttribute(distributionLayout, "ctaSplitNum"),
-            CTAOrder: RequireTritonBlockedIntListAttribute(distributionLayout, "ctaOrder"),
-            ThreadElementOrder: RequireTritonBlockedThreadOrderAttribute(distributionLayout));
-    }
-
-    private int RequireTritonBlockedIntAttribute(DistributionLayout distributionLayout, string name)
-    {
-        var value = RequireTritonBlockedAttribute(distributionLayout, name);
-        return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
-            : throw new NotSupportedException($"TritonBlocked layout attribute {name} must be an integer, got '{value}'.");
-    }
-
-    private IRArray<int> RequireTritonBlockedIntListAttribute(DistributionLayout distributionLayout, string name)
-    {
-        var value = RequireTritonBlockedAttribute(distributionLayout, name);
-        if (!value.StartsWith("[", StringComparison.Ordinal) || !value.EndsWith("]", StringComparison.Ordinal))
-        {
-            throw new NotSupportedException($"TritonBlocked layout attribute {name} must be an integer list, got '{value}'.");
-        }
-
-        var body = value[1..^1];
-        if (string.IsNullOrWhiteSpace(body))
-        {
-            return Array.Empty<int>();
-        }
-
-        return body.Split(',', StringSplitOptions.TrimEntries)
-            .Select(item => int.TryParse(item, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
-                ? parsed
-                : throw new NotSupportedException($"TritonBlocked layout attribute {name} contains non-integer item '{item}'."))
-            .ToArray();
-    }
-
-    private TritonThreadElementOrder RequireTritonBlockedThreadOrderAttribute(DistributionLayout distributionLayout)
-    {
-        var value = RequireTritonBlockedAttribute(distributionLayout, "threadElementOrder");
-        return Enum.TryParse<TritonThreadElementOrder>(value, ignoreCase: false, out var parsed)
-            ? parsed
-            : throw new NotSupportedException($"TritonBlocked layout has unsupported threadElementOrder '{value}'.");
-    }
-
-    private string RequireTritonBlockedAttribute(DistributionLayout distributionLayout, string name)
-    {
-        var prefix = name + "=";
-        var matches = distributionLayout.Attributes!.Value.Where(attr => attr.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
-        return matches.Length == 1
-            ? matches[0][prefix.Length..]
-            : throw new NotSupportedException($"TritonBlocked layout must provide exactly one {name} attribute, got {matches.Length}.");
     }
 
     private Dimension GetSplitShardOffset(DistributedType distributedType, SBPSplit split, Dimension globalExtent)
