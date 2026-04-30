@@ -57,7 +57,7 @@ namespace Nncase.Passes
                 var mutated = false;
                 for (int i = 0; i < fields.Length; i++)
                 {
-                    if (i + 1 < fields.Length && TryFuseAffineGatherTensorLoad(fields[i], fields[i + 1], out var fused))
+                    if (i + 1 < fields.Length && TryFuseAffineGatherTensorLoad(fields, i, out var fused))
                     {
                         rewrittenFields.Add(fused);
                         i++;
@@ -72,13 +72,20 @@ namespace Nncase.Passes
                 return mutated ? expr.With(fields: rewrittenFields.ToArray()) : expr;
             }
 
-            private static bool TryFuseAffineGatherTensorLoad(Expr first, Expr second, [MaybeNullWhen(false)] out Expr fused)
+            private static bool TryFuseAffineGatherTensorLoad(IReadOnlyList<Expr> fields, int index, [MaybeNullWhen(false)] out Expr fused)
             {
                 fused = null;
+                var first = fields[index];
+                var second = fields[index + 1];
                 if (first is not Call { Target: TIR.NTT.AffineGather gather } gatherCall ||
                     second is not Call { Target: TIR.NTT.TensorLoad tensorLoad } tensorLoadCall ||
                     tensorLoadCall[TIR.NTT.TensorLoad.Dest] is not TIR.Buffer { DistributedType: not null } distributedOutput ||
                     !Equals(gatherCall[TIR.NTT.AffineGather.Output], tensorLoadCall[TIR.NTT.TensorLoad.Src]))
+                {
+                    return false;
+                }
+
+                if (HasOtherUses(fields, (Expr)gatherCall[TIR.NTT.AffineGather.Output], index, index + 1))
                 {
                     return false;
                 }
@@ -91,6 +98,24 @@ namespace Nncase.Passes
                     gather.Symbols,
                     gather.Shape).InheritMetaData(gatherCall);
                 return true;
+            }
+
+            private static bool HasOtherUses(IReadOnlyList<Expr> fields, Expr value, int gatherIndex, int tensorLoadIndex)
+            {
+                for (int i = 0; i < fields.Count; i++)
+                {
+                    if (i == gatherIndex || i == tensorLoadIndex)
+                    {
+                        continue;
+                    }
+
+                    if (ExprCollector.Collect(fields[i]).Any(expr => ReferenceEquals(expr, value)))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
             }
         }
 
@@ -132,7 +157,6 @@ namespace Nncase.Passes
                     var domainValues = AffineIOLayoutEvaluator.GetDomainValues(output, loopVars, globalExtents);
                     var address = EvaluateAddress(gather.Relation, domainValues, globalExtents, symbolMap);
                     var loaded = T.Load(source, address);
-                    var loopIndices = loopVars.AsExprs();
                     var storageIndices = AffineIOLayoutEvaluator.GetStorageIndices(output, loopVars, domainValues);
                     var storeLoaded = T.BufferStore(output, storageIndices, loaded);
                     if (gather.Relation.Constraint == LogicalExpr.True)
@@ -140,7 +164,7 @@ namespace Nncase.Passes
                         return storeLoaded;
                     }
 
-                    var fallback = ReadDefaultValue(defaultValue, loopIndices, output.ElemType);
+                    var fallback = ReadDefaultValue(defaultValue, loopVars, domainValues, output.ElemType);
                     var storeFallback = T.BufferStore(output, storageIndices, fallback);
                     return T.If(EvaluateConstraint(gather.Relation.Constraint, domainValues)).Then(storeLoaded).Else(storeFallback).Build();
                 });
@@ -208,15 +232,25 @@ namespace Nncase.Passes
                 return EvaluateAffineExpr(relation.Results[0], domainValues, extents, symbolMap);
             }
 
-            private Expr ReadDefaultValue(Expr defaultValue, Expr[] indices, DataType elemType)
+            private Expr ReadDefaultValue(Expr defaultValue, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> domainValues, DataType elemType)
             {
                 return defaultValue switch
                 {
-                    TIR.Buffer buffer => T.BufferLoad(buffer, indices),
+                    TIR.Buffer buffer => T.BufferLoad(buffer, GetDefaultValueIndices(buffer, loopVars, domainValues)),
                     None => Const.FromTensor(Tensor.Zero(elemType)),
                     Expr expr when expr.CheckedType is TensorType { Shape.IsScalar: true } => expr,
                     _ => throw new NotSupportedException($"Unsupported affine gather default value {defaultValue.GetType().Name}."),
                 };
+            }
+
+            private Expr[] GetDefaultValueIndices(TIR.Buffer buffer, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> domainValues)
+            {
+                if (buffer.DistributedType is DistributedType)
+                {
+                    return AffineIOLayoutEvaluator.GetStorageIndices(buffer, loopVars, domainValues);
+                }
+
+                return domainValues.ToArray().AsExprs();
             }
 
             private (Expr DefaultValue, Expr? Setup) PrepareGatherDefault(Expr defaultValue)

@@ -102,6 +102,8 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
                 return TIR.F.NTT.Pack((Expr)arguments[0], output, new[] { pack.Lanes }, new[] { pack.Axis });
             case IR.Tensors.Unpack unpack:
                 return TIR.F.NTT.Unpack((Expr)arguments[0], output, unpack.Lanes, unpack.Axes);
+            case IR.Tensors.Depend:
+                return GenerateDepend(arguments, ref output);
             case IR.NTT.VectorizedBinary vectorizedBinary:
                 return TIR.F.NTT.VectorizedBinary((Expr)arguments[0], (Expr)arguments[1], output, (Expr)arguments[2], vectorizedBinary.BinaryOp, vectorizedBinary.LhsVectorizedAxes, vectorizedBinary.LhsPadedNums, vectorizedBinary.RhsVectorizedAxes, vectorizedBinary.RhsPadedNums);
             case IR.NTT.VectorizedMatMul vectorizedMatMul when GetArgumentType(arguments[0]) is DistributedType dta && GetArgumentType(arguments[1]) is DistributedType dtb:
@@ -1493,6 +1495,12 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         var min = ((TensorConst)call[IR.Math.Clamp.Min]).Value.ToScalar<float>();
         var max = ((TensorConst)call[IR.Math.Clamp.Max]).Value.ToScalar<float>();
         return TIR.F.NTT.Clamp((Expr)arguments[0], output, min, max);
+    }
+
+    private Expr GenerateDepend(IReadOnlyList<BaseExpr> arguments, ref Expr output)
+    {
+        output = (Expr)arguments[IR.Tensors.Depend.Value.Index];
+        return T.Nop();
     }
 
     private Expr GenerateBoxing(Call call, IR.Distributed.Boxing boxing, IReadOnlyList<BaseExpr> arguments, ref Expr output)

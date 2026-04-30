@@ -29,6 +29,24 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
     }
 
     [Fact]
+    public async Task DependLowersByPreservingVisitedDependenciesAndReturningValue()
+    {
+        var input = new Var("input", new TensorType(DataTypes.Float32, new RankedShape(4)));
+        var dependency = IR.F.Math.Unary(UnaryOp.Neg, input);
+        var value = IR.F.Math.Unary(UnaryOp.Abs, input);
+        var body = IR.F.Tensors.Depend(dependency, value);
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(body, input));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTTIRSelectionPass(CompileOptions, CUDATarget.Kind).RunAsync(function, new()));
+        var calls = ExprCollector.Collect(lowered.Body).OfType<Call>().ToArray();
+
+        Assert.DoesNotContain(calls, call => call.Target is Nncase.IR.Tensors.Depend);
+        Assert.Equal(2, calls.Count(call => call.Target is Nncase.TIR.NTT.Unary));
+        Assert.True(CompilerServices.InferenceType(lowered), CompilerServices.Print(lowered));
+    }
+
+    [Fact]
     public async Task BroadcastSelectsNttExpandKernel()
     {
         var input = new Var("input", new TensorType(DataTypes.Float32, Shape.Scalar));

@@ -85,6 +85,52 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
     }
 
     [Fact]
+    public async Task MaskedDistributedGatherGlobalBufferDefaultUsesGlobalDomainIndices()
+    {
+        var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
+        var output = CreateDistributedVectorBuffer("output", globalSize: 4, threadShards: 2);
+        var defaultValue = CreateVectorBuffer("default_value");
+        var (relation, symbols) = CreateVectorAddRelation(symbolCount: 2);
+        var call = Nncase.TIR.F.NTT.AffineGather(source, defaultValue, output, relation, symbols, new RankedShape(4));
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(call));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var (outerLoop, guard) = GetSingleGuardWithLoop(lowered);
+        var elseStore = AssertSingleCall<BufferStore>(guard.Else);
+        var fallbackLoad = Assert.IsType<Call>(elseStore[BufferStore.Value]);
+        var fallbackIndex = GetBufferLoadIndex(fallbackLoad);
+
+        AssertDimensionValues(fallbackIndex, outerLoop, expected: [0, 1], threadId: 0);
+        AssertDimensionValues(fallbackIndex, outerLoop, expected: [2, 3], threadId: 1);
+        Assert.True(CompilerServices.InferenceType(lowered));
+    }
+
+    [Fact]
+    public async Task MaskedDistributedGatherDistributedDefaultUsesDefaultStorageIndices()
+    {
+        var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
+        var output = CreateDistributedVectorBuffer("output", globalSize: 4, threadShards: 2);
+        var defaultValue = CreateExplicitDistributedVectorBuffer(
+            "default_value",
+            globalSize: 4,
+            threadShards: 2,
+            storageLayoutFactory: localShape => CreateReverseLocalStorageLayout(localShape));
+        var (relation, symbols) = CreateVectorAddRelation(symbolCount: 2);
+        var call = Nncase.TIR.F.NTT.AffineGather(source, defaultValue, output, relation, symbols, new RankedShape(4));
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(call));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var (outerLoop, guard) = GetSingleGuardWithLoop(lowered);
+        var elseStore = AssertSingleCall<BufferStore>(guard.Else);
+        var fallbackLoad = Assert.IsType<Call>(elseStore[BufferStore.Value]);
+        var fallbackIndex = GetBufferLoadIndex(fallbackLoad);
+
+        AssertDimensionValues(fallbackIndex, outerLoop, expected: [1, 0], threadId: 0);
+        AssertDimensionValues(fallbackIndex, outerLoop, expected: [1, 0], threadId: 1);
+        Assert.True(CompilerServices.InferenceType(lowered));
+    }
+
+    [Fact]
     public async Task MaskedSymbolicGatherEvaluatesFullBlockAndTailBlockSemantics()
     {
         var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
@@ -131,6 +177,29 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         Assert.Equal(2, EvaluateDimension(outerLoop.Domain.Stop, outerLoop.LoopVar, lane: 0, programId: 0, nElements: 0, threadId: 1));
         AssertAddresses(loadAddress, outerLoop, programId: 0, expected: [0, 1], threadId: 0);
         AssertAddresses(loadAddress, outerLoop, programId: 0, expected: [2, 3], threadId: 1);
+        Assert.True(CompilerServices.InferenceType(lowered));
+    }
+
+    [Fact]
+    public async Task DistributedTensorLoadAfterAffineGatherDoesNotFuseWhenTempHasOtherConsumers()
+    {
+        var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
+        var temp = CreateVectorBuffer("temp");
+        var output = CreateDistributedVectorBuffer("output", globalSize: 4, threadShards: 2);
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var (relation, symbols) = CreateIdentityRelation();
+        var gather = Nncase.TIR.F.NTT.AffineGather(source, None.Default, temp, relation, symbols, new RankedShape(4));
+        var tensorLoad = Nncase.TIR.F.NTT.TensorLoad(output, temp, output.DistributedType!.AxisPolicies, output.DistributedType.Placement);
+        var scatter = Nncase.TIR.F.NTT.AffineScatter(temp, dest, relation, symbols);
+        var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(gather, tensorLoad, scatter));
+
+        var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
+        var fields = lowered.Body.Fields.ToArray();
+
+        Assert.Equal(3, fields.Length);
+        Assert.IsType<Nncase.TIR.For>(fields[0]);
+        Assert.IsType<Nncase.TIR.NTT.TensorLoad>(Assert.IsType<Call>(fields[1]).Target);
+        Assert.IsType<Nncase.TIR.For>(fields[2]);
         Assert.True(CompilerServices.InferenceType(lowered));
     }
 
@@ -358,6 +427,32 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         return T.CreateBuffer(tensorType, MemoryLocation.Data, out _, name, distributedType);
     }
 
+    private static Nncase.TIR.Buffer CreateExplicitDistributedVectorBuffer(string name, int globalSize, int threadShards, Func<Shape, StorageLayout> storageLayoutFactory)
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(globalSize));
+        var placement = new Placement(new[] { threadShards }, "t");
+        var axisPolicies = new IRArray<SBP>(new SBP[] { SBP.S(0) });
+        var distributionLayout = DistributionLayout.FromAxisPolicies(tensorType, axisPolicies, placement);
+        var storageLayout = storageLayoutFactory(distributionLayout.LocalShape);
+        var distributedType = DistributedType.FromLayouts(tensorType, placement, distributionLayout, storageLayout);
+        return T.CreateBuffer(tensorType, MemoryLocation.Data, out _, name, distributedType);
+    }
+
+    private static StorageLayout CreateReverseLocalStorageLayout(Shape localShape)
+    {
+        var extent = localShape[0].FixedValue;
+        return new StorageLayout(
+            "ReverseLocal",
+            localShape,
+            new IndexMapDescriptor(
+                "LogicalToPhysical",
+                ["l0"],
+                [new IndexMapBinding("p0", IndexExpr.Add(IndexExpr.Const(extent - 1), IndexExpr.Mul(IndexExpr.Const(-1), IndexExpr.Var("l0"))))],
+                [$"0<=l0<{extent}"],
+                [$"0<=p0<{extent}"],
+                Inverse: "LogicalToPhysical"));
+    }
+
     private static (AffineRelation Relation, RankedShape Symbols) CreateIdentityRelation()
     {
         var lane = Nncase.IR.F.Affine.Dim(0);
@@ -447,6 +542,17 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
     private static Dimension GetSingleBufferLoadIndex(Call storeCall)
     {
         var asTensor = GetSingleBufferLoadAsTensor(storeCall);
+        return Assert.IsAssignableFrom<Dimension>(asTensor.Arguments[0]);
+    }
+
+    private static Dimension GetBufferLoadIndex(Call bufferLoad)
+    {
+        Assert.IsType<BufferLoad>(bufferLoad.Target);
+        var indices = Assert.IsType<Nncase.IR.Tuple>(bufferLoad[BufferLoad.Indices]);
+        var cast = Assert.IsType<Call>(Assert.Single(indices.Fields.ToArray()));
+        Assert.IsType<Nncase.IR.Tensors.Cast>(cast.Target);
+        var asTensor = Assert.IsType<Call>(cast.Arguments[0]);
+        Assert.IsType<Nncase.IR.Shapes.AsTensor>(asTensor.Target);
         return Assert.IsAssignableFrom<Dimension>(asTensor.Arguments[0]);
     }
 
