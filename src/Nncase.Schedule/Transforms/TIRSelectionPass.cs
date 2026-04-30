@@ -64,6 +64,13 @@ public abstract class TIRSelectionPass : FunctionPass
 
     protected abstract Expr SelectCall(Call call, IReadOnlyList<BaseExpr> arguments, ref Expr output);
 
+    protected virtual bool TrySelectBlock(IRBlock block, bool isEntry, out Sequential body, out IReadOnlyList<Var> outputBuffers)
+    {
+        body = null!;
+        outputBuffers = Array.Empty<Var>();
+        return false;
+    }
+
     protected IRType GetArgumentType(BaseExpr argument)
     {
         return argument switch
@@ -102,6 +109,11 @@ public abstract class TIRSelectionPass : FunctionPass
 
         public SelectionResult Select(IRBlock block)
         {
+            if (_selectionPass.TrySelectBlock(block, _isEntry, out var selectedBody, out var selectedOutputBuffers))
+            {
+                return new(selectedBody, selectedOutputBuffers);
+            }
+
             Visit(block.Body, Unit.Default);
 
             var outBuffers = block.Body switch

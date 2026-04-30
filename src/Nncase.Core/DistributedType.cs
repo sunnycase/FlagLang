@@ -405,7 +405,7 @@ public sealed record DistributionLayout(
         layout.Validate();
         var threadsPerCTA = layout.ThreadsPerWarp * layout.WarpsPerCTA;
         var elementsPerCTA = layout.SizePerThread * threadsPerCTA;
-        var localShape = new RankedShape(elementsPerCTA);
+        var localShape = new RankedShape(layout.SizePerThread);
         return new DistributionLayout(
             "TritonBlocked",
             new IndexMapDescriptor(
@@ -663,6 +663,29 @@ public sealed record StorageLayout(
                 Enumerable.Range(0, localShape.Rank).Select(i => $"0<=p{i}<{FormatDimension(localShape[i])}").ToArray(),
                 "true",
                 "LogicalToPhysical"));
+
+    public static StorageLayout SharedBlock(Shape tensorShape, DistributionLayout distributionLayout)
+    {
+        if (tensorShape.IsUnranked)
+        {
+            throw new InvalidOperationException("SharedBlock storage layout requires a ranked tensor shape.");
+        }
+
+        return new(
+            "SharedBlock",
+            tensorShape,
+            new IndexMapDescriptor(
+                "LogicalToPhysical",
+                Enumerable.Range(0, tensorShape.Rank).Select(i => $"g{i}").ToArray(),
+                Enumerable.Range(0, tensorShape.Rank).Select(i => new IndexMapBinding($"p{i}", IndexExpr.Var($"g{i}"))).ToArray(),
+                Enumerable.Range(0, tensorShape.Rank).Select(i => $"0<=g{i}<{FormatDimension(tensorShape[i])}").ToArray(),
+                Enumerable.Range(0, tensorShape.Rank).Select(i => $"0<=p{i}<{FormatDimension(tensorShape[i])}").ToArray(),
+                "true",
+                "LogicalToPhysical"),
+            distributionLayout.ValidPredicate,
+            ["scope:block_local"],
+            distributionLayout.OwnerLocalToGlobal);
+    }
 
     public override string ToString()
     {

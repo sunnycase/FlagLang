@@ -18,7 +18,12 @@ namespace Nncase.Passes.Transforms;
 
 public sealed class DirectAffineTilingPass : FunctionPass
 {
-    private static readonly BufferStorage ThreadTileStorage = new(BufferUsage.Temp, BufferScope.ThreadLocal, PhysicalMemorySpace.LocalAddressable);
+    private const int CudaWarpLanes = 32;
+    private const long ConservativeRegisterTileBudgetBytes = 4096;
+    private const long ConservativeSmemTileBudgetBytes = 49152;
+    private static readonly BufferStorage BlockLocalSmemTileStorage = new(BufferUsage.Temp, BufferScope.BlockLocal, PhysicalMemorySpace.SMem);
+    private static readonly BufferStorage ThreadAddressableTileStorage = new(BufferUsage.Temp, BufferScope.ThreadLocal, PhysicalMemorySpace.LocalAddressable);
+    private static readonly BufferStorage ThreadRegisterTileStorage = new(BufferUsage.Temp, BufferScope.ThreadLocal, PhysicalMemorySpace.Register);
 
     public DirectAffineTilingPass(string moduleKind)
     {
@@ -34,12 +39,12 @@ public sealed class DirectAffineTilingPass : FunctionPass
             return Task.FromResult(input);
         }
 
-        if (input.ModuleKind != ModuleKind && !new DirectAffineTileAnalyzer().ContainsDirectAffine(func.Body.Body))
+        var analyzer = new DirectAffineTileAnalyzer(ModuleKind);
+        if (input.ModuleKind != ModuleKind && !analyzer.ContainsDirectAffine(func.Body.Body))
         {
             return Task.FromResult(input);
         }
 
-        var analyzer = new DirectAffineTileAnalyzer();
         var decisions = analyzer.Analyze(func.Body.Body);
         if (DumpScope.Current.IsEnabled(DumpFlags.Tiling) || DumpScope.Current.IsEnabled(DumpFlags.PassIR))
         {
@@ -68,11 +73,22 @@ public sealed class DirectAffineTilingPass : FunctionPass
 
     private sealed class DirectAffineTileAnalyzer
     {
+        private readonly string _moduleKind;
         private readonly HashSet<BaseExpr> _visited = new(ReferenceEqualityComparer.Instance);
+        private readonly HashSet<BaseExpr> _blockLocalEligible = new(ReferenceEqualityComparer.Instance);
+        private readonly HashSet<BaseExpr> _registerEligible = new(ReferenceEqualityComparer.Instance);
         private readonly List<TileDecision> _decisions = new();
+        private readonly Dictionary<BaseExpr, int> _decisionIndexes = new(ReferenceEqualityComparer.Instance);
+
+        public DirectAffineTileAnalyzer(string moduleKind)
+        {
+            _moduleKind = moduleKind;
+        }
 
         public IReadOnlyList<TileDecision> Analyze(BaseExpr root)
         {
+            MarkBlockLocalEligible(root);
+            MarkRegisterEligible(root, new HashSet<BaseExpr>(ReferenceEqualityComparer.Instance));
             Visit(root);
             return _decisions;
         }
@@ -83,33 +99,95 @@ public sealed class DirectAffineTilingPass : FunctionPass
             return ContainsDirectAffine(root, visited);
         }
 
-        private static DistributionLayout? GetDistributionLayout(IRType type, IRArray<SBP> ndsbp, Placement placement)
+        private DistributionLayout? GetDistributionLayout(IRType type, IRArray<SBP> ndsbp, Placement placement, BufferStorage storage, TensorType tensorType, string opKind)
         {
+            DistributionLayout? layout;
+            IRArray<SBP> axisPolicies;
+            Placement resolvedPlacement;
             if (type is DistributedType distributedType)
             {
                 LayoutVerifier.Verify(distributedType.DistributionLayout, distributedType.StorageLayout);
-                return distributedType.DistributionLayout;
+                layout = distributedType.DistributionLayout;
+                axisPolicies = distributedType.AxisPolicies;
+                resolvedPlacement = distributedType.Placement;
             }
-
-            if (placement.Rank == 0)
+            else if (placement.Rank == 0)
             {
                 return null;
             }
+            else
+            {
+                var distributed = new DistributedType(tensorType, ndsbp, placement);
+                LayoutVerifier.Verify(distributed.DistributionLayout, distributed.StorageLayout);
+                layout = distributed.DistributionLayout;
+                axisPolicies = distributed.AxisPolicies;
+                resolvedPlacement = distributed.Placement;
+            }
 
-            var tensorType = GetTensorType(type, "distributed direct affine tile");
-            var distributed = new DistributedType(tensorType, ndsbp, placement);
-            LayoutVerifier.Verify(distributed.DistributionLayout, distributed.StorageLayout);
-            return distributed.DistributionLayout;
+            return storage.PhysicalLocation is PhysicalMemorySpace.Register && string.Equals(_moduleKind, "cuda", StringComparison.Ordinal)
+                ? GetCudaRegisterDistributionLayout(tensorType, layout, axisPolicies, resolvedPlacement, opKind)
+                : layout;
         }
 
-        private static TensorType GetTensorType(IRType type, string opKind) => type switch
+        private DistributionLayout GetCudaRegisterDistributionLayout(
+            TensorType tensorType,
+            DistributionLayout layout,
+            IRArray<SBP> axisPolicies,
+            Placement placement,
+            string opKind)
+        {
+            if (layout.Kind != "SBP")
+            {
+                return layout;
+            }
+
+            if (tensorType.Shape is not { IsUnranked: false, Rank: 1 } || !tensorType.Shape[0].IsFixed)
+            {
+                throw new NotSupportedException($"{opKind} CUDA register tiling requires a fixed rank-1 distributed tile shape, got {tensorType.Shape}.");
+            }
+
+            if (axisPolicies.Count != 1 || axisPolicies[0] is not SBPSplit { Axes: var splitAxes } || splitAxes.Count != 1 || splitAxes[0] != 0)
+            {
+                throw new NotSupportedException($"{opKind} CUDA register tiling requires a rank-1 thread split policy S(0), got ({string.Join(',', axisPolicies)}).");
+            }
+
+            if (placement.Rank != 1 || placement.Name != "t")
+            {
+                throw new NotSupportedException($"{opKind} CUDA register tiling requires a single thread placement [t:N], got {placement}.");
+            }
+
+            var threadsPerCTA = placement.Hierarchy[0];
+            if (threadsPerCTA <= 0 || threadsPerCTA % CudaWarpLanes != 0)
+            {
+                throw new NotSupportedException($"{opKind} CUDA register tiling requires thread count to be a positive multiple of {CudaWarpLanes}, got {threadsPerCTA} in placement {placement}.");
+            }
+
+            var blockExtent = tensorType.Shape[0].FixedValue;
+            if (blockExtent % threadsPerCTA != 0)
+            {
+                throw new NotSupportedException($"{opKind} CUDA register tiling requires block extent {blockExtent} to be divisible by thread count {threadsPerCTA}; add a masked uneven TritonBlocked owner map before enabling this shape.");
+            }
+
+            var blocked = new TritonBlockedLayout(
+                SizePerThread: checked((int)(blockExtent / threadsPerCTA)),
+                ThreadsPerWarp: CudaWarpLanes,
+                WarpsPerCTA: threadsPerCTA / CudaWarpLanes,
+                Order: [0],
+                CTAsPerCGA: [1],
+                CTASplitNum: [1],
+                CTAOrder: [0],
+                ThreadElementOrder: TritonThreadElementOrder.Strided);
+            return DistributionLayout.TritonBlocked(tensorType.Shape, blocked);
+        }
+
+        private TensorType GetTensorType(IRType type, string opKind) => type switch
         {
             TensorType tensorType => tensorType,
             DistributedType distributedType => distributedType.TensorType,
             _ => throw new NotSupportedException($"{opKind} tiling requires tensor output, got {type}."),
         };
 
-        private static void ValidateOneDimensionalDirectAffine(AffineRelation relation, Shape shape, RankedShape symbols, string opKind)
+        private void ValidateOneDimensionalDirectAffine(AffineRelation relation, Shape shape, RankedShape symbols, string opKind)
         {
             ValidateOneDimensionalShape(shape, opKind);
             if (relation.Domains.Length != shape.Rank)
@@ -128,7 +206,7 @@ public sealed class DirectAffineTilingPass : FunctionPass
             }
         }
 
-        private static void ValidateOneDimensionalShape(Shape shape, string opKind)
+        private void ValidateOneDimensionalShape(Shape shape, string opKind)
         {
             if (shape.IsUnranked)
             {
@@ -143,15 +221,6 @@ public sealed class DirectAffineTilingPass : FunctionPass
             if (!shape[0].IsFixed)
             {
                 throw new NotSupportedException($"{opKind} tiling requires a fixed tile extent for capacity accounting, got {shape}.");
-            }
-        }
-
-        private static long GetFixedByteSize(TensorType tensorType, string opKind)
-        {
-            ValidateOneDimensionalShape(tensorType.Shape, opKind);
-            checked
-            {
-                return tensorType.Shape[0].FixedValue * tensorType.DType.SizeInBytes;
             }
         }
 
@@ -175,44 +244,47 @@ public sealed class DirectAffineTilingPass : FunctionPass
             switch (call.Target)
             {
                 case Gather gather:
-                    AttachGatherDecision(call, gather);
+                    AttachGatherDecision(call, gather, GetStorage(call));
                     break;
                 case Scatter scatter:
-                    AttachScatterDecision(call, scatter);
+                    AttachScatterDecision(call, scatter, GetStorage(call));
                     break;
                 case IR.Math.Binary:
-                    AttachElementwiseDecisionIfTilingInput(call, "Binary");
+                    AttachElementwiseDecisionIfTilingInput(call, "Binary", GetStorage(call));
                     break;
                 case IR.Math.Unary:
-                    AttachElementwiseDecisionIfTilingInput(call, "Unary");
+                    AttachElementwiseDecisionIfTilingInput(call, "Unary", GetStorage(call));
                     break;
                 case IR.Tensors.Cast:
-                    AttachElementwiseDecisionIfTilingInput(call, "Cast");
+                    AttachElementwiseDecisionIfTilingInput(call, "Cast", GetStorage(call));
                     break;
                 case IR.Tensors.Where:
-                    AttachElementwiseDecisionIfTilingInput(call, "Where");
+                    AttachElementwiseDecisionIfTilingInput(call, "Where", GetStorage(call));
+                    break;
+                case PrimFunctionWrapper:
+                    AttachElementwiseDecisionIfTilingInput(call, "PrimFunctionWrapper", GetStorage(call));
                     break;
             }
         }
 
-        private void AttachGatherDecision(Call call, Gather gather)
+        private void AttachGatherDecision(Call call, Gather gather, BufferStorage storage)
         {
             var tensorType = GetTensorType(call.CheckedType, "Affine.Gather");
             ValidateOneDimensionalDirectAffine(gather.Relation, tensorType.Shape, gather.Symbols, "Affine.Gather");
-            var distributionLayout = GetDistributionLayout(call.CheckedType, gather.NdSBP, gather.Placement);
-            AttachDecision(call, "Affine.Gather", tensorType, distributionLayout, ThreadTileStorage, "direct affine gather tile");
+            var distributionLayout = GetDistributionLayout(call.CheckedType, gather.NdSBP, gather.Placement, storage, tensorType, "Affine.Gather");
+            AttachDecision(call, "Affine.Gather", tensorType, distributionLayout, storage, "direct affine gather tile");
         }
 
-        private void AttachScatterDecision(Call call, Scatter scatter)
+        private void AttachScatterDecision(Call call, Scatter scatter, BufferStorage storage)
         {
             var source = (Expr)call[Scatter.Source];
             var tensorType = GetTensorType(source.CheckedType, "Affine.Scatter source");
             ValidateOneDimensionalDirectAffine(scatter.Relation, tensorType.Shape, scatter.Symbols, "Affine.Scatter");
-            var distributionLayout = GetDistributionLayout(source.CheckedType, new IRArray<SBP>(), new Placement([], string.Empty));
-            AttachDecision(call, "Affine.Scatter", tensorType, distributionLayout, ThreadTileStorage, "direct affine scatter tile terminator");
+            var distributionLayout = GetDistributionLayout(source.CheckedType, new IRArray<SBP>(), new Placement([], string.Empty), storage, tensorType, "Affine.Scatter");
+            AttachDecision(call, "Affine.Scatter", tensorType, distributionLayout, storage, "direct affine scatter tile terminator");
         }
 
-        private void AttachElementwiseDecisionIfTilingInput(Call call, string opKind)
+        private void AttachElementwiseDecisionIfTilingInput(Call call, string opKind, BufferStorage storage)
         {
             if (!call.Arguments.ToArray().OfType<Expr>().Any(arg => TileDecisionMetadata.TryGet(arg, out _)))
             {
@@ -221,33 +293,55 @@ public sealed class DirectAffineTilingPass : FunctionPass
 
             var tensorType = GetTensorType(call.CheckedType, opKind);
             ValidateOneDimensionalShape(tensorType.Shape, opKind);
-            var distributionLayout = GetDistributionLayout(call.CheckedType, new IRArray<SBP>(), new Placement([], string.Empty));
-            AttachDecision(call, opKind, tensorType, distributionLayout, ThreadTileStorage, "producer consumes direct affine tile");
+            var distributionLayout = GetDistributionLayout(call.CheckedType, new IRArray<SBP>(), new Placement([], string.Empty), storage, tensorType, opKind);
+            AttachDecision(call, opKind, tensorType, distributionLayout, storage, "producer consumes direct affine tile");
         }
 
         private void AttachDecision(Call call, string opKind, TensorType tensorType, DistributionLayout? distributionLayout, BufferStorage storage, string reason)
         {
-            var byteSize = GetFixedByteSize(tensorType, opKind);
-            var storageLayout = StorageLayout.Identity(distributionLayout?.LocalShape ?? tensorType.Shape);
+            var ownerLocalShape = distributionLayout?.LocalShape ?? tensorType.Shape;
+            var storageLayout = GetStorageLayout(tensorType.Shape, ownerLocalShape, distributionLayout, storage);
+            var tileShape = storageLayout.LogicalShape;
+            var byteSize = GetFixedByteSize(tensorType.DType, tileShape, opKind);
             if (distributionLayout is not null)
             {
                 LayoutVerifier.Verify(distributionLayout, storageLayout);
             }
 
+            var budgetBytes = GetBudgetBytes(storage);
+            if (budgetBytes.HasValue && byteSize > budgetBytes.Value)
+            {
+                throw new InvalidOperationException($"{opKind} tile requires {byteSize} bytes for shape {tileShape}, exceeding {storage} budget {budgetBytes.Value} bytes.");
+            }
+
+            var decisionIndex = _decisions.Count;
             var decision = new TileDecision(
-                $"tile_{_decisions.Count}",
+                $"tile_{decisionIndex}",
                 opKind,
-                tensorType.Shape,
+                tileShape,
                 distributionLayout,
                 storageLayout,
                 storage,
-                new TileLifetime(_decisions.Count, _decisions.Count),
+                new TileLifetime(decisionIndex, decisionIndex),
                 byteSize,
-                new TileCapacity(byteSize, null, "direct-affine-conservative"),
+                new TileCapacity(byteSize, budgetBytes, GetBudgetSource(storage)),
                 storage.Scope is BufferScope.BlockLocal,
                 reason);
             TileDecisionMetadata.Set(call, decision);
             _decisions.Add(decision);
+            _decisionIndexes.Add(call, decisionIndex);
+            ExtendInputLifetimes(call, decisionIndex);
+        }
+
+        private StorageLayout GetStorageLayout(Shape tensorShape, Shape ownerLocalShape, DistributionLayout? distributionLayout, BufferStorage storage)
+        {
+            if (distributionLayout is not null &&
+                storage is { Scope: BufferScope.BlockLocal, PhysicalLocation: PhysicalMemorySpace.SMem })
+            {
+                return StorageLayout.SharedBlock(tensorShape, distributionLayout);
+            }
+
+            return StorageLayout.Identity(ownerLocalShape);
         }
 
         private bool ContainsDirectAffine(BaseExpr expr, ISet<BaseExpr> visited)
@@ -271,6 +365,203 @@ public sealed class DirectAffineTilingPass : FunctionPass
             }
 
             return false;
+        }
+
+        private BufferStorage GetStorage(Call call) =>
+            _blockLocalEligible.Contains(call) ? BlockLocalSmemTileStorage :
+            _registerEligible.Contains(call) ? ThreadRegisterTileStorage : ThreadAddressableTileStorage;
+
+        private void MarkBlockLocalEligible(BaseExpr root)
+        {
+            if (!string.Equals(_moduleKind, "cuda", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            foreach ((var expr, var users) in BuildCallUsers(root))
+            {
+                if (expr is Call { Target: Gather } && users.Count >= 2)
+                {
+                    _blockLocalEligible.Add(expr);
+                }
+            }
+        }
+
+        private Dictionary<BaseExpr, HashSet<Call>> BuildCallUsers(BaseExpr root)
+        {
+            var users = new Dictionary<BaseExpr, HashSet<Call>>(ReferenceEqualityComparer.Instance);
+            CollectCallUsers(root, null, users, new HashSet<BaseExpr>(ReferenceEqualityComparer.Instance));
+            return users;
+        }
+
+        private void CollectCallUsers(BaseExpr expr, Call? parent, IDictionary<BaseExpr, HashSet<Call>> users, ISet<BaseExpr> path)
+        {
+            if (parent is not null)
+            {
+                if (!users.TryGetValue(expr, out var exprUsers))
+                {
+                    exprUsers = new HashSet<Call>(ReferenceEqualityComparer.Instance);
+                    users.Add(expr, exprUsers);
+                }
+
+                exprUsers.Add(parent);
+            }
+
+            if (!path.Add(expr))
+            {
+                return;
+            }
+
+            var callParent = expr as Call;
+            foreach (var operand in expr.Operands)
+            {
+                CollectCallUsers(operand, callParent, users, path);
+            }
+
+            path.Remove(expr);
+        }
+
+        private void MarkRegisterEligible(BaseExpr expr, ISet<BaseExpr> visited)
+        {
+            if (!visited.Add(expr))
+            {
+                return;
+            }
+
+            foreach (var operand in expr.Operands)
+            {
+                MarkRegisterEligible(operand, visited);
+            }
+
+            if (expr is not Call { Target: Scatter } scatterCall)
+            {
+                return;
+            }
+
+            if (TryGetRegisterProducer((Expr)scatterCall[Scatter.Source], out var producer, out var registerCalls))
+            {
+                if (registerCalls.Any(_blockLocalEligible.Contains))
+                {
+                    return;
+                }
+
+                _registerEligible.Add(scatterCall);
+                _registerEligible.Add(producer);
+                foreach (var registerCall in registerCalls)
+                {
+                    _registerEligible.Add(registerCall);
+                }
+            }
+        }
+
+        private bool TryGetRegisterProducer(Expr source, out Call producer, out IReadOnlyList<Call> registerCalls)
+        {
+            producer = null!;
+            registerCalls = Array.Empty<Call>();
+            if (source is not Call sourceCall)
+            {
+                return false;
+            }
+
+            var calls = new List<Call>();
+            if (!TryCollectRegisterExpression(sourceCall, calls) ||
+                !calls.Any(call => call.Target is Gather))
+            {
+                return false;
+            }
+
+            producer = sourceCall;
+            registerCalls = calls;
+            return true;
+        }
+
+        private bool TryCollectRegisterExpression(Expr expr, List<Call> registerCalls)
+        {
+            if (expr is TensorConst { CheckedType: TensorType { IsScalar: true } })
+            {
+                return true;
+            }
+
+            if (expr is not Call call)
+            {
+                return false;
+            }
+
+            var arguments = call.Arguments.ToArray().OfType<Expr>().ToArray();
+            var supported = call.Target switch
+            {
+                Gather => true,
+                IR.Math.Unary => arguments.Length == 1 && TryCollectAllRegisterExpressions(arguments, registerCalls),
+                IR.Math.Binary => arguments.Length == 2 && TryCollectAllRegisterExpressions(arguments, registerCalls),
+                IR.Tensors.Cast => arguments.Length == 1 && TryCollectAllRegisterExpressions(arguments, registerCalls),
+                IR.Tensors.Where where => !where.IsTfWhere && arguments.Length == 3 && TryCollectAllRegisterExpressions(arguments, registerCalls),
+                PrimFunctionWrapper => arguments.Length == 2 &&
+                    arguments.All(argument => argument is Call { Target: Gather }) &&
+                    TryCollectAllRegisterExpressions(arguments, registerCalls),
+                _ => false,
+            };
+
+            if (supported)
+            {
+                registerCalls.Add(call);
+            }
+
+            return supported;
+        }
+
+        private bool TryCollectAllRegisterExpressions(IReadOnlyList<Expr> arguments, List<Call> registerCalls)
+        {
+            foreach (var argument in arguments)
+            {
+                if (!TryCollectRegisterExpression(argument, registerCalls))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private long? GetBudgetBytes(BufferStorage storage) => storage.PhysicalLocation switch
+        {
+            PhysicalMemorySpace.Register => ConservativeRegisterTileBudgetBytes,
+            PhysicalMemorySpace.SMem => ConservativeSmemTileBudgetBytes,
+            _ => null,
+        };
+
+        private string GetBudgetSource(BufferStorage storage) => storage.PhysicalLocation switch
+        {
+            PhysicalMemorySpace.Register => "cuda-default-register-tile-budget",
+            PhysicalMemorySpace.SMem => "cuda-default-smem-tile-budget",
+            _ => "not-capacity-limited",
+        };
+
+        private long GetFixedByteSize(DataType dtype, Shape tileShape, string opKind)
+        {
+            ValidateOneDimensionalShape(tileShape, opKind);
+            checked
+            {
+                return tileShape[0].FixedValue * dtype.SizeInBytes;
+            }
+        }
+
+        private void ExtendInputLifetimes(Call consumer, int consumerIndex)
+        {
+            foreach (var argument in consumer.Arguments.ToArray().OfType<Expr>())
+            {
+                if (!_decisionIndexes.TryGetValue(argument, out var producerIndex))
+                {
+                    continue;
+                }
+
+                var producer = _decisions[producerIndex];
+                var extended = producer with
+                {
+                    Lifetime = producer.Lifetime with { End = Math.Max(producer.Lifetime.End, consumerIndex) },
+                };
+                _decisions[producerIndex] = extended;
+                TileDecisionMetadata.Set(argument, extended);
+            }
         }
     }
 }

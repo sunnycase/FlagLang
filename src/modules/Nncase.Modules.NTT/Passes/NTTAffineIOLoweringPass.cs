@@ -132,15 +132,16 @@ namespace Nncase.Passes
                     var domainValues = GetDomainValues(output, loopVars, globalExtents);
                     var address = EvaluateAddress(gather.Relation, domainValues, globalExtents, symbolMap);
                     var loaded = T.Load(source, address);
-                    var indices = loopVars.AsExprs();
-                    var storeLoaded = T.BufferStore(output, indices, loaded);
+                    var loopIndices = loopVars.AsExprs();
+                    var storageIndices = GetStorageIndices(output, loopVars, domainValues);
+                    var storeLoaded = T.BufferStore(output, storageIndices, loaded);
                     if (gather.Relation.Constraint == LogicalExpr.True)
                     {
                         return storeLoaded;
                     }
 
-                    var fallback = ReadDefaultValue(defaultValue, indices, output.ElemType);
-                    var storeFallback = T.BufferStore(output, indices, fallback);
+                    var fallback = ReadDefaultValue(defaultValue, loopIndices, output.ElemType);
+                    var storeFallback = T.BufferStore(output, storageIndices, fallback);
                     return T.If(EvaluateConstraint(gather.Relation.Constraint, domainValues)).Then(storeLoaded).Else(storeFallback).Build();
                 });
                 return defaultSetup is null ? loopNest : T.Sequential(defaultSetup, loopNest);
@@ -159,8 +160,8 @@ namespace Nncase.Passes
                 var symbolMap = BuildSymbolMap(scatter.Relation, scatter.Symbols);
                 var loopNest = BuildLoopNest(iterationExtents, loopVars =>
                 {
-                    var value = T.BufferLoad(source, loopVars.AsExprs());
                     var domainValues = GetDomainValues(source, loopVars, globalExtents);
+                    var value = T.BufferLoad(source, GetStorageIndices(source, loopVars, domainValues));
                     var address = EvaluateAddress(scatter.Relation, domainValues, globalExtents, symbolMap);
                     var store = T.Store(dest, address, value);
                     return scatter.Relation.Constraint == LogicalExpr.True
@@ -169,6 +170,15 @@ namespace Nncase.Passes
                 });
                 return sourceSetup is null ? loopNest : T.Sequential(sourceSetup, loopNest);
             }
+
+            private Expr[] GetStorageIndices(TIR.Buffer buffer, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> domainValues) =>
+                UsesSharedBlockStorage(buffer)
+                    ? domainValues.AsExprs()
+                    : loopVars.AsExprs();
+
+            private bool UsesSharedBlockStorage(TIR.Buffer buffer) =>
+                buffer.Storage is { Scope: BufferScope.BlockLocal, PhysicalLocation: PhysicalMemorySpace.SMem } &&
+                buffer.DistributedType?.StorageLayout.ViewMap is not null;
 
             private Expr BuildLoopNest(Dimension[] extents, Func<DimVar[], Expr> bodyFactory)
             {
@@ -477,6 +487,11 @@ namespace Nncase.Passes
                     return (buffer, null);
                 }
 
+                if (expr is TensorConst tensorConst)
+                {
+                    return (T.AttachBuffer(tensorConst, out _, $"{bufferNamePrefix}_{_bufferIndex++}"), null);
+                }
+
                 if (expr is Expr sourceExpr)
                 {
                     var (tensorType, distributedType) = sourceExpr.CheckedType switch
@@ -511,6 +526,17 @@ internal static class DimVarExtensions
         for (int i = 0; i < loopVars.Count; i++)
         {
             result[i] = global::Nncase.IR.F.Tensors.Cast(global::Nncase.IR.F.Shapes.AsTensor(loopVars[i]), global::Nncase.DataTypes.Int32);
+        }
+
+        return result;
+    }
+
+    public static Expr[] AsExprs(this IReadOnlyList<Dimension> dimensions)
+    {
+        var result = new Expr[dimensions.Count];
+        for (int i = 0; i < dimensions.Count; i++)
+        {
+            result[i] = global::Nncase.IR.F.Tensors.Cast(global::Nncase.IR.F.Shapes.AsTensor(dimensions[i]), global::Nncase.DataTypes.Int32);
         }
 
         return result;

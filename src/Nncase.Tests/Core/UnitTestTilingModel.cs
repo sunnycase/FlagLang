@@ -92,7 +92,7 @@ public sealed class UnitTestTilingModel : TestClassBase
 
         LayoutVerifier.Verify(layout);
         Assert.Equal("TritonBlocked", layout.Kind);
-        Assert.Equal(new long[] { 256 }, layout.LocalShape.ToValueArray());
+        Assert.Equal(new long[] { 2 }, layout.LocalShape.ToValueArray());
         Assert.Contains("sizePerThread=2", layout.Attributes!.Value.ToArray());
         Assert.Contains("threadsPerWarp=32", layout.Attributes!.Value.ToArray());
         Assert.Contains("lane=floor(g0%64/2)", ownerLocalOutputs);
@@ -147,6 +147,39 @@ public sealed class UnitTestTilingModel : TestClassBase
         Assert.Equal("TritonBlocked", distributedType.DistributionLayout.Kind);
         Assert.Equal(distributionLayout, distributedType.DistributionLayout);
         Assert.Equal(distributionLayout.LocalShape, distributedType.StorageLayout.LogicalShape);
+    }
+
+    [Fact]
+    public async Task DirectAffineTilingPassUsesStridedTritonBlockedRegisterLayoutForCudaThreadSplit()
+    {
+        const int blockSize = 1024;
+        var lhs = new Var("lhs", TensorType.Pointer(DataTypes.Float32));
+        var rhs = new Var("rhs", TensorType.Pointer(DataTypes.Float32));
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var placement = new Placement([128], "t");
+        var ndsbp = new IRArray<SBP>(new SBP[] { SBP.S(0) });
+        var left = Nncase.IR.F.Affine.Gather(lhs, relation, symbols, shape, None.Default, ndsbp, placement);
+        var right = Nncase.IR.F.Affine.Gather(rhs, relation, symbols, shape, None.Default, ndsbp, placement);
+        var scatter = Nncase.IR.F.Affine.Scatter(left + right, dest, relation, symbols);
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, rhs, dest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        _ = await new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new());
+
+        Assert.True(TileDecisionMetadata.TryGet(left, out var leftDecision));
+        Assert.Equal(new long[] { 8 }, leftDecision.TileShape.ToValueArray());
+        Assert.Equal("TritonBlocked", leftDecision.DistributionLayout!.Kind);
+        Assert.Contains("threadElementOrder=Strided", leftDecision.DistributionLayout.Attributes!.Value.ToArray());
+        Assert.Contains("g0=cta*1024+warp*32+lane+elem*128", leftDecision.DistributionLayout.OwnerLocalToGlobal.Outputs.Select(x => x.ToString()).ToArray());
+        Assert.Equal(32, leftDecision.ByteSize);
     }
 
     [Fact]
@@ -227,11 +260,78 @@ public sealed class UnitTestTilingModel : TestClassBase
         Assert.True(TileDecisionMetadata.TryGet(right, out var rightDecision));
         Assert.True(TileDecisionMetadata.TryGet(sum, out var sumDecision));
         Assert.True(TileDecisionMetadata.TryGet(scatter, out var scatterDecision));
-        Assert.Equal(PhysicalMemorySpace.LocalAddressable, leftDecision.Storage.PhysicalLocation);
+        Assert.Equal(PhysicalMemorySpace.Register, leftDecision.Storage.PhysicalLocation);
         Assert.Equal(BufferScope.ThreadLocal, sumDecision.Storage.Scope);
         Assert.Equal(blockSize * DataTypes.Float32.SizeInBytes, scatterDecision.ByteSize);
+        Assert.Equal(4096, scatterDecision.Capacity.BudgetBytes);
+        Assert.Equal("cuda-default-register-tile-budget", scatterDecision.Capacity.Source);
+        Assert.Equal(2, leftDecision.Lifetime.End);
+        Assert.Equal(3, sumDecision.Lifetime.End);
         Assert.Contains("Affine.Gather", leftDecision.ToDumpString(), StringComparison.Ordinal);
         Assert.Equal(leftDecision.Storage, rightDecision.Storage);
+    }
+
+    [Fact]
+    public async Task DirectAffineTilingPassUsesBlockLocalSmemForSharedGather()
+    {
+        const int blockSize = 128;
+        var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
+        var firstDest = new Var("first_dest", TensorType.Pointer(DataTypes.Float32));
+        var secondDest = new Var("second_dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var tile = Nncase.IR.F.Affine.Gather(source, relation, symbols, shape, None.Default);
+        var firstScatter = Nncase.IR.F.Affine.Scatter(tile, firstDest, relation, symbols);
+        var secondScatter = Nncase.IR.F.Affine.Scatter(tile, secondDest, relation, symbols);
+        var body = new Sequential(new Expr[] { tile, firstScatter, secondScatter });
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(body, source, firstDest, secondDest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        _ = await new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new());
+
+        Assert.True(TileDecisionMetadata.TryGet(tile, out var decision));
+        Assert.Equal(BufferUsage.Temp, decision.Storage.Usage);
+        Assert.Equal(BufferScope.BlockLocal, decision.Storage.Scope);
+        Assert.Equal(PhysicalMemorySpace.SMem, decision.Storage.PhysicalLocation);
+        Assert.True(decision.RequiresSynchronization);
+        Assert.Equal(blockSize * DataTypes.Float32.SizeInBytes, decision.ByteSize);
+        Assert.Equal(49152, decision.Capacity.BudgetBytes);
+        Assert.Equal("cuda-default-smem-tile-budget", decision.Capacity.Source);
+        Assert.Equal(2, decision.Lifetime.End);
+    }
+
+    [Fact]
+    public async Task DirectAffineTilingPassRejectsRegisterTileOverBudget()
+    {
+        const int blockSize = 2048;
+        var lhs = new Var("lhs", TensorType.Pointer(DataTypes.Float32));
+        var rhs = new Var("rhs", TensorType.Pointer(DataTypes.Float32));
+        var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
+        var lane = Nncase.IR.F.Affine.Dim(0);
+        lane.Metadata.Range = new(0, blockSize - 1);
+        var relation = new AffineRelation(
+            new[] { lane },
+            Array.Empty<AffineSymbol>(),
+            new AffineExpr[] { lane });
+        var symbols = new RankedShape(Array.Empty<Dimension>());
+        var shape = new RankedShape(blockSize);
+        var left = Nncase.IR.F.Affine.Gather(lhs, relation, symbols, shape, None.Default);
+        var right = Nncase.IR.F.Affine.Gather(rhs, relation, symbols, shape, None.Default);
+        var scatter = Nncase.IR.F.Affine.Scatter(left + right, dest, relation, symbols);
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(scatter, lhs, rhs, dest));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new DirectAffineTilingPass(CUDATarget.Kind).RunAsync(function, new()));
+        Assert.Contains("exceeding", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("budget", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Register", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

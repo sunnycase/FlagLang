@@ -483,6 +483,11 @@ public static class TensorUtilities
             dims = CompilerServices.GetMaxShape(tensorType.Shape);
             strides = GetDefaultStrides(tensorType.Shape, dims);
         }
+        else if (distributedType.ExplicitStorageLayout is { } storageLayout)
+        {
+            dims = CompilerServices.GetMaxShape(storageLayout.LogicalShape);
+            strides = GetDefaultStrides(storageLayout.LogicalShape, dims);
+        }
         else
         {
             var dividedType = DistributedUtility.GetDividedTensorType(distributedType);
@@ -507,6 +512,11 @@ public static class TensorUtilities
         if (distributedType is null)
         {
             dims = ((RankedShape)tensorType.Shape).Dimensions.ToArray();
+            strides = GetDefaultStrides(dims);
+        }
+        else if (distributedType.ExplicitStorageLayout is { LogicalShape: RankedShape storageShape })
+        {
+            dims = storageShape.Dimensions.ToArray();
             strides = GetDefaultStrides(dims);
         }
         else

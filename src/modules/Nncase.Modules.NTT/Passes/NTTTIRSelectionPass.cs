@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
 using System.Reactive;
 using System.Text;
@@ -14,12 +15,15 @@ using NetFabric.Hyperlinq;
 using Nncase.Diagnostics;
 using Nncase.IR;
 using Nncase.IR.Affine;
+using Nncase.IR.Distributed;
+using Nncase.IR.Logics;
 using Nncase.IR.Shapes;
 using Nncase.IR.Tensors;
 using Nncase.Passes.Analysis;
 using Nncase.Passes.Mutators;
 using Nncase.Passes.Transforms;
 using Nncase.Targets;
+using Nncase.Tiling;
 using Nncase.TIR;
 using Nncase.Utilities;
 
@@ -33,6 +37,24 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
         : base(moduleKind)
     {
         _compileOptions = compileOptions;
+    }
+
+    protected override bool TrySelectBlock(IRBlock block, bool isEntry, out Sequential body, out IReadOnlyList<Var> outputBuffers)
+    {
+        if (TryLowerBlockLocalSmemAffineBlock(block, out body))
+        {
+            outputBuffers = Array.Empty<Var>();
+            return true;
+        }
+
+        if (TryLowerRegisterDirectAffineBlock(block, out body))
+        {
+            outputBuffers = Array.Empty<Var>();
+            return true;
+        }
+
+        outputBuffers = Array.Empty<Var>();
+        return false;
     }
 
     protected override Expr SelectCall(Call call, IReadOnlyList<BaseExpr> arguments, ref Expr output)
@@ -219,6 +241,896 @@ public sealed class NTTTIRSelectionPass : TIRSelectionPass
             default:
                 throw new NotSupportedException($"Not supported: {op}");
         }
+    }
+
+    private bool TryLowerBlockLocalSmemAffineBlock(IRBlock block, out Sequential body)
+    {
+        body = null!;
+        var blockBody = UnwrapNestedBlock(block.Body);
+        if (!ContainsBlockLocalSmemDecision(blockBody))
+        {
+            return false;
+        }
+
+        var fields = GetBlockLocalSmemFields(blockBody);
+        var sourceGathers = new List<Call>();
+        var consumerScatters = new List<Call>();
+        foreach (var field in fields)
+        {
+            if (field is Call { Target: IR.Affine.Gather } gatherCall && IsBlockLocalSmem(gatherCall))
+            {
+                AddUniqueSourceGather(sourceGathers, gatherCall);
+                continue;
+            }
+
+            if (field is Call { Target: IR.Affine.Scatter } scatterCall &&
+                TryGetBlockLocalSmemGatherSource(scatterCall, out var sourceGather))
+            {
+                AddUniqueSourceGather(sourceGathers, sourceGather);
+                consumerScatters.Add(scatterCall);
+                continue;
+            }
+
+            if (ContainsBlockLocalSmemDecision(field))
+            {
+                throw new NotSupportedException($"Unsupported block-local SMem affine field {field.GetType().Name}. Lowering currently supports shared Affine.Gather producers consumed directly by multiple Affine.Scatter calls.");
+            }
+
+            throw new NotSupportedException($"Block-local SMem affine lowering cannot preserve unrelated block field {field.GetType().Name}; split the block before tiling.");
+        }
+
+        if (consumerScatters.Count < 2)
+        {
+            throw new InvalidOperationException($"Block-local SMem affine lowering requires at least two consumers to justify shared storage, got {consumerScatters.Count}.");
+        }
+
+        var buffers = new Dictionary<Call, TIR.Buffer>(ReferenceEqualityComparer.Instance);
+        var loweredFields = new List<Expr>();
+        foreach (var gatherCall in sourceGathers)
+        {
+            var gather = (IR.Affine.Gather)gatherCall.Target;
+            var decision = TileDecisionMetadata.Require(gatherCall, "Block-local SMem affine TIR selection");
+            ValidateBlockLocalSmemDecision(decision, "Affine.Gather");
+            var output = CreateBlockLocalSmemBuffer(gatherCall, decision, buffers.Count);
+            buffers.Add(gatherCall, output);
+            loweredFields.Add(TIR.F.NTT.AffineGather(
+                (Expr)gatherCall[IR.Affine.Gather.Source],
+                (Expr)gatherCall[IR.Affine.Gather.DefaultValue],
+                output,
+                gather.Relation,
+                gather.Symbols,
+                gather.Shape).InheritMetaData(gatherCall));
+        }
+
+        loweredFields.Add(TIR.F.NTT.SynchronizeThreads());
+        foreach (var scatterCall in consumerScatters)
+        {
+            if (!TryGetBlockLocalSmemGatherSource(scatterCall, out var sourceGather) ||
+                !buffers.TryGetValue(sourceGather, out var sourceBuffer))
+            {
+                throw new InvalidOperationException("Block-local SMem affine scatter source was not materialized by the derived producer set.");
+            }
+
+            var scatter = (IR.Affine.Scatter)scatterCall.Target;
+            loweredFields.Add(TIR.F.NTT.AffineScatter(
+                sourceBuffer,
+                (Expr)scatterCall[IR.Affine.Scatter.Dest],
+                scatter.Relation,
+                scatter.Symbols).InheritMetaData(scatterCall));
+        }
+
+        loweredFields.Add(T.Return());
+        body = new Sequential(loweredFields.ToArray());
+        return true;
+    }
+
+    private Expr[] GetBlockLocalSmemFields(BaseExpr body) => body switch
+    {
+        Sequential sequential => sequential.Fields.ToArray(),
+        IR.Tuple tuple => tuple.Fields.ToArray().Select(field => (Expr)field).ToArray(),
+        Expr expr => [expr],
+        _ => throw new NotSupportedException($"Block-local SMem affine lowering requires an expression block, got {body.GetType().Name}."),
+    };
+
+    private void AddUniqueSourceGather(List<Call> sourceGathers, Call gatherCall)
+    {
+        if (!sourceGathers.Any(candidate => ReferenceEquals(candidate, gatherCall)))
+        {
+            sourceGathers.Add(gatherCall);
+        }
+    }
+
+    private bool ContainsBlockLocalSmemDecision(BaseExpr expr) =>
+        ExprCollector.Collect(expr)
+            .OfType<Call>()
+            .Any(IsBlockLocalSmem);
+
+    private bool IsBlockLocalSmem(Call call) =>
+        TileDecisionMetadata.TryGet(call, out var decision) &&
+        decision.Storage is { Scope: BufferScope.BlockLocal, PhysicalLocation: PhysicalMemorySpace.SMem };
+
+    private bool TryGetBlockLocalSmemGatherSource(Call scatterCall, [MaybeNullWhen(false)] out Call sourceGather)
+    {
+        sourceGather = null;
+        if (scatterCall.Target is not IR.Affine.Scatter ||
+            scatterCall[IR.Affine.Scatter.Source] is not Call { Target: IR.Affine.Gather } gatherCall ||
+            !IsBlockLocalSmem(gatherCall))
+        {
+            return false;
+        }
+
+        sourceGather = gatherCall;
+        return true;
+    }
+
+    private TIR.Buffer CreateBlockLocalSmemBuffer(Call gatherCall, TileDecision decision, int bufferIndex)
+    {
+        var (tensorType, distributedType) = GetTensorAndDistributedType(gatherCall.CheckedType, "Block-local SMem affine gather");
+        var bufferDistributedType = CreateBlockLocalSmemDistributedType(gatherCall, tensorType, distributedType, decision);
+        var tileType = new TensorType(tensorType.DType, decision.StorageLayout.LogicalShape);
+        return T.CreateBuffer(tileType, decision.Storage, out _, $"smem_tile_{bufferIndex}", bufferDistributedType);
+    }
+
+    private DistributedType? CreateBlockLocalSmemDistributedType(Call gatherCall, TensorType tensorType, DistributedType? distributedType, TileDecision decision)
+    {
+        if (decision.DistributionLayout is null)
+        {
+            return null;
+        }
+
+        if (decision.StorageLayout.ViewMap is null)
+        {
+            throw new NotSupportedException("Distributed block-local SMem lowering requires a storage layout view map from owner-local coordinates to shared storage coordinates.");
+        }
+
+        var gather = (IR.Affine.Gather)gatherCall.Target;
+        var placement = distributedType?.Placement ?? gather.Placement;
+        var axisPolicies = distributedType?.AxisPolicies ?? gather.NdSBP;
+        var partial = distributedType?.Partial ?? false;
+        return DistributedType.FromLayouts(
+            tensorType,
+            placement,
+            decision.DistributionLayout,
+            decision.StorageLayout,
+            axisPolicies,
+            partial);
+    }
+
+    private (TensorType TensorType, DistributedType? DistributedType) GetTensorAndDistributedType(IRType type, string context) => type switch
+    {
+        TensorType tensorType => (tensorType, null),
+        DistributedType distributedType => (distributedType.TensorType, distributedType),
+        _ => throw new NotSupportedException($"{context} requires a tensor output, got {type}."),
+    };
+
+    private void ValidateBlockLocalSmemDecision(TileDecision decision, string opKind)
+    {
+        if (decision.Storage is not { Scope: BufferScope.BlockLocal, PhysicalLocation: PhysicalMemorySpace.SMem })
+        {
+            throw new InvalidOperationException($"{opKind} block-local lowering requires SMem tile storage, got {decision.Storage}.");
+        }
+
+        if (decision.StorageLayout.LogicalShape.IsUnranked ||
+            decision.StorageLayout.LogicalShape.Rank != 1 ||
+            !decision.StorageLayout.LogicalShape[0].IsFixed)
+        {
+            throw new NotSupportedException($"{opKind} block-local SMem lowering requires a fixed rank-1 storage shape, got {decision.StorageLayout.LogicalShape}.");
+        }
+    }
+
+    private bool TryLowerRegisterDirectAffineBlock(IRBlock block, out Sequential body)
+    {
+        body = null!;
+        var blockBody = UnwrapNestedBlock(block.Body);
+        var fields = GetBlockFields(blockBody);
+        if (fields.Length == 0)
+        {
+            return false;
+        }
+
+        var scatterCall = blockBody is Call { Target: IR.Affine.Scatter } rootScatter
+            ? rootScatter
+            : fields.OfType<Call>().LastOrDefault(call => call.Target is IR.Affine.Scatter);
+        if (scatterCall is null)
+        {
+            return false;
+        }
+
+        if (!TileDecisionMetadata.TryGet(scatterCall, out var scatterDecision) ||
+            scatterDecision.Storage.PhysicalLocation is not PhysicalMemorySpace.Register)
+        {
+            return false;
+        }
+
+        if (scatterCall.Target is not IR.Affine.Scatter scatter)
+        {
+            return false;
+        }
+
+        var source = (Expr)scatterCall[IR.Affine.Scatter.Source];
+        var gatherCalls = new List<Call>();
+        if (!TryCollectRegisterGathers(source, gatherCalls, new HashSet<BaseExpr>(ReferenceEqualityComparer.Instance)) ||
+            gatherCalls.Count == 0)
+        {
+            throw new InvalidOperationException($"Register direct affine scatter requires a supported fused elementwise producer, got {source.GetType().Name}.");
+        }
+
+        ValidateRegisterAffineChain(scatterCall, scatter, gatherCalls, scatterDecision);
+
+        var sourceType = GetRegisterChainDistributedType(source, gatherCalls);
+        var globalExtent = sourceType?.TensorType.Shape[0] ?? scatterDecision.TileShape[0];
+        var tileExtent = scatterDecision.TileShape[0];
+        var symbolMap = BuildSymbolMap(scatter.Relation, scatter.Symbols);
+        var dest = (Expr)scatterCall[IR.Affine.Scatter.Dest];
+
+        var loop = T.Serial(out var lane, new TIR.Range(Dimension.Zero, tileExtent, Dimension.One), "d0")
+            .Body(BuildRegisterStoreBody(source, scatter, scatterDecision, sourceType, globalExtent, symbolMap, dest, lane))
+            .Build();
+
+        body = new Sequential(new Expr[] { loop, T.Return() });
+        return true;
+    }
+
+    private Expr BuildRegisterStoreBody(
+        Expr source,
+        IR.Affine.Scatter scatter,
+        TileDecision scatterDecision,
+        DistributedType? sourceType,
+        Dimension globalExtent,
+        IReadOnlyDictionary<int, Dimension>? symbolMap,
+        Expr dest,
+        DimVar lane)
+    {
+        var domainValue = GetRegisterDomainValue(scatterDecision, sourceType, lane, globalExtent);
+        var domainValues = new[] { domainValue };
+        var extents = new[] { globalExtent };
+        var address = EvaluateAddress(scatter.Relation, domainValues, extents, symbolMap);
+        var value = BuildRegisterScalarExpr(source, address);
+        var store = T.Store(dest, address, value);
+        return scatter.Relation.Constraint == LogicalExpr.True
+            ? store
+            : T.If(EvaluateConstraint(scatter.Relation.Constraint, domainValues)).Then(store).Build();
+    }
+
+    private bool TryCollectRegisterGathers(Expr expr, List<Call> gatherCalls, ISet<BaseExpr> visited)
+    {
+        if (expr is TensorConst { CheckedType: TensorType { IsScalar: true } })
+        {
+            return true;
+        }
+
+        if (expr is not Call call)
+        {
+            return false;
+        }
+
+        if (!visited.Add(call))
+        {
+            return true;
+        }
+
+        switch (call.Target)
+        {
+            case IR.Affine.Gather:
+                RequireRegisterDecision(call, "register direct affine gather");
+                gatherCalls.Add(call);
+                return true;
+            case IR.Math.Unary:
+            case IR.Math.Binary:
+            case IR.Tensors.Cast:
+                RequireRegisterDecision(call, "register direct affine elementwise producer");
+                return call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectRegisterGathers(arg, gatherCalls, visited));
+            case IR.Tensors.Where where:
+                if (where.IsTfWhere)
+                {
+                    throw new NotSupportedException("Register direct affine lowering does not support TensorFlow-style Where.");
+                }
+
+                RequireRegisterDecision(call, "register direct affine where producer");
+                return call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectRegisterGathers(arg, gatherCalls, visited));
+            case PrimFunctionWrapper { Target: PrimFunction primFunction }:
+                RequireRegisterDecision(call, "register direct affine prim wrapper producer");
+                _ = GetPrimWrapperBinaryOp(primFunction);
+                return call.Arguments.ToArray().OfType<Expr>().All(arg => TryCollectRegisterGathers(arg, gatherCalls, visited));
+            default:
+                return false;
+        }
+    }
+
+    private Expr BuildRegisterScalarExpr(Expr expr, Dimension address)
+    {
+        if (expr is TensorConst { CheckedType: TensorType { IsScalar: true } })
+        {
+            return expr;
+        }
+
+        if (expr is not Call call)
+        {
+            throw new NotSupportedException($"Unsupported register direct affine scalar expression {expr.GetType().Name}.");
+        }
+
+        return call.Target switch
+        {
+            IR.Affine.Gather => T.Load((Expr)call[IR.Affine.Gather.Source], address),
+            IR.Math.Unary unary => IR.F.Math.Unary(unary.UnaryOp, BuildRegisterScalarExpr((Expr)call[IR.Math.Unary.Input], address)),
+            IR.Math.Binary binary => IR.F.Math.Binary(
+                binary.BinaryOp,
+                BuildRegisterScalarExpr((Expr)call[IR.Math.Binary.Lhs], address),
+                BuildRegisterScalarExpr((Expr)call[IR.Math.Binary.Rhs], address)),
+            IR.Tensors.Cast cast => IR.F.Tensors.Cast(BuildRegisterScalarExpr((Expr)call[IR.Tensors.Cast.Input], address), cast.NewType, cast.CastMode),
+            IR.Tensors.Where where when !where.IsTfWhere => IR.F.Math.Select(
+                BuildRegisterScalarExpr((Expr)call[IR.Tensors.Where.Cond], address),
+                BuildRegisterScalarExpr((Expr)call[IR.Tensors.Where.X], address),
+                BuildRegisterScalarExpr((Expr)call[IR.Tensors.Where.Y], address)),
+            PrimFunctionWrapper { Target: PrimFunction primFunction } => IR.F.Math.Binary(
+                GetPrimWrapperBinaryOp(primFunction),
+                BuildRegisterScalarExpr((Expr)call.Arguments[0], address),
+                BuildRegisterScalarExpr((Expr)call.Arguments[1], address)),
+            _ => throw new NotSupportedException($"Unsupported register direct affine scalar call target {call.Target}."),
+        };
+    }
+
+    private BinaryOp GetPrimWrapperBinaryOp(PrimFunction primFunction)
+    {
+        var vectorizedBinaryCalls = ExprCollector.Collect(primFunction.Body)
+            .OfType<Call>()
+            .Where(call => call.Target is TIR.NTT.VectorizedBinary)
+            .ToArray();
+        if (vectorizedBinaryCalls.Length != 1)
+        {
+            throw new NotSupportedException($"Register direct affine prim wrapper {primFunction.Name} expects exactly one VectorizedBinary op, got {vectorizedBinaryCalls.Length}.");
+        }
+
+        return ((TIR.NTT.VectorizedBinary)vectorizedBinaryCalls[0].Target).BinaryOp;
+    }
+
+    private void ValidateRegisterAffineChain(Call scatterCall, IR.Affine.Scatter scatter, IReadOnlyList<Call> gatherCalls, TileDecision scatterDecision)
+    {
+        ValidateOneDimensionalRegisterDecision(scatterDecision, "Affine.Scatter");
+        foreach (var gatherCall in gatherCalls)
+        {
+            if (gatherCall.Target is not IR.Affine.Gather gather)
+            {
+                throw new InvalidOperationException("Register direct affine chain contains a non-gather input.");
+            }
+
+            var gatherDecision = TileDecisionMetadata.Require(gatherCall, "Register direct affine TIR selection");
+            ValidateOneDimensionalRegisterDecision(gatherDecision, "Affine.Gather");
+            if (!IsSameDistributionLayout(gatherDecision.DistributionLayout, scatterDecision.DistributionLayout))
+            {
+                throw new NotSupportedException($"Register direct affine lowering requires producer/consumer distribution layouts to match. Gather={gatherDecision.DistributionLayout?.Kind ?? "<none>"}, Scatter={scatterDecision.DistributionLayout?.Kind ?? "<none>"}.");
+            }
+
+            if (gatherCall[IR.Affine.Gather.DefaultValue] is not None)
+            {
+                throw new NotSupportedException("Register direct affine lowering only supports masked gathers whose default is None and whose value is consumed under the scatter guard.");
+            }
+
+            if (!IsSameAffineRelation(gather.Relation, scatter.Relation))
+            {
+                throw new NotSupportedException($"Register direct affine lowering requires gather/scatter relation and symbols to match. Gather={gather.Relation}, Scatter={scatter.Relation}.");
+            }
+
+            if (!IsSameSymbolPayload(gather.Symbols, scatter.Symbols))
+            {
+                throw new NotSupportedException($"Register direct affine lowering requires gather/scatter symbol payloads to match. Gather={gather.Symbols}, Scatter={scatter.Symbols}.");
+            }
+        }
+
+        if (scatterCall.CheckedType != TupleType.Void)
+        {
+            throw new NotSupportedException($"Register direct affine scatter must be void, got {scatterCall.CheckedType}.");
+        }
+    }
+
+    private void ValidateOneDimensionalRegisterDecision(TileDecision decision, string opKind)
+    {
+        if (decision.Storage is not { Scope: BufferScope.ThreadLocal, PhysicalLocation: PhysicalMemorySpace.Register })
+        {
+            throw new InvalidOperationException($"{opKind} requires thread-local register tile storage, got {decision.Storage}.");
+        }
+
+        if (decision.TileShape.IsUnranked || decision.TileShape.Rank != 1 || !decision.TileShape[0].IsFixed)
+        {
+            throw new NotSupportedException($"{opKind} register lowering requires a fixed rank-1 tile shape, got {decision.TileShape}.");
+        }
+    }
+
+    private void RequireRegisterDecision(Call call, string context)
+    {
+        var decision = TileDecisionMetadata.Require(call, context);
+        if (decision.Storage is not { Scope: BufferScope.ThreadLocal, PhysicalLocation: PhysicalMemorySpace.Register })
+        {
+            throw new InvalidOperationException($"{context} requires thread-local register tile storage, got {decision.Storage}.");
+        }
+    }
+
+    private BaseExpr UnwrapNestedBlock(BaseExpr body)
+    {
+        while (body is IRBlock nested)
+        {
+            body = nested.Body;
+        }
+
+        return body;
+    }
+
+    private Expr[] GetBlockFields(BaseExpr body)
+    {
+        if (body is Sequential sequential)
+        {
+            return sequential.Fields.ToArray();
+        }
+
+        return ExprCollector.Collect(body).OfType<Expr>().ToArray();
+    }
+
+    private DistributedType? GetRegisterChainDistributedType(Expr source, IReadOnlyList<Call> gatherCalls)
+    {
+        if (source.CheckedType is DistributedType sourceDistributed)
+        {
+            return sourceDistributed;
+        }
+
+        foreach (var gatherCall in gatherCalls)
+        {
+            if (gatherCall.CheckedType is DistributedType gatherDistributed)
+            {
+                return gatherDistributed;
+            }
+        }
+
+        return null;
+    }
+
+    private bool IsSameAffineRelation(AffineRelation lhs, AffineRelation rhs)
+    {
+        return lhs.Domains.Length == rhs.Domains.Length &&
+            lhs.Symbols.Length == rhs.Symbols.Length &&
+            lhs.Results.Length == rhs.Results.Length &&
+            lhs.Domains.ToArray().Zip(rhs.Domains.ToArray()).All(pair => pair.First.Position == pair.Second.Position) &&
+            lhs.Symbols.ToArray().Zip(rhs.Symbols.ToArray()).All(pair => pair.First.Position == pair.Second.Position) &&
+            lhs.Results.ToArray().Zip(rhs.Results.ToArray()).All(pair => IsSameAffineExpr(pair.First, pair.Second)) &&
+            IsSameLogicalExpr(lhs.Constraint, rhs.Constraint);
+    }
+
+    private bool IsSameSymbolPayload(RankedShape lhs, RankedShape rhs)
+    {
+        if (lhs.Rank != rhs.Rank)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < lhs.Rank; i++)
+        {
+            if (!IsSameDimension(lhs[i], rhs[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool IsSameDistributionLayout(DistributionLayout? lhs, DistributionLayout? rhs)
+    {
+        if (lhs is null || rhs is null)
+        {
+            return lhs is null && rhs is null;
+        }
+
+        return lhs.Kind == rhs.Kind &&
+            lhs.LocalShape == rhs.LocalShape &&
+            lhs.ValidPredicate == rhs.ValidPredicate &&
+            IsSameStringArray(lhs.Attributes, rhs.Attributes) &&
+            IsSameIndexMap(lhs.GlobalToOwnerLocal, rhs.GlobalToOwnerLocal) &&
+            IsSameIndexMap(lhs.OwnerLocalToGlobal, rhs.OwnerLocalToGlobal);
+    }
+
+    private bool IsSameIndexMap(IndexMapDescriptor lhs, IndexMapDescriptor rhs)
+    {
+        return lhs.Name == rhs.Name &&
+            lhs.Predicate == rhs.Predicate &&
+            lhs.Inverse == rhs.Inverse &&
+            IsSameStringArray(lhs.Inputs, rhs.Inputs) &&
+            IsSameStringArray(lhs.InputDomain, rhs.InputDomain) &&
+            IsSameStringArray(lhs.OutputDomain, rhs.OutputDomain) &&
+            lhs.Outputs.Count == rhs.Outputs.Count &&
+            lhs.Outputs.ToArray().Zip(rhs.Outputs.ToArray()).All(pair =>
+                pair.First.Name == pair.Second.Name && IsSameIndexExpr(pair.First.Expr, pair.Second.Expr));
+    }
+
+    private bool IsSameStringArray(IRArray<string>? lhs, IRArray<string>? rhs)
+    {
+        if (lhs is null || rhs is null)
+        {
+            return lhs is null && rhs is null;
+        }
+
+        return lhs.Value.SequenceEqual(rhs.Value);
+    }
+
+    private bool IsSameIndexExpr(IndexExpr lhs, IndexExpr rhs)
+    {
+        if (lhs.GetType() != rhs.GetType())
+        {
+            return false;
+        }
+
+        return (lhs, rhs) switch
+        {
+            (IndexVar l, IndexVar r) => l.Name == r.Name,
+            (IndexConst l, IndexConst r) => l.Value == r.Value,
+            (IndexAny, IndexAny) => true,
+            (IndexAdd l, IndexAdd r) => l.Terms.Count == r.Terms.Count &&
+                l.Terms.ToArray().Zip(r.Terms.ToArray()).All(pair => IsSameIndexExpr(pair.First, pair.Second)),
+            (IndexMul l, IndexMul r) => l.Factors.Count == r.Factors.Count &&
+                l.Factors.ToArray().Zip(r.Factors.ToArray()).All(pair => IsSameIndexExpr(pair.First, pair.Second)),
+            (IndexFloorDiv l, IndexFloorDiv r) => IsSameIndexExpr(l.Value, r.Value) && IsSameIndexExpr(l.Divisor, r.Divisor),
+            (IndexMod l, IndexMod r) => IsSameIndexExpr(l.Value, r.Value) && IsSameIndexExpr(l.Divisor, r.Divisor),
+            (IndexNamedPrimitive l, IndexNamedPrimitive r) => l.Name == r.Name &&
+                l.Arguments.Count == r.Arguments.Count &&
+                l.Arguments.ToArray().Zip(r.Arguments.ToArray()).All(pair => IsSameIndexExpr(pair.First, pair.Second)),
+            _ => false,
+        };
+    }
+
+    private bool IsSameAffineExpr(AffineExpr lhs, AffineExpr rhs)
+    {
+        if (lhs.GetType() != rhs.GetType())
+        {
+            return false;
+        }
+
+        return (lhs, rhs) switch
+        {
+            (AffineConstant l, AffineConstant r) => l.Value == r.Value,
+            (AffineDim l, AffineDim r) => l.Position == r.Position,
+            (AffineExtent l, AffineExtent r) => l.Position == r.Position,
+            (AffineSymbol l, AffineSymbol r) => l.Position == r.Position,
+            (AffineAddBinary l, AffineAddBinary r) => IsSameAffineExpr(l.Lhs, r.Lhs) && IsSameAffineExpr(l.Rhs, r.Rhs),
+            (AffineMulBinary l, AffineMulBinary r) => IsSameAffineExpr(l.Lhs, r.Lhs) && IsSameAffineExpr(l.Rhs, r.Rhs),
+            (AffineDivBinary l, AffineDivBinary r) => l.BinaryOp == r.BinaryOp && IsSameAffineExpr(l.Lhs, r.Lhs) && IsSameAffineExpr(l.Rhs, r.Rhs),
+            _ => false,
+        };
+    }
+
+    private bool IsSameLogicalExpr(LogicalExpr lhs, LogicalExpr rhs)
+    {
+        if (lhs.GetType() != rhs.GetType())
+        {
+            return false;
+        }
+
+        return (lhs, rhs) switch
+        {
+            (LogicalConst l, LogicalConst r) => l.Value == r.Value,
+            (DimCompare l, DimCompare r) => l.Op == r.Op && IsSameDimension(l.Lhs, r.Lhs) && IsSameDimension(l.Rhs, r.Rhs),
+            (LogicalAnd l, LogicalAnd r) => l.Count == r.Count && l.Operands.ToArray().Zip(r.Operands.ToArray()).All(pair => IsSameLogicalExpr(pair.First, pair.Second)),
+            (LogicalOr l, LogicalOr r) => l.Count == r.Count && l.Operands.ToArray().Zip(r.Operands.ToArray()).All(pair => IsSameLogicalExpr(pair.First, pair.Second)),
+            _ => false,
+        };
+    }
+
+    private bool IsSameDimension(Dimension lhs, Dimension rhs)
+    {
+        if (ReferenceEquals(lhs, rhs))
+        {
+            return true;
+        }
+
+        if (lhs.GetType() != rhs.GetType())
+        {
+            return false;
+        }
+
+        return (lhs, rhs) switch
+        {
+            (DimConst l, DimConst r) => l.Value == r.Value,
+            (DimVar l, DimVar r) => l.Name == r.Name,
+            (ThreadIdDim, ThreadIdDim) => true,
+            (ProgramIdDim l, ProgramIdDim r) => l.Axis == r.Axis,
+            (DimSum l, DimSum r) => l.Bias == r.Bias &&
+                l.Operands.Length == r.Operands.Length &&
+                l.Operands.ToArray().Zip(r.Operands.ToArray()).All(pair => IsSameDimension(pair.First, pair.Second)),
+            (DimProduct l, DimProduct r) => l.Scale == r.Scale &&
+                l.Operands.Length == r.Operands.Length &&
+                l.Operands.ToArray().Zip(r.Operands.ToArray()).All(pair => IsSameDimension(pair.First, pair.Second)),
+            (DimFraction l, DimFraction r) => l.DivMode == r.DivMode &&
+                IsSameDimension(l.Numerator, r.Numerator) &&
+                IsSameDimension(l.Denominator, r.Denominator),
+            (DimRemainder l, DimRemainder r) => IsSameDimension(l.Numerator, r.Numerator) &&
+                IsSameDimension(l.Denominator, r.Denominator),
+            _ => false,
+        };
+    }
+
+    private Dimension GetRegisterDomainValue(TileDecision decision, DistributedType? distributedType, DimVar lane, Dimension globalExtent)
+    {
+        if (decision.DistributionLayout is { Kind: "TritonBlocked" } tritonBlockedLayout)
+        {
+            return GetTritonBlockedDomainValue(tritonBlockedLayout, lane);
+        }
+
+        if (decision.DistributionLayout is { Kind: not "SBP" } unsupportedLayout)
+        {
+            throw new NotSupportedException($"Register direct affine lowering cannot evaluate {unsupportedLayout.Kind} layouts. Add a DistributionLayout owner-local evaluator for this layout kind.");
+        }
+
+        if (distributedType is null)
+        {
+            return lane;
+        }
+
+        if (distributedType.ExplicitDistributionLayout is not null && distributedType.DistributionLayout.Kind != "SBP")
+        {
+            throw new NotSupportedException($"Register direct affine lowering cannot yet evaluate explicit {distributedType.DistributionLayout.Kind} layouts. Add a DistributionLayout map evaluator instead of falling back to AxisPolicies.");
+        }
+
+        if (distributedType.Partial)
+        {
+            throw new NotSupportedException("Register direct affine lowering cannot lower partial distributed buffers. Resolve Partial before affine IO lowering.");
+        }
+
+        if (distributedType.AxisPolicies.Count != 1)
+        {
+            throw new NotSupportedException($"Register direct affine lowering currently supports rank-1 distribution only, got {distributedType.AxisPolicies.Count} axis policies.");
+        }
+
+        return distributedType.AxisPolicies[0] switch
+        {
+            SBPBroadCast => lane,
+            SBPSplit split => lane + GetSplitShardOffset(distributedType, split, globalExtent),
+            SBPPartial partial => throw new NotSupportedException($"Register direct affine lowering cannot directly lower partial shard policy {partial}."),
+            SBP policy => throw new NotSupportedException($"Unsupported register direct affine shard policy {policy.GetType().Name}."),
+        };
+    }
+
+    private Dimension GetTritonBlockedDomainValue(DistributionLayout distributionLayout, DimVar elem)
+    {
+        var layout = ParseTritonBlockedLayout(distributionLayout);
+        if (distributionLayout.LocalShape is not { IsUnranked: false, Rank: 1 } || distributionLayout.LocalShape[0] != layout.SizePerThread)
+        {
+            throw new NotSupportedException($"TritonBlocked register lowering requires LocalShape=[sizePerThread], got LocalShape={distributionLayout.LocalShape}, sizePerThread={layout.SizePerThread}.");
+        }
+
+        var threadId = IR.F.Distributed.ThreadId();
+        var threadsPerCTA = (Dimension)(layout.ThreadsPerWarp * layout.WarpsPerCTA);
+        return layout.ThreadElementOrder switch
+        {
+            TritonThreadElementOrder.Contiguous => (threadId * layout.SizePerThread) + elem,
+            TritonThreadElementOrder.Strided => threadId + (elem * threadsPerCTA),
+            _ => throw new NotSupportedException($"Unsupported TritonBlocked thread element order {layout.ThreadElementOrder}."),
+        };
+    }
+
+    private TritonBlockedLayout ParseTritonBlockedLayout(DistributionLayout distributionLayout)
+    {
+        if (distributionLayout.Attributes is null)
+        {
+            throw new NotSupportedException("TritonBlocked register lowering requires layout attributes.");
+        }
+
+        return new TritonBlockedLayout(
+            SizePerThread: RequireTritonBlockedIntAttribute(distributionLayout, "sizePerThread"),
+            ThreadsPerWarp: RequireTritonBlockedIntAttribute(distributionLayout, "threadsPerWarp"),
+            WarpsPerCTA: RequireTritonBlockedIntAttribute(distributionLayout, "warpsPerCTA"),
+            Order: RequireTritonBlockedIntListAttribute(distributionLayout, "order"),
+            CTAsPerCGA: RequireTritonBlockedIntListAttribute(distributionLayout, "ctasPerCGA"),
+            CTASplitNum: RequireTritonBlockedIntListAttribute(distributionLayout, "ctaSplitNum"),
+            CTAOrder: RequireTritonBlockedIntListAttribute(distributionLayout, "ctaOrder"),
+            ThreadElementOrder: RequireTritonBlockedThreadOrderAttribute(distributionLayout));
+    }
+
+    private int RequireTritonBlockedIntAttribute(DistributionLayout distributionLayout, string name)
+    {
+        var value = RequireTritonBlockedAttribute(distributionLayout, name);
+        return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : throw new NotSupportedException($"TritonBlocked layout attribute {name} must be an integer, got '{value}'.");
+    }
+
+    private IRArray<int> RequireTritonBlockedIntListAttribute(DistributionLayout distributionLayout, string name)
+    {
+        var value = RequireTritonBlockedAttribute(distributionLayout, name);
+        if (!value.StartsWith("[", StringComparison.Ordinal) || !value.EndsWith("]", StringComparison.Ordinal))
+        {
+            throw new NotSupportedException($"TritonBlocked layout attribute {name} must be an integer list, got '{value}'.");
+        }
+
+        var body = value[1..^1];
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return Array.Empty<int>();
+        }
+
+        return body.Split(',', StringSplitOptions.TrimEntries)
+            .Select(item => int.TryParse(item, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : throw new NotSupportedException($"TritonBlocked layout attribute {name} contains non-integer item '{item}'."))
+            .ToArray();
+    }
+
+    private TritonThreadElementOrder RequireTritonBlockedThreadOrderAttribute(DistributionLayout distributionLayout)
+    {
+        var value = RequireTritonBlockedAttribute(distributionLayout, "threadElementOrder");
+        return Enum.TryParse<TritonThreadElementOrder>(value, ignoreCase: false, out var parsed)
+            ? parsed
+            : throw new NotSupportedException($"TritonBlocked layout has unsupported threadElementOrder '{value}'.");
+    }
+
+    private string RequireTritonBlockedAttribute(DistributionLayout distributionLayout, string name)
+    {
+        var prefix = name + "=";
+        var matches = distributionLayout.Attributes!.Value.Where(attr => attr.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+        return matches.Length == 1
+            ? matches[0][prefix.Length..]
+            : throw new NotSupportedException($"TritonBlocked layout must provide exactly one {name} attribute, got {matches.Length}.");
+    }
+
+    private Dimension GetSplitShardOffset(DistributedType distributedType, SBPSplit split, Dimension globalExtent)
+    {
+        var maxLocalExtent = Dimension.CeilDiv(globalExtent, GetSplitDivisor(distributedType, split));
+        return Dimension.Min(maxLocalExtent * GetSplitLinearShardIndex(distributedType, split), globalExtent);
+    }
+
+    private Dimension GetSplitDivisor(DistributedType distributedType, SBPSplit split)
+    {
+        Dimension divisor = Dimension.One;
+        foreach (var meshAxis in split.Axes)
+        {
+            ValidateMeshAxis(distributedType.Placement, meshAxis);
+            divisor *= distributedType.Placement.Hierarchy[meshAxis];
+        }
+
+        return divisor;
+    }
+
+    private Dimension GetSplitLinearShardIndex(DistributedType distributedType, SBPSplit split)
+    {
+        Dimension linearIndex = Dimension.Zero;
+        foreach (var meshAxis in split.Axes)
+        {
+            ValidateMeshAxis(distributedType.Placement, meshAxis);
+            linearIndex = (linearIndex * distributedType.Placement.Hierarchy[meshAxis]) + GetMeshAxisIndex(distributedType.Placement, meshAxis);
+        }
+
+        return linearIndex;
+    }
+
+    private void ValidateMeshAxis(Placement placement, int meshAxis)
+    {
+        if (meshAxis < 0 || meshAxis >= placement.Rank || meshAxis >= placement.Name.Length)
+        {
+            throw new NotSupportedException($"Invalid distributed mesh axis {meshAxis} for placement {placement}.");
+        }
+    }
+
+    private Dimension GetMeshAxisIndex(Placement placement, int meshAxis)
+    {
+        return placement.Name[meshAxis] switch
+        {
+            't' => IR.F.Distributed.ThreadId(),
+            'b' => IR.F.Distributed.ProgramId(0),
+            var name => throw new NotSupportedException($"Register direct affine lowering only supports thread ('t') and block ('b') mesh axes, got '{name}' in placement {placement}."),
+        };
+    }
+
+    private Dimension EvaluateAddress(AffineRelation relation, IReadOnlyList<Dimension> domainValues, IReadOnlyList<Dimension> extents, IReadOnlyDictionary<int, Dimension>? symbolMap)
+    {
+        if (relation.Results.Length != 1)
+        {
+            throw new NotSupportedException($"Register direct affine lowering expects one address result, got {relation.Results.Length}.");
+        }
+
+        return EvaluateAffineExpr(relation.Results[0], domainValues, extents, symbolMap);
+    }
+
+    private LogicalExpr EvaluateConstraint(LogicalExpr constraint, IReadOnlyList<Dimension> domainValues)
+    {
+        return constraint switch
+        {
+            LogicalConst logicalConst => logicalConst,
+            DimCompare compare => new DimCompare(compare.Op, EvaluateDimension(compare.Lhs, domainValues), EvaluateDimension(compare.Rhs, domainValues)),
+            LogicalAnd logicalAnd => new LogicalAnd(logicalAnd.Operands.ToArray().Select(x => EvaluateConstraint(x, domainValues)).ToArray()),
+            LogicalOr logicalOr => new LogicalOr(logicalOr.Operands.ToArray().Select(x => EvaluateConstraint(x, domainValues)).ToArray()),
+            _ => throw new NotSupportedException($"Unsupported register direct affine constraint node {constraint.GetType().Name}."),
+        };
+    }
+
+    private Dimension EvaluateDimension(Dimension dim, IReadOnlyList<Dimension> domainValues)
+    {
+        return dim switch
+        {
+            DimConst constant => constant,
+            DimVar dimVar when TryGetDomainIndex(dimVar, domainValues.Count, out var index) => domainValues[index],
+            DimVar dimVar => dimVar,
+            ThreadIdDim threadId => threadId,
+            ProgramIdDim programId => programId,
+            DimSum sum => EvaluateDimSum(sum, domainValues),
+            DimProduct product => EvaluateDimProduct(product, domainValues),
+            DimFraction fraction => new DimFraction(fraction.DivMode, EvaluateDimension(fraction.Numerator, domainValues), EvaluateDimension(fraction.Denominator, domainValues)),
+            DimRemainder remainder => new DimRemainder(EvaluateDimension(remainder.Numerator, domainValues), EvaluateDimension(remainder.Denominator, domainValues)),
+            _ => throw new NotSupportedException($"Unsupported register direct affine constraint dimension {dim.GetType().Name}."),
+        };
+    }
+
+    private Dimension EvaluateDimSum(DimSum sum, IReadOnlyList<Dimension> domainValues)
+    {
+        Dimension result = sum.Bias;
+        foreach (var operand in sum.Operands)
+        {
+            result += EvaluateDimension(operand, domainValues);
+        }
+
+        return result;
+    }
+
+    private Dimension EvaluateDimProduct(DimProduct product, IReadOnlyList<Dimension> domainValues)
+    {
+        Dimension result = product.Scale;
+        foreach (var operand in product.Operands)
+        {
+            result *= EvaluateDimension(operand, domainValues);
+        }
+
+        return result;
+    }
+
+    private bool TryGetDomainIndex(DimVar dimVar, int rank, out int index)
+    {
+        if (dimVar.Name.Length > 1 && dimVar.Name[0] == 'd' && int.TryParse(dimVar.Name[1..], out index) && index >= 0 && index < rank)
+        {
+            return true;
+        }
+
+        index = -1;
+        return false;
+    }
+
+    private Dimension EvaluateAffineExpr(AffineExpr expr, IReadOnlyList<Dimension> dims, IReadOnlyList<Dimension> extents, IReadOnlyDictionary<int, Dimension>? symbols)
+    {
+        return expr switch
+        {
+            AffineConstant constant => constant.Value,
+            AffineDim dim => dims[dim.Position],
+            AffineExtent extent => extents[extent.Position],
+            AffineSymbol symbol => symbols is null ? throw new NotSupportedException("Symbolic register direct affine relations require a bound symbol map.") : symbols[symbol.Position],
+            AffineAddBinary add => EvaluateAffineExpr(add.Lhs, dims, extents, symbols) + EvaluateAffineExpr(add.Rhs, dims, extents, symbols),
+            AffineMulBinary mul => EvaluateAffineExpr(mul.Lhs, dims, extents, symbols) * EvaluateAffineExpr(mul.Rhs, dims, extents, symbols),
+            AffineDivBinary div => ApplyDivBinary(div.BinaryOp, EvaluateAffineExpr(div.Lhs, dims, extents, symbols), EvaluateAffineExpr(div.Rhs, dims, extents, symbols)),
+            _ => throw new NotSupportedException($"Unsupported register direct affine expression node {expr.GetType().Name}"),
+        };
+    }
+
+    private Dimension ApplyDivBinary(AffineDivBinaryOp op, Dimension lhs, Dimension rhs) => op switch
+    {
+        AffineDivBinaryOp.FloorDiv => lhs / rhs,
+        AffineDivBinaryOp.CeilDiv => Dimension.CeilDiv(lhs, rhs),
+        AffineDivBinaryOp.Mod => lhs % rhs,
+        _ => throw new ArgumentOutOfRangeException(nameof(op), $"Unsupported affine division operator {op}"),
+    };
+
+    private IReadOnlyDictionary<int, Dimension>? BuildSymbolMap(AffineRelation relation, RankedShape symbols)
+    {
+        if (relation.Symbols.Length == 0)
+        {
+            return null;
+        }
+
+        var dims = symbols.Dimensions.ToArray();
+        if (dims.Length != relation.Symbols.Length)
+        {
+            throw new InvalidOperationException("Symbol payload does not match relation requirement.");
+        }
+
+        var map = new Dictionary<int, Dimension>(dims.Length);
+        for (int i = 0; i < dims.Length; i++)
+        {
+            map.Add(relation.Symbols[i].Position, dims[i]);
+        }
+
+        return map;
     }
 
     private Expr GenerateReshape(Expr input, ref Expr output, bool sequeeze = false)

@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime;
@@ -62,6 +63,7 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         {
             HierarchyNames = "t",
             Hierarchies = [[32]],
+            CudaArchitecture = DetectCudaArchitecture(),
         };
 #if DEBUG
         CompileOptions.DumpFlags = Diagnostics.DumpFlags.PassIR | Diagnostics.DumpFlags.Compile | Diagnostics.DumpFlags.Schedule | Diagnostics.DumpFlags.Rewrite | Diagnostics.DumpFlags.CodeGen | Diagnostics.DumpFlags.EGraphCost | Diagnostics.DumpFlags.Tiling;
@@ -2035,6 +2037,71 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         await RunCases($"Theory{count}", feedDict, posts);
     }
 
+    [Fact]
+    public async Task TestBlockLocalSmemSharedAffineGatherMicroKernel()
+    {
+        const int blockSize = 128;
+        var srcBase = new Var("smem_src_base", TensorType.Pointer(DataTypes.Float32));
+        var firstDest = new Var("smem_first_dest", TensorType.Pointer(DataTypes.Float32));
+        var secondDest = new Var("smem_second_dest", TensorType.Pointer(DataTypes.Float32));
+        var offsets = IR.F.Tensors.Range((Const)0, (Const)blockSize, (Const)1);
+        var srcPtr = IR.F.Math.Binary(BinaryOp.Add, srcBase, offsets);
+        var firstPtr = IR.F.Math.Binary(BinaryOp.Add, firstDest, offsets);
+        var secondPtr = IR.F.Math.Binary(BinaryOp.Add, secondDest, offsets);
+        var mask = IR.F.Math.Compare(CompareOp.LowerThan, offsets, (Const)blockSize);
+        var defaultValue = Const.FromTensor(Tensor.Zeros(DataTypes.Float32, new long[] { blockSize }));
+        var tile = IR.F.Triton.Load(srcPtr, mask, defaultValue);
+        var firstStore = IR.F.Triton.Store(firstPtr, tile, mask);
+        var secondStore = IR.F.Triton.Store(secondPtr, tile, mask);
+        var body = new IR.Tuple(firstStore, secondStore);
+        var sourceTensor = Tensor.From<float>(Enumerable.Range(0, blockSize).Select(i => (float)(i + 1)).ToArray(), new long[] { blockSize });
+        var evalFirst = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var evalSecond = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var rtFirst = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+        var rtSecond = Tensor.From<float>(Enumerable.Repeat(0f, blockSize).ToArray(), new long[] { blockSize });
+
+        using var sourcePinned = sourceTensor.PinBuffer();
+        using var evalFirstPinned = evalFirst.PinBuffer();
+        using var evalSecondPinned = evalSecond.PinBuffer();
+        using var rtFirstPinned = rtFirst.PinBuffer();
+        using var rtSecondPinned = rtSecond.PinBuffer();
+        ulong sourcePointer;
+        ulong evalFirstPointer;
+        ulong evalSecondPointer;
+        ulong rtFirstPointer;
+        ulong rtSecondPointer;
+        unsafe
+        {
+            sourcePointer = (ulong)sourcePinned.Pointer;
+            evalFirstPointer = (ulong)evalFirstPinned.Pointer;
+            evalSecondPointer = (ulong)evalSecondPinned.Pointer;
+            rtFirstPointer = (ulong)rtFirstPinned.Pointer;
+            rtSecondPointer = (ulong)rtSecondPinned.Pointer;
+        }
+
+        var sourceValue = Value.FromTensor(Tensor.FromPointer(sourcePointer, DataTypes.Float32));
+        var feedDict = new Dictionary<IVar, IValue>
+        {
+            { srcBase, sourceValue },
+            { firstDest, Value.FromTensor(Tensor.FromPointer(evalFirstPointer, DataTypes.Float32)) },
+            { secondDest, Value.FromTensor(Tensor.FromPointer(evalSecondPointer, DataTypes.Float32)) },
+        };
+        var rtFeedDict = new Dictionary<IVar, IValue>
+        {
+            { srcBase, sourceValue },
+            { firstDest, Value.FromTensor(Tensor.FromPointer(rtFirstPointer, DataTypes.Float32)) },
+            { secondDest, Value.FromTensor(Tensor.FromPointer(rtSecondPointer, DataTypes.Float32)) },
+        };
+
+        await RunCases(nameof(TestBlockLocalSmemSharedAffineGatherMicroKernel), feedDict, new BaseExpr[] { body }, rtFeedDict);
+
+        var expected = sourceTensor.ToArray<float>();
+        Assert.Equal(expected, evalFirst.ToArray<float>());
+        Assert.Equal(expected, evalSecond.ToArray<float>());
+        Assert.Equal(expected, rtFirst.ToArray<float>());
+        Assert.Equal(expected, rtSecond.ToArray<float>());
+    }
+
     internal async Task RunCases(string dumpDir, Dictionary<IVar, IValue> feedDict, IEnumerable<BaseExpr> posts, Dictionary<IVar, IValue>? feedDictRT = null, bool enableAutoDist = true)
     {
         var postArray = posts.ToArray();
@@ -2060,12 +2127,43 @@ public sealed class UnitTestCUDAKernels : TestClassBase
             return;
         }
 
-        var main = new Function("main", DefaultTargetName, new IRBlock(fusion.Body, kernelCase.Vars.ToArray()));
+        var inputs = kernelCase.Inputs.ToArray();
+        if (!CompilerServices.InferenceType(fusion.Body))
+        {
+            throw new InvalidOperationException("Kernel body type inference failed before affine rewrite.");
+        }
+
+        var evalValue = fusion.Body.Evaluate(kernelCase.Vars.Zip(inputs).ToDictionary(p => p.First, p => (IValue)Value.FromTensor(p.Second)));
+        var outputs = ValueToTensors(evalValue);
+
+        var rewriteContext = new Passes.RunPassContext();
+        var runtimeBody = CompilerServices.Rewrite(
+            fusion.Body,
+            [
+                new Passes.Rules.Triton.LoadToAffineGather(),
+                new Passes.Rules.Triton.StoreToAffineScatter(),
+            ],
+            rewriteContext);
+
+        if (ContainsTritonIO(runtimeBody))
+        {
+#if DEBUG
+            System.Console.WriteLine("[UnitTestCUDAKernels] Triton load/store rewrite failed. Body:");
+            System.Console.WriteLine(CompilerServices.Print(runtimeBody));
+#endif
+            throw new InvalidOperationException("Affine rewrite did not eliminate Triton load/store ops.");
+        }
+
+        if (!CompilerServices.InferenceType(runtimeBody))
+        {
+            throw new InvalidOperationException("Kernel body type inference failed after affine rewrite.");
+        }
+
+        var runtimeFusion = fusion.With(body: runtimeBody, parameters: kernelCase.Vars.ToArray());
+        var main = new Function("main", DefaultTargetName, new IRBlock(runtimeFusion.Body, kernelCase.Vars.ToArray()));
         main.Metadata = fusion.Body.Metadata;
 
         var module = new IR.IRModule(main);
-        var inputs = kernelCase.Inputs.ToArray();
-        var outputs = ((Expr)fusion.Body).EvaluateUnwrapped(kernelCase.Vars.Zip(inputs).ToDictionary(p => p.First, p => (IValue)Value.FromTensor(p.Second))).AsTensors();
 
 #if DEBUG
         for (var i = 0; i < inputs.Length; i++)
@@ -2089,11 +2187,13 @@ public sealed class UnitTestCUDAKernels : TestClassBase
         Tensor[] actuals;
         if (kernelCase.RTInputs.Any())
         {
-            actuals = Testing.RunKModel(kmodel_path, Diagnostics.DumpScope.Current.Directory, kernelCase.RTInputs.ToArray()).AsTensors();
+            var value = Testing.RunKModel(kmodel_path, Diagnostics.DumpScope.Current.Directory, kernelCase.RTInputs.ToArray());
+            actuals = ValueToTensors(value);
         }
         else
         {
-            actuals = Testing.RunKModel(kmodel_path, Diagnostics.DumpScope.Current.Directory, inputs).AsTensors();
+            var value = Testing.RunKModel(kmodel_path, Diagnostics.DumpScope.Current.Directory, inputs);
+            actuals = ValueToTensors(value);
         }
 #if DEBUG
         for (int i = 0; i < actuals.Length; i++)
@@ -2109,6 +2209,99 @@ public sealed class UnitTestCUDAKernels : TestClassBase
             var cos = Comparator.CosSimilarity(outputs[i], actuals[i]);
             Assert.True(cos > 0.999, $"the {Diagnostics.DumpScope.Current.Directory} output {i} cos: {cos} ");
         }
+    }
+
+    private static bool ContainsTritonIO(BaseExpr expr)
+    {
+        if (expr is Call call && (call.Target is IR.Triton.Load || call.Target is IR.Triton.Store))
+        {
+            return true;
+        }
+
+        foreach (var operand in expr.Operands)
+        {
+            if (ContainsTritonIO(operand))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Tensor[] ValueToTensors(IValue value)
+    {
+        return value switch
+        {
+            NoneValue => [],
+            TensorValue tensor => [tensor.AsTensor()],
+            TupleValue tuple => tuple.SelectMany(ValueToTensors).ToArray(),
+            _ => value.AsTensors(),
+        };
+    }
+
+    private static int DetectCudaArchitecture()
+    {
+        var overrideValue = Environment.GetEnvironmentVariable("NNCASE_TEST_CUDA_ARCHITECTURE");
+        if (!string.IsNullOrWhiteSpace(overrideValue))
+        {
+            return ParseCudaArchitecture(overrideValue.Trim());
+        }
+
+        using var process = new System.Diagnostics.Process();
+        process.StartInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "nvidia-smi",
+            Arguments = "--query-gpu=compute_cap --format=csv,noheader",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("Failed to start nvidia-smi to detect CUDA test architecture.");
+        }
+
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        if (!process.WaitForExit(5000))
+        {
+            process.Kill(entireProcessTree: true);
+            throw new InvalidOperationException("Timed out while detecting CUDA test architecture with nvidia-smi.");
+        }
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"nvidia-smi failed while detecting CUDA test architecture: {error}");
+        }
+
+        var capability = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim();
+        if (string.IsNullOrWhiteSpace(capability))
+        {
+            throw new InvalidOperationException("nvidia-smi did not report a CUDA compute capability.");
+        }
+
+        return ParseCudaArchitecture(capability);
+    }
+
+    private static int ParseCudaArchitecture(string capability)
+    {
+        var parts = capability.Split('.', StringSplitOptions.TrimEntries);
+        if (parts.Length is < 1 or > 2 ||
+            !int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var major))
+        {
+            throw new InvalidOperationException($"Invalid CUDA compute capability '{capability}'.");
+        }
+
+        var minor = 0;
+        if (parts.Length == 2 &&
+            !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out minor))
+        {
+            throw new InvalidOperationException($"Invalid CUDA compute capability '{capability}'.");
+        }
+
+        return checked((major * 10) + minor);
     }
 
     private async Task Compile(IRModule module, bool enableAutoDist = true)
