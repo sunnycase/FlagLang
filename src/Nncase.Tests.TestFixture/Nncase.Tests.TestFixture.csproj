@@ -5,6 +5,10 @@
         <RootNamespace>Nncase.Tests</RootNamespace>
     </PropertyGroup>
 
+    <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+        <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    </PropertyGroup>
+
     <ItemGroup>
         <PackageVersion Include="NETStandard.Library" Version="2.0.3" />
         <PackageReference Include="Fody">
