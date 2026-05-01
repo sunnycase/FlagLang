@@ -114,6 +114,23 @@ def _module_entry_name(src):
     return name[1:] if isinstance(name, str) and name.startswith("@") else name
 
 
+_UNSUPPORTED_EXTERNAL_CUDA_MLIR_EXTENSIONS = frozenset(("ttir", "ttgir", "llir"))
+
+
+def _is_mlir_source_module(src):
+    mlir_source_type = getattr(ir, "mlir_source_module", None)
+    return mlir_source_type is not None and isinstance(src, mlir_source_type)
+
+
+def _raise_unsupported_external_cuda_mlir(ext=None):
+    suffix = f".{ext}" if ext else "MLIR"
+    raise NotImplementedError(
+        f"FlagLang CUDA backend does not support external {suffix} file inputs: this build exposes native "
+        "nncase CUDA lowering for frontend-produced ir.module objects, but does not ship the standard Triton "
+        "MLIR-to-LLVM lowering bindings required for external TTIR/TTGIR/LLIR text. Compile Triton AST kernels "
+        "through the native frontend, or provide PTX input.")
+
+
 def _initialize_cuda_kernel_metadata(metadata, name, opt):
     metadata["name"] = name
     metadata["shared"] = 0
@@ -174,13 +191,6 @@ class NativeCudaCompilation:
 
 def _require_native_ir_module(src):
     src = _unwrap_native_cuda_stage(src)
-    mlir_source_type = getattr(ir, "mlir_source_module", None)
-    if mlir_source_type is not None and isinstance(src, mlir_source_type):
-        raise NotImplementedError(
-            "FlagLang native CUDA backend can parse .ttir/.ttgir MLIR files for metadata, "
-            "but it cannot lower external MLIR source text to a native nncase ir.module. "
-            "Compile Triton AST kernels through the native frontend so lowering starts from ir.module.")
-
     module_type = getattr(ir, "module", None)
     if module_type is None or not isinstance(src, module_type):
         entry = _module_entry_name(src)
@@ -580,6 +590,11 @@ class CUDABackend(BaseBackend):
 
         return CUDAOptions(**args)
 
+    def validate_ir_source(self, src) -> None:
+        ext = getattr(src, "ext", None)
+        if ext in _UNSUPPORTED_EXTERNAL_CUDA_MLIR_EXTENSIONS:
+            _raise_unsupported_external_cuda_mlir(ext)
+
     def pack_metadata(self, metadata):
         return (
             metadata.num_warps,
@@ -635,6 +650,8 @@ class CUDABackend(BaseBackend):
     def make_ttgir(mod, metadata, opt, capability):
         if isinstance(mod, NativeCudaIRStage):
             return mod
+        if _is_mlir_source_module(mod):
+            _raise_unsupported_external_cuda_mlir()
         # Set maxnreg on all kernels, if it was provided.
         # if opt.maxnreg is not None:
         #     mod.set_attr("ttg.maxnreg", ir.builder(mod.context).get_int32_attr(opt.maxnreg))
@@ -741,6 +758,8 @@ class CUDABackend(BaseBackend):
             return src
 
         mod = src
+        if _is_mlir_source_module(mod):
+            _raise_unsupported_external_cuda_mlir()
         # TritonGPU -> LLVM-IR (MLIR)
         return mod
         # pm.enable_debug()

@@ -408,3 +408,15 @@ class XPUDriver(GPUDriver):
     def get_benchmarker(self):
         from triton.testing import do_bench
         return do_bench
+
+    def get_device_interface(self):
+        from torch._dynamo.device_interface import get_interface_for_device
+        return get_interface_for_device(self.get_active_torch_device())
+
+    def get_empty_cache_for_benchmark(self):
+        import torch
+        cache_size = 256 * 1024 * 1024
+        return torch.empty(int(cache_size // 4), dtype=torch.int, device=self.get_active_torch_device())
+
+    def clear_cache(self, cache):
+        cache.zero_()

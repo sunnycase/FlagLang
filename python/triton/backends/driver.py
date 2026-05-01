@@ -44,6 +44,25 @@ class DriverBase(metaclass=ABCMeta):
         """
         raise NotImplementedError
 
+    def get_device_interface(self):
+        """
+        Return the torch device interface used by the generic benchmarker.
+        """
+        raise NotImplementedError(f"{type(self).__name__} must implement get_device_interface() for generic do_bench")
+
+    def get_empty_cache_for_benchmark(self):
+        """
+        Allocate the cache-flush buffer used by the generic benchmarker.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement get_empty_cache_for_benchmark() for generic do_bench")
+
+    def clear_cache(self, cache):
+        """
+        Clear the cache-flush buffer before each generic benchmark iteration.
+        """
+        raise NotImplementedError(f"{type(self).__name__} must implement clear_cache(cache) for generic do_bench")
+
     def __init__(self) -> None:
         pass
 

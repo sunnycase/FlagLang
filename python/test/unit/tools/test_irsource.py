@@ -188,7 +188,10 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 8 : i32, ttg.targ
     context = ir.context()
     src = IRSource(str(temp_file), context, backend)
 
-    # External TTGIR text is parsed for metadata only. FlagLang CUDA lowering
-    # starts from native nncase ir.module objects produced by the frontend.
-    with pytest.raises(NotImplementedError, match="cannot lower external MLIR source text"):
+    if target.backend == "cuda":
+        # External TTGIR text is parsed for metadata only. FlagLang CUDA lowering
+        # starts from native nncase ir.module objects produced by the frontend.
+        with pytest.raises(NotImplementedError, match=r"does not support external \.ttgir file inputs"):
+            triton.compile(str(temp_file), target=target)
+    else:
         triton.compile(str(temp_file), target=target)

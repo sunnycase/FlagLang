@@ -886,3 +886,6 @@ class TXDADriver(GPUDriver):
         # doesn't contain any input data before the run
         cache_size = 256 * 1024 * 1024
         return torch.empty(int(cache_size // 4), dtype=torch.int).to("txda")
+
+    def clear_cache(self, cache):
+        cache.zero_()

@@ -573,12 +573,12 @@ module attributes {{"ttg.num-warps" = 4 : i32, "ttg.threads-per-warp" = {warp_si
         kernel_path = os.path.join(tmp_dir, "empty_kernel.ttgir")
         with open(kernel_path, "w") as fp:
             fp.write(src.format(warp_size=target.warp_size))
-        k = triton.compile(kernel_path, target=target)
         if is_cuda():
-            ptx = k.asm["ptx"]
-            assert ".target sm_80" in ptx
-            assert ".address_size 64" in ptx
-        elif is_hip():
+            with pytest.raises(NotImplementedError, match=r"does not support external \.ttgir file inputs"):
+                triton.compile(kernel_path, target=target)
+            return
+        k = triton.compile(kernel_path, target=target)
+        if is_hip():
             amdgcn = k.asm["amdgcn"]
             assert '.amdgcn_target "amdgcn-amd-amdhsa--gfx942"' in amdgcn
             assert '.wavefront_size: 64' in amdgcn

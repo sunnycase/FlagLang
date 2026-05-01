@@ -73,6 +73,14 @@ class BaseBackend(metaclass=ABCMeta):
         self.load_dialects(context)
         return context
 
+    def validate_ir_source(self, src) -> None:
+        """
+        Validate a public IR-file source before the lowering pipeline starts.
+        Backends that cannot lower every IR artifact type should fail here
+        instead of relying on a later stage to reject an incompatible object.
+        """
+        return None
+
     @abstractmethod
     def get_module_map(self) -> Dict[str, ModuleType]:
         """

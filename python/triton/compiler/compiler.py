@@ -453,6 +453,8 @@ def compile(src, target=None, options=None, _env_vars=None):
 
     extra_options = src.parse_options()
     options = backend.parse_options(dict(options or dict(), **extra_options))
+    if ir_source:
+        backend.validate_ir_source(src)
     context = backend.make_context(options)
     # create cache manager
     env_vars = get_cache_invalidating_env_vars() if _env_vars is None else _env_vars
