@@ -530,7 +530,11 @@ class cstream : public clr_object_base {
         obj_ = nncase_clr_api()->stream_create(mt, handle);
     }
 
-    ~cstream() { nncase_clr_api()->handle_dispose(obj_.get()); }
+    ~cstream() {
+        if (auto handle = obj_.get()) {
+            nncase_clr_api()->handle_dispose(handle);
+        }
+    }
 };
 
 class target : public clr_object_base {

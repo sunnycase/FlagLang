@@ -57,7 +57,10 @@ public static unsafe partial class CApi
     [UnmanagedCallersOnly]
     private static void ClrHandleDispose(IntPtr handle)
     {
-        Get<IDisposable>(handle).Dispose();
+        if (handle != IntPtr.Zero)
+        {
+            Get<IDisposable>(handle).Dispose();
+        }
     }
 
     [UnmanagedCallersOnly]
