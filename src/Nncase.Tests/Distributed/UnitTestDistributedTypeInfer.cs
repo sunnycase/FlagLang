@@ -106,6 +106,17 @@ public sealed class UnitTestDistributedTypeInfer : TestClassBase
         Assert.Equal(3, LinqUtility.Combination(2).Count());
     }
 
+    [Fact]
+    public void DistributedTypeToStringDoesNotEvaluateImplicitLayout()
+    {
+        var type = new DistributedType(new(DataTypes.Float32, new long[] { 2, 30 }), new SBP[] { SBP.S(new[] { 0 }), SBP.B }, new(new[] { 6 }, "t"));
+
+        var text = type.ToString();
+
+        Assert.Contains("Layout: <implicit>", text, System.StringComparison.Ordinal);
+        Assert.Contains("Storage: <implicit>", text, System.StringComparison.Ordinal);
+    }
+
     [Theory]
     [MemberData(nameof(ReshapeTypeInferData))]
     public void TestReshapeTypeInfer(DistributedType inType, long[] newShape, IRType except)

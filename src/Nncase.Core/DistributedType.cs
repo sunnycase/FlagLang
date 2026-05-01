@@ -1347,5 +1347,10 @@ public sealed record DistributedType(
             storageLayout);
     }
 
-    public override string ToString() => $"{TensorType}, ({string.Join(',', AxisPolicies)}), {Placement}, Layout: {DistributionLayout.Kind}, Storage: {StorageLayout.Kind}, Partial: {Partial}";
+    public override string ToString()
+    {
+        var distributionLayoutKind = ExplicitDistributionLayout?.Kind ?? "<implicit>";
+        var storageLayoutKind = ExplicitStorageLayout?.Kind ?? "<implicit>";
+        return $"{TensorType}, ({string.Join(',', AxisPolicies)}), {Placement}, Layout: {distributionLayoutKind}, Storage: {storageLayoutKind}, Partial: {Partial}";
+    }
 }
