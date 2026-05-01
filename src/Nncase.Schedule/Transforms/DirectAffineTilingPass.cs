@@ -269,19 +269,19 @@ public sealed class DirectAffineTilingPass : FunctionPass
                     AttachScatterDecision(call, scatter, GetStorage(call, "Affine.Scatter"));
                     break;
                 case IR.Math.Binary:
-                    AttachElementwiseDecisionIfTilingInput(call, "Binary", GetStorage(call, "Binary"));
+                    AttachElementwiseDecisionIfTilingInput(call, "Binary");
                     break;
                 case IR.Math.Unary:
-                    AttachElementwiseDecisionIfTilingInput(call, "Unary", GetStorage(call, "Unary"));
+                    AttachElementwiseDecisionIfTilingInput(call, "Unary");
                     break;
                 case IR.Tensors.Cast:
-                    AttachElementwiseDecisionIfTilingInput(call, "Cast", GetStorage(call, "Cast"));
+                    AttachElementwiseDecisionIfTilingInput(call, "Cast");
                     break;
                 case IR.Tensors.Where:
-                    AttachElementwiseDecisionIfTilingInput(call, "Where", GetStorage(call, "Where"));
+                    AttachElementwiseDecisionIfTilingInput(call, "Where");
                     break;
                 case PrimFunctionWrapper:
-                    AttachElementwiseDecisionIfTilingInput(call, "PrimFunctionWrapper", GetStorage(call, "PrimFunctionWrapper"));
+                    AttachElementwiseDecisionIfTilingInput(call, "PrimFunctionWrapper");
                     break;
             }
         }
@@ -304,13 +304,14 @@ public sealed class DirectAffineTilingPass : FunctionPass
             ValidateTiledInputLayoutAgreement(call, "Affine.Scatter", decision);
         }
 
-        private void AttachElementwiseDecisionIfTilingInput(Call call, string opKind, BufferStorage storage)
+        private void AttachElementwiseDecisionIfTilingInput(Call call, string opKind)
         {
             if (!call.Arguments.ToArray().OfType<Expr>().Any(arg => TileDecisionMetadata.TryGet(arg, out _)))
             {
                 return;
             }
 
+            var storage = GetStorage(call, opKind);
             var tensorType = GetTensorType(call.CheckedType, opKind);
             ValidateOneDimensionalShape(tensorType.Shape, opKind);
             var distributionLayout = GetDistributionLayout(call.CheckedType, new IRArray<SBP>(), new Placement([], string.Empty), storage, tensorType, opKind);

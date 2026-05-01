@@ -545,6 +545,21 @@ public sealed class UnitTestTilingModel : TestClassBase
     }
 
     [Fact]
+    public async Task DirectAffineTilingPassIgnoresCudaElementwiseWithoutTiledInput()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(16));
+        var lhs = new Var("lhs", tensorType);
+        var rhs = new Var("rhs", tensorType);
+        var sum = lhs + rhs;
+        var function = new Function("main", CUDATarget.Kind, new IRBlock(sum, lhs, rhs));
+        Assert.True(CompilerServices.InferenceType(function), CompilerServices.Print(function));
+
+        _ = await new DirectAffineTilingPass(CUDATarget.Kind, CompileOptions).RunAsync(function, new());
+
+        Assert.False(TileDecisionMetadata.TryGet(sum, out _));
+    }
+
+    [Fact]
     public async Task DirectAffineTilingPassUsesBlockLocalSmemForSharedGather()
     {
         const int blockSize = 128;
