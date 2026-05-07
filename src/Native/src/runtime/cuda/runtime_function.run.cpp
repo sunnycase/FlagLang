@@ -110,7 +110,11 @@ result<void> cuda_runtime_function::run(const thread_inout_desc *input_descs,
             .output = output_data,
             .thread_local_rdata_header = module().thread_local_rdata_header(
                 cid * module().bdim() * module().wdim() * module().tdim()),
+            .thread_local_cache_header = module().thread_local_cache_header(
+                cid * module().bdim() * module().wdim() * module().tdim()),
             .thread_local_rdata = module().thread_local_rdata_content(),
+            .thread_local_cache = module().thread_local_cache_content(),
+            .thread_local_cache_starts = module().thread_local_cache_starts(),
             .warp_local_rdata_header = module().warp_local_rdata_header(
                 cid * module().bdim() * module().wdim()),
             .warp_local_rdata = module().warp_local_rdata_content(),

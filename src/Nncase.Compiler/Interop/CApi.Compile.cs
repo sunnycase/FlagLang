@@ -127,7 +127,7 @@ public static unsafe partial class CApi
         var compileOptions = new CompileOptions
         {
             DumpDir = dumpDir,
-            DumpFlags = DumpFlags.Compile | DumpFlags.PassIR | DumpFlags.Rewrite | DumpFlags.CodeGen,
+            DumpFlags = DumpFlags.Compile | DumpFlags.PassIR | DumpFlags.Rewrite | DumpFlags.Tiling | DumpFlags.CodeGen,
             TargetOptions = new NTTTargetOptions
             {
                 HierarchyNames = "t",

@@ -26,9 +26,25 @@ public sealed class UnitTestTIR
     public void TestBufferStore()
     {
         Expr value = 42;
-        TIR.T.CreateBuffer(new TensorType(DataTypes.Float32, new[] { 1, 16, 64, 400 }), MemoryLocation.Input, out var testInput);
+        TIR.T.CreateBuffer(new TensorType(DataTypes.Float32, new[] { 1, 16, 64, 400 }), BufferStorage.GlobalInput(), out var testInput);
         _ = new Expr[] { 0, 1 };
         _ = T.Store(testInput, 0, value);
+    }
+
+    [Fact]
+    public void DistributedBufferUsesCanonicalIrType()
+    {
+        var tensorType = new TensorType(DataTypes.Float32, new RankedShape(1024));
+        var distributedType = new DistributedType(tensorType, new SBP[] { SBP.S(0) }, new Placement(new[] { 128 }, "t"));
+        var buffer = TIR.T.CreateBuffer(distributedType, BufferStorage.ThreadLocalTemp(), out _, "buffer");
+        var subview = IR.F.Buffer.BufferSubview(buffer, new RankedShape(0), new RankedShape(8));
+
+        Assert.Equal(distributedType, buffer.Type);
+        Assert.Equal(tensorType, buffer.TensorType);
+        Assert.True(CompilerServices.InferenceType(subview));
+
+        var subviewType = Assert.IsType<TensorType>(subview.CheckedType);
+        Assert.Equal(new RankedShape(8), subviewType.Shape);
     }
 
     [Fact]
@@ -166,7 +182,7 @@ public sealed class UnitTestTIR
     [Fact]
     public void TestBufferRegion()
     {
-        var buffer = T.CreateBuffer(new(DataTypes.Float32, new[] { 1, 16, 64, 400 }), MemoryLocation.Input, out _);
+        var buffer = T.CreateBuffer(new(DataTypes.Float32, new[] { 1, 16, 64, 400 }), BufferStorage.GlobalInput(), out _);
         var region = new Range[] { new Range(1, 2, 2), new Range(-1, 3, 2) };
         var bufferRegion = new BufferRegion(buffer, region);
 

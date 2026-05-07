@@ -140,26 +140,26 @@ public sealed class TensorConst : Const, IEquatable<TensorConst?>
 
     public static bool operator !=(TensorConst? left, TensorConst? right) => !(left == right);
 
-    public MemoryLocation GetMemoryLocation()
+    public BufferStorage GetBufferStorage()
     {
         if (ValueType is DistributedType dt)
         {
             if (dt.AxisPolicies.Any(p => p is SBPSplit split && split.Axes.Contains(dt.Placement.Rank - 1)))
             {
-                return MemoryLocation.ThreadLocalRdata;
+                return BufferStorage.ThreadLocalConst();
             }
             else if (dt.Placement.HasWarp && dt.AxisPolicies.Any(p => p is SBPSplit split && split.Axes.Contains(dt.Placement.Rank - 2)))
             {
-                return MemoryLocation.WarpLocalRdata;
+                return BufferStorage.WarpLocalConst();
             }
             else
             {
-                return MemoryLocation.BlockLocalRdata;
+                return BufferStorage.BlockLocalConst();
             }
         }
         else
         {
-            return MemoryLocation.Rdata;
+            return BufferStorage.DeviceConst();
         }
     }
 

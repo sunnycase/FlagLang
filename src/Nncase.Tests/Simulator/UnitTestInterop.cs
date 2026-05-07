@@ -33,7 +33,7 @@ public class UnitTestInteropIntegrated : TestClassBase
         var x = new Var("x", type);
         var body = T.Sequential().Body(
             T.AttachBuffer(1.0f, out var constBuffer),
-            TIR.F.NTT.VectorizedBinary(x, constBuffer, T.CreateBuffer(type, MemoryLocation.Output, out var outBuffer), None.Default, BinaryOp.Add),
+            TIR.F.NTT.VectorizedBinary(x, constBuffer, T.CreateBuffer(type, BufferStorage.GlobalOutput(), out var outBuffer), None.Default, BinaryOp.Add),
             T.Return(outBuffer)).Build().With(parameters: new IVar[] { x });
         var main = new PrimFunction("main_prim", CPUTarget.Kind, body);
         var module = new IRModule(main);
@@ -83,7 +83,7 @@ public class UnitTestInteropIntegrated : TestClassBase
         var lhs = new Var("lhs", type);
         var rhs = new Var("rhs", type);
         var body = T.Sequential().Body(
-            TIR.F.NTT.VectorizedBinary(lhs, rhs, T.CreateBuffer(type, MemoryLocation.Output, out var outBuffer), None.Default, BinaryOp.LogicalAnd),
+            TIR.F.NTT.VectorizedBinary(lhs, rhs, T.CreateBuffer(type, BufferStorage.GlobalOutput(), out var outBuffer), None.Default, BinaryOp.LogicalAnd),
             T.Return(outBuffer)).Build().With(parameters: new IVar[] { lhs, rhs });
         var main = new PrimFunction("logical_and_prim", CPUTarget.Kind, body);
         var module = new IRModule(main);

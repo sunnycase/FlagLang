@@ -60,13 +60,13 @@ public sealed class PrimFunctionWrapper : BaseFunction
         {
             var outputParams = Target.Parameters.AsValueEnumerable().Skip(ParametersCount).ToArray();
             return outputParams.Length == 1
-                ? (TypeHints.Count <= ParametersCount ? ((Expr)outputParams[0]).CheckedType : TypeHints[ParametersCount])
-                : new TupleType(outputParams.Select((x, i) => TypeHints.Count <= ParametersCount ? ((Expr)x).CheckedType! : TypeHints[ParametersCount + i]));
+                ? GetParameterType(outputParams[0], ParametersCount)
+                : new TupleType(outputParams.Select((x, i) => GetParameterType(x, ParametersCount + i)));
         }
     }
 
     /// <inheritdoc/>
-    public override IEnumerable<IRType> ParameterTypes => Target.Parameters.AsValueEnumerable().Take(ParametersCount).Select((x, i) => TypeHints.Count <= ParametersCount ? ((Expr)x).CheckedType : TypeHints[i]).ToArray();
+    public override IEnumerable<IRType> ParameterTypes => Target.Parameters.AsValueEnumerable().Take(ParametersCount).Select(GetParameterType).ToArray();
 
     /// <inheritdoc/>
     public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context)
@@ -79,4 +79,6 @@ public sealed class PrimFunctionWrapper : BaseFunction
 
     public PrimFunctionWrapper With(string? name = null, PrimFunction? target = null, int? parametersCount = null, IRType[]? hints = null)
         => new PrimFunctionWrapper(name ?? Name, target ?? Target, parametersCount ?? ParametersCount, hints ?? TypeHints.ToArray());
+
+    private IRType GetParameterType(IVar parameter, int index) => index < TypeHints.Count ? TypeHints[index] : parameter.CheckedType;
 }

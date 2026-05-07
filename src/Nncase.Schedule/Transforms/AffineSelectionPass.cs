@@ -38,6 +38,8 @@ public abstract class AffineSelectionPass : FunctionPass
 
     protected abstract Expr SelectCall(Call call, Expr output);
 
+    protected virtual Expr SelectVoidCall(Call call) => call;
+
     protected Expr SelectUnaryLike(Expr input, Op tirOp, Call call, Expr output)
     {
         if (output.CheckedShape is not { Rank: > 0 })
@@ -77,7 +79,7 @@ public abstract class AffineSelectionPass : FunctionPass
                 TupleType { Count: 0 } => null,
                 _ => throw new ArgumentOutOfRangeException(nameof(expr), $"Unsupported type {expr.CheckedType}"),
             };
-            return outBuffer is null ? expr : _selectionPass.SelectCall(expr, outBuffer);
+            return outBuffer is null ? _selectionPass.SelectVoidCall(expr) : _selectionPass.SelectCall(expr, outBuffer);
         }
     }
 }

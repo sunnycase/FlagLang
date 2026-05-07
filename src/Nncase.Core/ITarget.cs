@@ -13,6 +13,7 @@ using Nncase.IR.NN;
 using Nncase.Passes;
 using Nncase.Quantization;
 using Nncase.Targets;
+using Nncase.TIR;
 
 namespace Nncase;
 
@@ -33,6 +34,17 @@ public enum NocArchitecture : byte
 {
     Mesh = 0,
     CrossBar = 1,
+}
+
+[Flags]
+public enum MemoryHierarchyAttributes : uint
+{
+    None = 0,
+    Addressable = 1 << 0,
+    RegisterLike = 1 << 1,
+    SharedAcrossBlock = 1 << 2,
+    TensorCoreLocal = 1 << 3,
+    Global = 1 << 4,
 }
 
 public interface INTTTargetOptions : ITargetOptions
@@ -62,6 +74,8 @@ public interface INTTTargetOptions : ITargetOptions
     int[] MemoryCapacities { get; set; }
 
     int[] MemoryBandWidths { get; set; }
+
+    MemoryHierarchyLevel[] MemoryHierarchyLevels { get; set; }
 
     long RegisterTileBudgetBytes { get; set; }
 
@@ -181,4 +195,43 @@ public sealed class DefaultTargetCompileOptions : ITargetOptions
     public int[] MemoryCapacities => Array.Empty<int>();
 
     public int[] MemoryBandWidths => Array.Empty<int>();
+}
+
+public sealed record MemoryHierarchyLevel(
+    string DisplayName,
+    BufferScope Scope,
+    PhysicalMemorySpace PhysicalLocation,
+    MemoryHierarchyAttributes Attributes)
+{
+    public bool IsAddressable => Attributes.HasFlag(MemoryHierarchyAttributes.Addressable);
+
+    public BufferStorage ToTileStorage(BufferUsage usage, int hierarchy) =>
+        new(usage, Scope, PhysicalLocation, hierarchy);
+
+    public override string ToString() =>
+        $"{DisplayName}(scope={Scope}, location={PhysicalLocation}, addressable={IsAddressable}, attrs={Attributes})";
+}
+
+public static class MemoryHierarchyLevels
+{
+    public static MemoryHierarchyLevel[] CudaDefault() =>
+    [
+        new("register", BufferScope.ThreadLocal, PhysicalMemorySpace.Register, MemoryHierarchyAttributes.RegisterLike),
+        new("smem", BufferScope.BlockLocal, PhysicalMemorySpace.SMem, MemoryHierarchyAttributes.Addressable | MemoryHierarchyAttributes.SharedAcrossBlock),
+        new("tmem", BufferScope.WarpLocal, PhysicalMemorySpace.TMem, MemoryHierarchyAttributes.TensorCoreLocal),
+        new("gmem", BufferScope.Device, PhysicalMemorySpace.GMem, MemoryHierarchyAttributes.Addressable | MemoryHierarchyAttributes.Global),
+    ];
+
+    public static MemoryHierarchyLevel GetRequired(this INTTTargetOptions options, int level, string context)
+    {
+        var levels = options.MemoryHierarchyLevels;
+        if ((uint)level >= (uint)levels.Length)
+        {
+            throw new InvalidOperationException(
+                $"{context} requires memory hierarchy level {level}, but target only defines {levels.Length} levels: " +
+                $"[{string.Join(", ", levels.Select(x => x.ToString()))}].");
+        }
+
+        return levels[level];
+    }
 }

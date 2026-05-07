@@ -16,78 +16,54 @@ internal static class AffineIOLayoutEvaluator
 {
     public static Expr[] GetStorageIndices(TIR.Buffer buffer, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> domainValues)
     {
-        if (buffer.DistributedType is not DistributedType distributedType)
+        if (buffer.Type is not DistributedType distributedType)
         {
             return loopVars.AsExprs();
         }
 
         ValidateDistributedBuffer(buffer, distributedType);
-        var storageLayout = distributedType.StorageLayout;
-        if (IsIdentityStorageMap(storageLayout.LogicalToPhysical, loopVars.Count))
-        {
-            return loopVars.AsExprs();
-        }
+        return GetStorageIndicesCore(distributedType, loopVars, domainValues, $"buffer {buffer.Name}");
+    }
 
-        var bindings = BuildOwnerLocalBindings(buffer, distributedType, loopVars);
-        if (storageLayout.ViewMap is not null)
-        {
-            var viewValues = EvaluateMap(storageLayout.ViewMap, bindings, $"storage view map {storageLayout.ViewMap.Name} for buffer {buffer.Name}");
-            foreach (var value in viewValues)
-            {
-                bindings[value.Name] = value.Value;
-            }
-        }
-        else
-        {
-            for (int i = 0; i < domainValues.Count; i++)
-            {
-                bindings[$"g{i}"] = domainValues[i];
-            }
-        }
-
-        return EvaluateMap(storageLayout.LogicalToPhysical, bindings, $"storage map {storageLayout.LogicalToPhysical.Name} for buffer {buffer.Name}")
-            .Select(value => value.Value)
-            .ToArray()
-            .AsExprs();
+    public static Expr[] GetStorageIndices(DistributedType distributedType, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> domainValues, string context)
+    {
+        ValidateDistributedType(distributedType, context);
+        return GetStorageIndicesCore(distributedType, loopVars, domainValues, context);
     }
 
     public static Dimension[] GetIterationExtents(TIR.Buffer buffer)
     {
         var globalExtents = buffer.Dimensions.ToArray();
-        if (buffer.DistributedType is not DistributedType distributedType)
+        if (buffer.Type is not DistributedType distributedType)
         {
             return globalExtents;
         }
 
         ValidateDistributedBuffer(buffer, distributedType);
-        if (distributedType.ExplicitDistributionLayout is not null)
-        {
-            return GetExplicitIterationExtents(buffer, distributedType);
-        }
+        return GetIterationExtentsCore(distributedType, globalExtents, $"buffer {buffer.Name}");
+    }
 
-        return globalExtents.Select((extent, axis) => GetLocalShardExtent(distributedType, axis, extent)).ToArray();
+    public static Dimension[] GetIterationExtents(DistributedType distributedType, string context)
+    {
+        ValidateDistributedType(distributedType, context);
+        return GetIterationExtentsCore(distributedType, distributedType.TensorType.Shape.ToArray(), context);
     }
 
     public static Dimension[] GetDomainValues(TIR.Buffer buffer, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> globalExtents)
     {
-        if (buffer.DistributedType is not DistributedType distributedType)
+        if (buffer.Type is not DistributedType distributedType)
         {
             return loopVars.Select<DimVar, Dimension>(loopVar => loopVar).ToArray();
         }
 
         ValidateDistributedBuffer(buffer, distributedType);
-        if (distributedType.ExplicitDistributionLayout is not null)
-        {
-            return GetExplicitDomainValues(buffer, distributedType, loopVars);
-        }
+        return GetDomainValuesCore(distributedType, loopVars, globalExtents, $"buffer {buffer.Name}");
+    }
 
-        var domainValues = new Dimension[loopVars.Count];
-        for (int axis = 0; axis < loopVars.Count; axis++)
-        {
-            domainValues[axis] = loopVars[axis] + GetShardOffset(distributedType, axis, globalExtents[axis]);
-        }
-
-        return domainValues;
+    public static Dimension[] GetDomainValues(DistributedType distributedType, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> globalExtents, string context)
+    {
+        ValidateDistributedType(distributedType, context);
+        return GetDomainValuesCore(distributedType, loopVars, globalExtents, context);
     }
 
     public static Dimension GetTritonBlockedLocalDomainValue(DistributionLayout distributionLayout, DimVar elem, string context)
@@ -106,6 +82,63 @@ internal static class AffineIOLayoutEvaluator
             TritonThreadElementOrder.Strided => threadId + (elem * threadsPerCTA),
             _ => throw new NotSupportedException($"{context} does not support TritonBlocked thread element order {layout.ThreadElementOrder}."),
         };
+    }
+
+    private static Expr[] GetStorageIndicesCore(DistributedType distributedType, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> domainValues, string context)
+    {
+        var storageLayout = distributedType.StorageLayout;
+        if (IsIdentityStorageMap(storageLayout.LogicalToPhysical, loopVars.Count))
+        {
+            return loopVars.AsExprs();
+        }
+
+        var bindings = BuildOwnerLocalBindings(distributedType, loopVars, context);
+        if (storageLayout.ViewMap is not null)
+        {
+            var viewValues = EvaluateMap(storageLayout.ViewMap, bindings, $"storage view map {storageLayout.ViewMap.Name} for {context}");
+            foreach (var value in viewValues)
+            {
+                bindings[value.Name] = value.Value;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < domainValues.Count; i++)
+            {
+                bindings[$"g{i}"] = domainValues[i];
+            }
+        }
+
+        return EvaluateMap(storageLayout.LogicalToPhysical, bindings, $"storage map {storageLayout.LogicalToPhysical.Name} for {context}")
+            .Select(value => value.Value)
+            .ToArray()
+            .AsExprs();
+    }
+
+    private static Dimension[] GetIterationExtentsCore(DistributedType distributedType, IReadOnlyList<Dimension> globalExtents, string context)
+    {
+        if (distributedType.ExplicitDistributionLayout is not null)
+        {
+            return GetExplicitIterationExtents(distributedType, context);
+        }
+
+        return globalExtents.Select((extent, axis) => GetLocalShardExtent(distributedType, axis, extent)).ToArray();
+    }
+
+    private static Dimension[] GetDomainValuesCore(DistributedType distributedType, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> globalExtents, string context)
+    {
+        if (distributedType.ExplicitDistributionLayout is not null)
+        {
+            return GetExplicitDomainValues(distributedType, loopVars, context);
+        }
+
+        var domainValues = new Dimension[loopVars.Count];
+        for (int axis = 0; axis < loopVars.Count; axis++)
+        {
+            domainValues[axis] = loopVars[axis] + GetShardOffset(distributedType, axis, globalExtents[axis]);
+        }
+
+        return domainValues;
     }
 
     private static bool IsIdentityStorageMap(IndexMapDescriptor map, int rank)
@@ -131,52 +164,64 @@ internal static class AffineIOLayoutEvaluator
 
     private static void ValidateDistributedBuffer(TIR.Buffer buffer, DistributedType distributedType)
     {
-        if (distributedType.Partial)
-        {
-            throw new NotSupportedException("Affine IO layout evaluation cannot directly lower partial distributed buffers. Resolve Partial with a distributed reduction before affine IO lowering.");
-        }
+        ValidateDistributedType(distributedType, $"buffer {buffer.Name}");
 
         if (distributedType.TensorType.Shape.Rank != buffer.Rank || distributedType.AxisPolicies.Count != buffer.Rank)
         {
             throw new NotSupportedException($"Distributed buffer {buffer.Name} has rank {buffer.Rank}, but its distributed type has tensor rank {distributedType.TensorType.Shape.Rank} and {distributedType.AxisPolicies.Count} axis policies.");
         }
 
-        if (distributedType.ExplicitDistributionLayout is not null)
+        if (distributedType.ExplicitDistributionLayout is not null &&
+            distributedType.DistributionLayout.LocalShape.Rank != buffer.Rank)
         {
-            LayoutVerifier.Verify(distributedType, $"Affine IO layout evaluation buffer {buffer.Name}");
-            if (distributedType.DistributionLayout.LocalShape.Rank != buffer.Rank)
-            {
-                throw new NotSupportedException($"Distributed buffer {buffer.Name} has rank {buffer.Rank}, but explicit layout {distributedType.DistributionLayout.Kind} has local shape {distributedType.DistributionLayout.LocalShape}.");
-            }
+            throw new NotSupportedException($"Distributed buffer {buffer.Name} has rank {buffer.Rank}, but explicit layout {distributedType.DistributionLayout.Kind} has local shape {distributedType.DistributionLayout.LocalShape}.");
         }
     }
 
-    private static Dimension[] GetExplicitIterationExtents(TIR.Buffer buffer, DistributedType distributedType)
+    private static void ValidateDistributedType(DistributedType distributedType, string context)
+    {
+        if (distributedType.Partial)
+        {
+            throw new NotSupportedException("Affine IO layout evaluation cannot directly lower partial distributed buffers. Resolve Partial with a distributed reduction before affine IO lowering.");
+        }
+
+        if (distributedType.AxisPolicies.Count != distributedType.TensorType.Shape.Rank)
+        {
+            throw new NotSupportedException($"{context} has tensor rank {distributedType.TensorType.Shape.Rank}, but {distributedType.AxisPolicies.Count} axis policies.");
+        }
+
+        if (distributedType.ExplicitDistributionLayout is not null)
+        {
+            LayoutVerifier.Verify(distributedType, $"Affine IO layout evaluation {context}");
+        }
+    }
+
+    private static Dimension[] GetExplicitIterationExtents(DistributedType distributedType, string context)
     {
         var layout = distributedType.DistributionLayout;
-        ValidateSupportedExplicitMap(buffer, layout);
+        ValidateSupportedExplicitMap(layout, context);
         return layout.LocalShape.ToArray();
     }
 
-    private static Dimension[] GetExplicitDomainValues(TIR.Buffer buffer, DistributedType distributedType, IReadOnlyList<DimVar> loopVars)
+    private static Dimension[] GetExplicitDomainValues(DistributedType distributedType, IReadOnlyList<DimVar> loopVars, string context)
     {
         var layout = distributedType.DistributionLayout;
-        ValidateSupportedExplicitMap(buffer, layout);
-        return EvaluateMap(layout.OwnerLocalToGlobal, BuildOwnerLocalBindings(buffer, distributedType, loopVars), $"distribution map {layout.OwnerLocalToGlobal.Name} for buffer {buffer.Name}")
+        ValidateSupportedExplicitMap(layout, context);
+        return EvaluateMap(layout.OwnerLocalToGlobal, BuildOwnerLocalBindings(distributedType, loopVars, context), $"distribution map {layout.OwnerLocalToGlobal.Name} for {context}")
             .Select(value => value.Value)
             .ToArray();
     }
 
-    private static void ValidateSupportedExplicitMap(TIR.Buffer buffer, DistributionLayout layout)
+    private static void ValidateSupportedExplicitMap(DistributionLayout layout, string context)
     {
         if (layout.Kind is not ("SBP" or "TritonBlocked"))
         {
-            throw new NotSupportedException($"Affine IO layout evaluation cannot evaluate explicit distribution layout {layout.Kind} for buffer {buffer.Name}. Add a DistributionLayout evaluator for this map instead of falling back to AxisPolicies.");
+            throw new NotSupportedException($"Affine IO layout evaluation cannot evaluate explicit distribution layout {layout.Kind} for {context}. Add a DistributionLayout evaluator for this map instead of falling back to AxisPolicies.");
         }
 
         if (layout.Kind == "TritonBlocked" && layout.LocalShape is not { IsUnranked: false, Rank: 1 })
         {
-            throw new NotSupportedException($"Affine IO layout evaluation supports explicit {layout.Kind} layout only for rank-1 buffers, got {layout.LocalShape} on {buffer.Name}.");
+            throw new NotSupportedException($"Affine IO layout evaluation supports explicit {layout.Kind} layout only for rank-1 buffers, got {layout.LocalShape} on {context}.");
         }
     }
 
@@ -321,7 +366,7 @@ internal static class AffineIOLayoutEvaluator
             : throw new NotSupportedException($"TritonBlocked layout must provide exactly one {name} attribute, got {matches.Length}.");
     }
 
-    private static Dictionary<string, Dimension> BuildOwnerLocalBindings(TIR.Buffer buffer, DistributedType distributedType, IReadOnlyList<DimVar> loopVars)
+    private static Dictionary<string, Dimension> BuildOwnerLocalBindings(DistributedType distributedType, IReadOnlyList<DimVar> loopVars, string context)
     {
         var bindings = new Dictionary<string, Dimension>(StringComparer.Ordinal);
         for (int axis = 0; axis < distributedType.Placement.Rank; axis++)
@@ -340,7 +385,7 @@ internal static class AffineIOLayoutEvaluator
             BindTritonBlockedOwnerCoordinates(distributedType.DistributionLayout, bindings);
             if (loopVars.Count != 1)
             {
-                throw new NotSupportedException($"TritonBlocked affine IO layout evaluation requires one loop coordinate for buffer {buffer.Name}, got {loopVars.Count}.");
+                throw new NotSupportedException($"TritonBlocked affine IO layout evaluation requires one loop coordinate for {context}, got {loopVars.Count}.");
             }
 
             bindings["elem"] = loopVars[0];

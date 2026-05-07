@@ -11,7 +11,7 @@ namespace Nncase.Schedule.TileGraph;
 
 public sealed record BufferIdentity(TileGrid Node, int Index)
 {
-    public bool IsOutput => Index == Node.ReadAccesses.Length;
+    public bool IsOutput => Node.HasOutput && Index == Node.ReadAccesses.Length;
 
     public bool IsOutputLiveOut => IsOutput && Node.Attribute.HasFlag(TileGridAttribute.LiveOut);
 

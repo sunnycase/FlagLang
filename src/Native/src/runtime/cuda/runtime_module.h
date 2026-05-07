@@ -14,6 +14,7 @@
  */
 #pragma once
 #include "loaders/cuda_loader.h"
+#include <array>
 #include <cstdint>
 #include <nncase/ntt/arch/cuda/runtime.h>
 #include <nncase/runtime/cuda/runtime_module.h>
@@ -48,6 +49,25 @@ class cuda_runtime_module : public runtime_module {
     thread_local_rdata_content() const noexcept {
         return thread_local_rdata_.subspan(cdim_ * bdim_ * wdim_ * tdim_ * 2 *
                                            sizeof(uint64_t));
+    }
+
+    const std::span<const std::byte> thread_local_cache() const noexcept {
+        return thread_local_cache_;
+    }
+
+    const uint64_t *thread_local_cache_header(size_t offset) const noexcept {
+        return reinterpret_cast<const uint64_t *>(thread_local_cache_.data()) +
+               offset * 2;
+    }
+
+    const std::span<const std::byte>
+    thread_local_cache_content() const noexcept {
+        return thread_local_cache_.subspan(cdim_ * bdim_ * wdim_ * tdim_ * 2 *
+                                           sizeof(uint64_t));
+    }
+
+    const std::array<int32_t, 3> thread_local_cache_starts() const noexcept {
+        return thread_local_cache_starts_;
     }
 
     const std::span<const std::byte> warp_local_rdata() const noexcept {
@@ -106,11 +126,14 @@ class cuda_runtime_module : public runtime_module {
     std::span<const std::byte> text_;
     std::span<const std::byte> rdata_;
     std::span<const std::byte> thread_local_rdata_;
+    std::span<const std::byte> thread_local_cache_;
     std::span<const std::byte> warp_local_rdata_;
     std::span<const std::byte> block_local_rdata_;
+    std::array<int32_t, 3> thread_local_cache_starts_;
     host_buffer_t text_storage_;
     host_buffer_t rdata_storage_;
     host_buffer_t thread_local_rdata_storage_;
+    host_buffer_t thread_local_cache_storage_;
     host_buffer_t warp_local_rdata_storage_;
     host_buffer_t block_local_rdata_storage_;
 

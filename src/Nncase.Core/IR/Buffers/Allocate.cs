@@ -23,12 +23,12 @@ public sealed partial class Allocate : Op
     /// </summary>
     public DataType ElemType { get; }
 
-    public TIR.MemoryLocation Location { get; }
+    public TIR.BufferStorage Storage { get; }
 
     public bool Malloc { get; }
 
     /// <inheritdoc/>
     public override bool CanFoldConstCall => false;
 
-    public override string DisplayProperty() => $"{ElemType}, {Location}";
+    public override string DisplayProperty() => $"{ElemType}, {Storage}";
 }

@@ -297,7 +297,7 @@ public sealed class UnitTestNTTTIRSelectionPass : TestClassBase
 
         Assert.DoesNotContain(calls, call => call.Target is Nncase.TIR.NTT.Cast);
         Assert.Equal(DataTypes.UInt32, output.ElemType);
-        Assert.Equal("ReverseLocal", output.DistributedType!.StorageLayout.Kind);
+        Assert.Equal("ReverseLocal", Assert.IsType<DistributedType>(output.Type).StorageLayout.Kind);
     }
 
     [Fact]

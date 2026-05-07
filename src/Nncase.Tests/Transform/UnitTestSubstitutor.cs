@@ -25,7 +25,7 @@ public sealed class UnitTestSubstitutor : TestClassBase
     public void TestSubstitutorFailed()
     {
         var loop_i = new DimVar("loop_i");
-        T.CreateBuffer(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), MemoryLocation.Input, out var hd);
+        T.CreateBuffer(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), BufferStorage.GlobalInput(), out var hd);
         var prim_func_1 = T.PrimFunc("prim_func_1", "k?", T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), out var input_a), T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), out var input_b)).Body(
           T.Load(hd, loop_i)).Build();
 
@@ -50,7 +50,7 @@ public sealed class UnitTestSubstitutor : TestClassBase
     public void TestSubstitutorTrue()
     {
         var loop_i = new DimVar("loop_i");
-        T.CreateBuffer(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), MemoryLocation.Input, out var hd);
+        T.CreateBuffer(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), BufferStorage.GlobalInput(), out var hd);
         var prim_func_1 = T.PrimFunc("prim_func_1", "k?", T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), out var input_a), T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), out var input_b)).Body(
           T.Load(hd, loop_i)).Build();
 
@@ -68,7 +68,7 @@ public sealed class UnitTestSubstitutor : TestClassBase
     public void TestSubstitutorTrue2()
     {
         var loop_i = new DimVar("loop_i");
-        T.CreateBuffer(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), MemoryLocation.Input, out var hd);
+        T.CreateBuffer(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), BufferStorage.GlobalInput(), out var hd);
         var prim_func_1 = T.PrimFunc("prim_func_1", "k?", T.CreateBufferVar(new(DataTypes.Float32, new[] { 1, 2, 3, 4 }), out var input_a), T.CreateBufferVar(new(DataTypes.Int64, new[] { 1, 2, 3, 4 }), out var input_b)).Body(
           T.Load(hd, loop_i)).Build();
 

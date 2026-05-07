@@ -63,6 +63,8 @@ public sealed class OpNode : ITreeNode
 
     public ReadOnlySpan<AffineMap> ReadAccesses => _wrapped.ReadAccesses;
 
+    public bool HasOutput => _wrapped.HasOutput;
+
     public AffineMap WriteAccess => _wrapped.WriteAccess;
 
     public long GetBufferElemSize(int i) => _wrapped.GetBufferElemSize(i);

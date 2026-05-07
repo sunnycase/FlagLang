@@ -97,7 +97,7 @@ public partial class ToCustomMatmul : RewriteRule<Pattern>
                 extraSize = CompilerServices.GetMaxShape([extraDim]);
             }
 
-            Expr extraWorkload = IR.F.Buffer.Uninitialized(DataTypes.UInt8, TIR.MemoryLocation.Data, extraSize);
+            Expr extraWorkload = IR.F.Buffer.Uninitialized(DataTypes.UInt8, TIR.BufferStorage.ThreadLocalTemp(), extraSize);
 
             return call.With(
                     target: new IR.CustomNTT.MatMul(null!, null!, false, false, node!.SBP[0], node!.SBP[1], node!.SBP[2], new() { [CostFactorNames.CPUCycles] = node.Cost }, node.CSourcePath, node.FuncName, mm.OutputDataType),

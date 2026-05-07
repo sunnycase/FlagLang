@@ -27,20 +27,19 @@ public sealed class UnitTestTilingModel : TestClassBase
     }
 
     [Fact]
-    public void LegacyMemoryLocationMapsToOrthogonalStorage()
+    public void BufferStorageDescribesOrthogonalStorage()
     {
-        var data = BufferStorage.FromLegacy(MemoryLocation.Data);
+        var data = BufferStorage.ThreadLocalTemp();
         Assert.Equal(BufferUsage.Temp, data.Usage);
         Assert.Equal(BufferScope.ThreadLocal, data.Scope);
         Assert.Equal(PhysicalMemorySpace.LocalAddressable, data.PhysicalLocation);
 
-        var smem = BufferStorage.FromLegacy(MemoryLocation.BlockLocalData);
+        var smem = BufferStorage.BlockLocalSMem();
         Assert.Equal(BufferUsage.Temp, smem.Usage);
         Assert.Equal(BufferScope.BlockLocal, smem.Scope);
         Assert.Equal(PhysicalMemorySpace.SMem, smem.PhysicalLocation);
 
         var buffer = new PhysicalBuffer(8, (Dimension)64, smem);
-        Assert.Equal(MemoryLocation.BlockLocalData, buffer.Location);
         Assert.Equal(smem with { Alignment = 8 }, buffer.Storage);
 
         T.CreateBuffer(
@@ -281,7 +280,7 @@ public sealed class UnitTestTilingModel : TestClassBase
             ExplicitDistributionLayout: layout,
             ExplicitStorageLayout: invalidStorage);
 
-        var ex = Assert.Throws<InvalidOperationException>(() => TensorUtilities.GetTensorMaxSizeAndStrides(tensorType, distributedType));
+        var ex = Assert.Throws<InvalidOperationException>(() => TensorUtilities.GetTensorMaxSizeAndStrides(distributedType));
         Assert.Contains(nameof(TensorUtilities.GetTensorMaxSizeAndStrides), ex.Message, StringComparison.Ordinal);
         Assert.Contains("StorageLayout", ex.Message, StringComparison.Ordinal);
         Assert.Contains("DistributionLayout", ex.Message, StringComparison.Ordinal);
@@ -310,7 +309,7 @@ public sealed class UnitTestTilingModel : TestClassBase
             ExplicitDistributionLayout: layout,
             ExplicitStorageLayout: unrankedStorage);
 
-        var ex = Assert.Throws<NotSupportedException>(() => TensorUtilities.GetTensorSizeAndContiguousStrides(tensorType, distributedType));
+        var ex = Assert.Throws<NotSupportedException>(() => TensorUtilities.GetTensorSizeAndContiguousStrides(distributedType));
         Assert.Contains(nameof(TensorUtilities.GetTensorSizeAndContiguousStrides), ex.Message, StringComparison.Ordinal);
         Assert.Contains("UnrankedStorage", ex.Message, StringComparison.Ordinal);
         Assert.Contains("DistributionLayout", ex.Message, StringComparison.Ordinal);

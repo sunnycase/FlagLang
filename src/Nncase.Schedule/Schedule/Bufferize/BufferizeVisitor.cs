@@ -15,14 +15,14 @@ namespace Nncase.Schedule.Bufferize;
 
 public sealed class BufferizeVisitor : ExprRewriter
 {
-    private static readonly BufferStorage OutputStorage = BufferStorage.FromLegacy(MemoryLocation.Output).WithoutAlignment();
-    private static readonly BufferStorage DataStorage = BufferStorage.FromLegacy(MemoryLocation.Data).WithoutAlignment();
-    private static readonly BufferStorage WarpLocalDataStorage = BufferStorage.FromLegacy(MemoryLocation.WarpLocalData).WithoutAlignment();
-    private static readonly BufferStorage BlockLocalDataStorage = BufferStorage.FromLegacy(MemoryLocation.BlockLocalData).WithoutAlignment();
-    private static readonly BufferStorage RdataStorage = BufferStorage.FromLegacy(MemoryLocation.Rdata).WithoutAlignment();
-    private static readonly BufferStorage ThreadLocalRdataStorage = BufferStorage.FromLegacy(MemoryLocation.ThreadLocalRdata).WithoutAlignment();
-    private static readonly BufferStorage WarpLocalRdataStorage = BufferStorage.FromLegacy(MemoryLocation.WarpLocalRdata).WithoutAlignment();
-    private static readonly BufferStorage BlockLocalRdataStorage = BufferStorage.FromLegacy(MemoryLocation.BlockLocalRdata).WithoutAlignment();
+    private static readonly BufferStorage OutputStorage = BufferStorage.GlobalOutput().WithoutAlignment();
+    private static readonly BufferStorage DataStorage = BufferStorage.ThreadLocalTemp().WithoutAlignment();
+    private static readonly BufferStorage WarpLocalDataStorage = BufferStorage.WarpLocalTemp().WithoutAlignment();
+    private static readonly BufferStorage BlockLocalDataStorage = BufferStorage.BlockLocalSMem().WithoutAlignment();
+    private static readonly BufferStorage RdataStorage = BufferStorage.DeviceConst().WithoutAlignment();
+    private static readonly BufferStorage ThreadLocalRdataStorage = BufferStorage.ThreadLocalConst().WithoutAlignment();
+    private static readonly BufferStorage WarpLocalRdataStorage = BufferStorage.WarpLocalConst().WithoutAlignment();
+    private static readonly BufferStorage BlockLocalRdataStorage = BufferStorage.BlockLocalConst().WithoutAlignment();
 
     private readonly IGrouping<string, PrimFunction> _functions;
     private long _currentRdataStart;
@@ -363,17 +363,8 @@ show(p)");
         }
     }
 
-    private string GetScheduleDumpName(BufferStorage storage)
-    {
-        try
-        {
-            return storage.ToLegacyMemoryLocation().ToString();
-        }
-        catch (NotSupportedException)
-        {
-            return $"{storage.Usage}_{storage.Scope}_{storage.PhysicalLocation}_{storage.Hierarchy}";
-        }
-    }
+    private string GetScheduleDumpName(BufferStorage storage) =>
+        $"{storage.Usage}_{storage.Scope}_{storage.PhysicalLocation}_{storage.Hierarchy}";
 
     private sealed class BufferReplacer : ExprRewriter
     {

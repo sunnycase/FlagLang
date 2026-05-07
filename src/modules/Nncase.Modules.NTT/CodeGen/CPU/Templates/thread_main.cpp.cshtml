@@ -33,6 +33,15 @@
   }
 
   ulong NonZeroSize(ulong size) => size == 0UL ? 1UL : size;
+  var threadLocalCachePoolSizes = Model.ThreadLocalCachePoolSizes.Concat(Enumerable.Repeat(0UL, Math.Max(0, 3 - Model.ThreadLocalCachePoolSizes.Length))).Take(3).ToArray();
+  var threadLocalCachePoolStarts = new ulong[threadLocalCachePoolSizes.Length];
+  var threadLocalCachePoolSize = 0UL;
+  for (var i = 0; i < threadLocalCachePoolSizes.Length; i++)
+  {
+    threadLocalCachePoolStarts[i] = threadLocalCachePoolSize;
+    threadLocalCachePoolSize += threadLocalCachePoolSizes[i];
+  }
+
   var rawEntryParameters = string.Join(",\n", Model.PrimFunction.Parameters.ToArray().Select(input => $"{RawEntryParamType(input)} {IRHelpers.GetIdentityName(input.Name)}"));
   var rawEntryDefaultArgs = string.Join(", ", Model.PrimFunction.Parameters.ToArray().Select(RawEntryDefaultArg));
 }
@@ -116,6 +125,7 @@ extern "C" NTT_DEVICE void thread_main(const nncase::ntt::runtime::thread_inout_
 @Html.Raw($"extern \"C\" __global__ __attribute__((used)) void {tritonEntryName}({rawEntryParameters}) {{")
   alignas(@Model.Alignment) std::byte flaglang_rdata_storage[@NonZeroSize(Model.RDataSize)];
   alignas(@Model.Alignment) std::byte flaglang_thread_local_rdata_storage[@NonZeroSize(Model.ThreadLocalRdataPoolSize)];
+  alignas(@Model.Alignment) std::byte flaglang_thread_local_cache_storage[@NonZeroSize(threadLocalCachePoolSize)];
   alignas(@Model.Alignment) std::byte flaglang_warp_local_rdata_storage[@NonZeroSize(Model.WarpLocalRdataPoolSize)];
   __shared__ __align__(@Model.Alignment) std::byte flaglang_block_local_rdata_storage[@NonZeroSize(Model.BlockLocalRdataPoolSize)];
   alignas(@Model.Alignment) std::byte flaglang_thread_local_data_storage[@NonZeroSize(Model.DataSize)];
@@ -125,11 +135,20 @@ extern "C" NTT_DEVICE void thread_main(const nncase::ntt::runtime::thread_inout_
   nncase::ntt::runtime::thread_inout_desc flaglang_output_descs[1] = {};
   nncase::ntt::runtime::profile_record flaglang_profile_records[1] = {};
   uint32_t flaglang_profile_record_count = 0;
+  std::array<uintptr_t, 3> flaglang_thread_local_cache_ptrs = {};
+@for (var i = 0; i < threadLocalCachePoolSizes.Length; i++)
+{
+  if (threadLocalCachePoolSizes[i] != 0)
+  {
+  @:flaglang_thread_local_cache_ptrs[@i] = reinterpret_cast<uintptr_t>(flaglang_thread_local_cache_storage + @threadLocalCachePoolStarts[i]);
+  }
+}
   nncase::ntt::runtime::cuda_thread_context_t::current() = {
     .cid = 0,
     .enable_profiling = 0,
     .profile_records = ntt::span<nncase::ntt::runtime::profile_record>(flaglang_profile_records, 1),
     .profile_record_counts = &flaglang_profile_record_count,
+    .thread_local_cache_ptrs = flaglang_thread_local_cache_ptrs,
   };
 @foreach(var (input,i) in Model.PrimFunction.Parameters.ToArray().Select((input,i)=>(input,i)))
 {

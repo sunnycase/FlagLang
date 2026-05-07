@@ -14,7 +14,7 @@ public record BufferRenderInfo(string Name, string ElemType, int ElemSize, int R
 {
 }
 
-public record KernelMainModel(TIR.PrimFunction PrimFunction, NTTTargetOptions Options, ulong Alignment, ulong DataSize, ulong WarpLocalDataPoolSize, ulong BlockLocalDataPoolSize, ulong RDataSize, ulong ThreadLocalRdataPoolSize, ulong WarpLocalRdataPoolSize, ulong BlockLocalRdataPoolSize)
+public record KernelMainModel(TIR.PrimFunction PrimFunction, NTTTargetOptions Options, ulong Alignment, ulong DataSize, ulong WarpLocalDataPoolSize, ulong BlockLocalDataPoolSize, ulong RDataSize, ulong ThreadLocalRdataPoolSize, ulong[] ThreadLocalCachePoolSizes, ulong WarpLocalRdataPoolSize, ulong BlockLocalRdataPoolSize)
 {
     public BufferRenderInfo GetInfo(TIR.Buffer buffer)
     {
@@ -27,7 +27,7 @@ public record KernelMainModel(TIR.PrimFunction PrimFunction, NTTTargetOptions Op
         var isFixedStrides = buffer.Strides.AsValueEnumerable().All(d => d.IsFixed);
         var dims = KernelUtility.DimensionsTypeToC(isFixedDims, buffer.Dimensions);
         var strides = KernelUtility.StridesTypeToC(isFixedStrides, buffer.Strides);
-        var distributed = buffer.DistributedType == null ? null : KernelUtility.ShardingToC(buffer.DistributedType);
+        var distributed = buffer.Type is DistributedType distributedType ? KernelUtility.ShardingToC(distributedType) : null;
         return new(buffer.Name, elemType, buffer.ElemType.SizeInBytes, rank, offset, size, isFixedDims, isFixedStrides, buffer.Dimensions.ToArray(), dims, buffer.Strides.ToArray(), strides, distributed);
     }
 }
@@ -94,9 +94,9 @@ using namespace nncase::ntt::distributed::shard_policy;
         return content;
     }
 
-    public static string MakeMain(TIR.PrimFunction primFunction, ulong dataAlign, ulong dataUsage, ulong warpLocalDataPoolSize, ulong blockLocalDataPoolSize, ulong rdataPoolSize, ulong threadLocalRdataPoolSize, ulong warpLocalRdataPoolSize, ulong blockLocalRdataPoolSize, NTTTargetOptions options)
+    public static string MakeMain(TIR.PrimFunction primFunction, ulong dataAlign, ulong dataUsage, ulong warpLocalDataPoolSize, ulong blockLocalDataPoolSize, ulong rdataPoolSize, ulong threadLocalRdataPoolSize, ulong[] threadLocalCachePoolSizes, ulong warpLocalRdataPoolSize, ulong blockLocalRdataPoolSize, NTTTargetOptions options)
     {
-        var content = RazorTemplateEngine.RenderAsync("~/CodeGen/CPU/Templates/thread_main.cpp.cshtml", new KernelMainModel(primFunction, options, dataAlign, dataUsage, warpLocalDataPoolSize, blockLocalDataPoolSize, rdataPoolSize, threadLocalRdataPoolSize, warpLocalRdataPoolSize, blockLocalRdataPoolSize)).Result;
+        var content = RazorTemplateEngine.RenderAsync("~/CodeGen/CPU/Templates/thread_main.cpp.cshtml", new KernelMainModel(primFunction, options, dataAlign, dataUsage, warpLocalDataPoolSize, blockLocalDataPoolSize, rdataPoolSize, threadLocalRdataPoolSize, threadLocalCachePoolSizes, warpLocalRdataPoolSize, blockLocalRdataPoolSize)).Result;
         return content;
     }
 

@@ -474,7 +474,29 @@ public static class TensorUtilities
         return size * elementSize;
     }
 
-    public static (long MaxSize, Dimension[] Strides) GetTensorMaxSizeAndStrides(TensorType tensorType, DistributedType? distributedType)
+    public static (long MaxSize, Dimension[] Strides) GetTensorMaxSizeAndStrides(IRType type)
+        => type switch
+        {
+            TensorType tensorType => GetTensorMaxSizeAndStridesCore(tensorType, null),
+            DistributedType distributedType => GetTensorMaxSizeAndStridesCore(distributedType.TensorType, distributedType),
+            _ => throw new NotSupportedException($"GetTensorMaxSizeAndStrides expects TensorType or DistributedType, got {type}."),
+        };
+
+    public static (Dimension MaxSize, Dimension[] Strides) GetTensorMaxSizeAndStridesExpr(IRType type)
+    {
+        var (maxSize, strides) = GetTensorMaxSizeAndStrides(type);
+        return (maxSize, strides);
+    }
+
+    public static (Dimension Size, Dimension[] Strides) GetTensorSizeAndContiguousStrides(IRType type)
+        => type switch
+        {
+            TensorType tensorType => GetTensorSizeAndContiguousStridesCore(tensorType, null),
+            DistributedType distributedType => GetTensorSizeAndContiguousStridesCore(distributedType.TensorType, distributedType),
+            _ => throw new NotSupportedException($"GetTensorSizeAndContiguousStrides expects TensorType or DistributedType, got {type}."),
+        };
+
+    private static (long MaxSize, Dimension[] Strides) GetTensorMaxSizeAndStridesCore(TensorType tensorType, DistributedType? distributedType)
     {
         long[] dims;
         Dimension[] strides;
@@ -500,13 +522,7 @@ public static class TensorUtilities
         return (maxSize, strides);
     }
 
-    public static (Dimension MaxSize, Dimension[] Strides) GetTensorMaxSizeAndStridesExpr(TensorType tensorType, DistributedType? distributedType)
-    {
-        var (maxSize, strides) = GetTensorMaxSizeAndStrides(tensorType, distributedType);
-        return (maxSize, strides);
-    }
-
-    public static (Dimension Size, Dimension[] Strides) GetTensorSizeAndContiguousStrides(TensorType tensorType, DistributedType? distributedType)
+    private static (Dimension Size, Dimension[] Strides) GetTensorSizeAndContiguousStridesCore(TensorType tensorType, DistributedType? distributedType)
     {
         Dimension[] dims;
         Dimension[] strides;
@@ -540,14 +556,6 @@ public static class TensorUtilities
         var size = GetProduct(dims) * tensorType.DType.SizeInBytes;
         return (size, strides);
     }
-
-    public static (long MaxSize, Dimension[] Strides) GetTensorMaxSizeAndStrides(IRType type)
-        => type switch
-        {
-            TensorType tensorType => GetTensorMaxSizeAndStrides(tensorType, null),
-            DistributedType distributedType => GetTensorMaxSizeAndStrides(DistributedUtility.GetDividedTensorType(distributedType), distributedType),
-            _ => throw new NotSupportedException(),
-        };
 
     private static void VerifyExplicitStorageLayoutForContiguousAllocation(DistributedType distributedType, string context)
     {

@@ -16,6 +16,9 @@
 #pragma once
 #include <nncase/ntt/ntt.h>
 #include <nncase/ntt/std_containers.h>
+@if (Model.IsCUDA) {
+@:#include <nncase/ntt/arch/cuda/runtime.h>
+}
 
 /**
  * @@brief topology aware runtime
@@ -56,7 +59,7 @@ NTT_DEVICE auto dest_ptr_tensor = nncase::ntt::make_tensor<void *>(nncase::ntt::
 template <size_t Level> NTT_DEVICE static std::byte *get_cache_address() {
     return reinterpret_cast<std::byte *>(
 @if (Model.IsCUDA) {
-@:        ntt::distributed::detail::global_thread_local_cache_desc(program_ids())[Level]);
+@:        nncase::ntt::runtime::cuda_thread_context_t::current().thread_local_cache_ptrs[Level]);
 } else {
 @:        ntt::distributed::detail::global_thread_local_cache_ptr(program_ids())(Level));
 }

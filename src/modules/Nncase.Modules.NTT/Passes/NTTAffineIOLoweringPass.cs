@@ -12,6 +12,7 @@ using Nncase.IR.Affine;
 using Nncase.IR.Distributed;
 using Nncase.IR.Logics;
 using Nncase.IR.Shapes;
+using Nncase.Targets;
 using Nncase.Tiling;
 using Nncase.TIR;
 using Nncase.Utilities;
@@ -25,7 +26,23 @@ namespace Nncase.Passes
     public sealed class NTTAffineIOLoweringPass : FunctionPass
     {
         private readonly AffineIOFusionRewriter _fusionRewriter = new();
-        private readonly AffineIOLoweringRewriter _rewriter = new();
+        private readonly AffineIOLoweringRewriter _rewriter;
+
+        public NTTAffineIOLoweringPass()
+        {
+            var targetOptions = CompileSession.CompileOptions.TargetOptions as INTTTargetOptions;
+            if (targetOptions is null && CompileSession.Target is NTTTarget)
+            {
+                targetOptions = new NTTTargetOptions();
+            }
+
+            _rewriter = new(targetOptions);
+        }
+
+        public NTTAffineIOLoweringPass(INTTTargetOptions targetOptions)
+        {
+            _rewriter = new(targetOptions);
+        }
 
         /// <inheritdoc/>
         protected override Task<BaseFunction> RunCoreAsync(BaseFunction input, RunPassContext context) => Task.FromResult(input switch
@@ -79,7 +96,7 @@ namespace Nncase.Passes
                 var second = fields[index + 1];
                 if (first is not Call { Target: TIR.NTT.AffineGather gather } gatherCall ||
                     second is not Call { Target: TIR.NTT.TensorLoad tensorLoad } tensorLoadCall ||
-                    tensorLoadCall[TIR.NTT.TensorLoad.Dest] is not TIR.Buffer { DistributedType: not null } distributedOutput ||
+                    tensorLoadCall[TIR.NTT.TensorLoad.Dest] is not TIR.Buffer { Type: DistributedType } distributedOutput ||
                     !Equals(gatherCall[TIR.NTT.AffineGather.Output], tensorLoadCall[TIR.NTT.TensorLoad.Src]))
                 {
                     return false;
@@ -123,7 +140,14 @@ namespace Nncase.Passes
         {
             private static readonly BufferStorage DefaultTileSourceStorage = new(BufferUsage.Temp, BufferScope.ThreadLocal, PhysicalMemorySpace.LocalAddressable);
 
+            private readonly INTTTargetOptions? _targetOptions;
+            private readonly Dictionary<Expr, TensorView> _tensorViewBindings = new(ReferenceEqualityComparer.Instance);
             private int _bufferIndex;
+
+            public AffineIOLoweringRewriter(INTTTargetOptions? targetOptions)
+            {
+                _targetOptions = targetOptions;
+            }
 
             protected override BaseExpr RewriteLeafCall(Call expr, Unit context)
             {
@@ -135,16 +159,56 @@ namespace Nncase.Passes
                 };
             }
 
+            protected override BaseExpr VisitLet(Let expr, Unit context)
+            {
+                var expression = Visit(expr.Expression, context);
+                TensorView? oldBinding = null;
+                var hadOldBinding = false;
+                var pushedBinding = false;
+                var bindingVar = expr.Var as Expr;
+                if (bindingVar is not null && TryCreateTensorViewBinding(bindingVar, expression, out var tensorView))
+                {
+                    hadOldBinding = _tensorViewBindings.TryGetValue(bindingVar, out oldBinding);
+                    _tensorViewBindings[bindingVar] = tensorView;
+                    pushedBinding = true;
+                }
+
+                Sequential body;
+                try
+                {
+                    body = (Sequential)Visit(expr.Body, context);
+                }
+                finally
+                {
+                    if (pushedBinding && bindingVar is not null)
+                    {
+                        if (hadOldBinding)
+                        {
+                            _tensorViewBindings[bindingVar] = oldBinding!;
+                        }
+                        else
+                        {
+                            _tensorViewBindings.Remove(bindingVar);
+                        }
+                    }
+                }
+
+                return expr.With(expression: expression, body: body);
+            }
+
             private Expr LowerGather(Call call, TIR.NTT.AffineGather gather, Unit context)
             {
                 var source = (Expr)Visit(call[TIR.NTT.AffineGather.Source], context);
                 var defaultValue = (Expr)Visit(call[TIR.NTT.AffineGather.DefaultValue], context);
-                var output = RequireBuffer(Visit(call[TIR.NTT.AffineGather.Output], context));
+                var output = AnalyzeTensorView(Visit(call[TIR.NTT.AffineGather.Output], context), "affine gather output");
 
-                ValidateRelation(gather.Relation, output.Dimensions.Length);
+                ValidateRelation(gather.Relation, output.Rank);
 
-                var globalExtents = output.Dimensions.ToArray();
-                var iterationExtents = AffineIOLayoutEvaluator.GetIterationExtents(output);
+                var globalExtents = GetGlobalExtents(gather.Shape, output);
+                var useUnrolledLoop = RequiresUnrolledIteration(output, "affine gather output");
+                var iterationExtents = useUnrolledLoop
+                    ? GetUnrolledIterationExtents(output, "affine gather output")
+                    : GetIterationExtents(output);
                 var symbolMap = BuildSymbolMap(gather.Relation, gather.Symbols);
                 Expr? defaultSetup = null;
                 if (gather.Relation.Constraint != LogicalExpr.True)
@@ -152,56 +216,65 @@ namespace Nncase.Passes
                     (defaultValue, defaultSetup) = PrepareGatherDefault(defaultValue);
                 }
 
-                var loopNest = BuildLoopNest(iterationExtents, loopVars =>
-                {
-                    var domainValues = AffineIOLayoutEvaluator.GetDomainValues(output, loopVars, globalExtents);
-                    var address = EvaluateAddress(gather.Relation, domainValues, globalExtents, symbolMap);
-                    var loaded = T.Load(source, address);
-                    var storageIndices = AffineIOLayoutEvaluator.GetStorageIndices(output, loopVars, domainValues);
-                    var storeLoaded = T.BufferStore(output, storageIndices, loaded);
-                    if (gather.Relation.Constraint == LogicalExpr.True)
+                var loopNest = BuildLoopNest(
+                    iterationExtents,
+                    loopVars =>
                     {
-                        return storeLoaded;
-                    }
+                        var domainValues = GetDomainValues(output, loopVars, globalExtents);
+                        var address = EvaluateAddress(gather.Relation, domainValues, globalExtents, symbolMap);
+                        var loaded = T.Load(source, address);
+                        var storageIndices = GetStorageIndices(output, loopVars, domainValues);
+                        var storeLoaded = BufferStore(output.Expr, storageIndices, loaded);
+                        if (gather.Relation.Constraint == LogicalExpr.True)
+                        {
+                            return storeLoaded;
+                        }
 
-                    var fallback = ReadDefaultValue(defaultValue, loopVars, domainValues, output.ElemType);
-                    var storeFallback = T.BufferStore(output, storageIndices, fallback);
-                    return T.If(EvaluateConstraint(gather.Relation.Constraint, domainValues)).Then(storeLoaded).Else(storeFallback).Build();
-                });
+                        var fallback = ReadDefaultValue(defaultValue, loopVars, domainValues, output.ElemType);
+                        var storeFallback = BufferStore(output.Expr, storageIndices, fallback);
+                        return T.If(EvaluateConstraint(gather.Relation.Constraint, domainValues)).Then(storeLoaded).Else(storeFallback).Build();
+                    },
+                    useUnrolledLoop ? LoopMode.Unrolled : LoopMode.Serial);
                 return defaultSetup is null ? loopNest : T.Sequential(defaultSetup, loopNest);
             }
 
             private Expr LowerScatter(Call call, TIR.NTT.AffineScatter scatter, Unit context)
             {
                 var sourceExpr = Visit(call[TIR.NTT.AffineScatter.Source], context);
-                var (source, sourceSetup) = RequireReadableBuffer(sourceExpr);
+                var (source, sourceSetup) = RequireReadableView(sourceExpr);
                 var dest = (Expr)Visit(call[TIR.NTT.AffineScatter.Dest], context);
 
-                ValidateRelation(scatter.Relation, source.Dimensions.Length);
+                ValidateRelation(scatter.Relation, source.Rank);
 
-                var globalExtents = source.Dimensions.ToArray();
-                var iterationExtents = AffineIOLayoutEvaluator.GetIterationExtents(source);
+                var globalExtents = GetGlobalExtents(scatter.Shape, source);
+                var useUnrolledLoop = RequiresUnrolledIteration(source, "affine scatter source");
+                var iterationExtents = useUnrolledLoop
+                    ? GetUnrolledIterationExtents(source, "affine scatter source")
+                    : GetIterationExtents(source);
                 var symbolMap = BuildSymbolMap(scatter.Relation, scatter.Symbols);
-                var loopNest = BuildLoopNest(iterationExtents, loopVars =>
-                {
-                    var domainValues = AffineIOLayoutEvaluator.GetDomainValues(source, loopVars, globalExtents);
-                    var value = T.BufferLoad(source, AffineIOLayoutEvaluator.GetStorageIndices(source, loopVars, domainValues));
-                    var address = EvaluateAddress(scatter.Relation, domainValues, globalExtents, symbolMap);
-                    var store = T.Store(dest, address, value);
-                    return scatter.Relation.Constraint == LogicalExpr.True
-                        ? store
-                        : T.If(EvaluateConstraint(scatter.Relation.Constraint, domainValues)).Then(store).Build();
-                });
+                var loopNest = BuildLoopNest(
+                    iterationExtents,
+                    loopVars =>
+                    {
+                        var domainValues = GetDomainValues(source, loopVars, globalExtents);
+                        var value = BufferLoad(source.Expr, GetStorageIndices(source, loopVars, domainValues));
+                        var address = EvaluateAddress(scatter.Relation, domainValues, globalExtents, symbolMap);
+                        var store = T.Store(dest, address, value);
+                        return scatter.Relation.Constraint == LogicalExpr.True
+                            ? store
+                            : T.If(EvaluateConstraint(scatter.Relation.Constraint, domainValues)).Then(store).Build();
+                    },
+                    useUnrolledLoop ? LoopMode.Unrolled : LoopMode.Serial);
                 return sourceSetup is null ? loopNest : T.Sequential(sourceSetup, loopNest);
             }
 
-            private Expr BuildLoopNest(Dimension[] extents, Func<DimVar[], Expr> bodyFactory)
+            private Expr BuildLoopNest(Dimension[] extents, Func<DimVar[], Expr> bodyFactory, LoopMode loopMode)
             {
                 var loopVars = new DimVar[extents.Length];
-                return BuildLoopNestRecursive(extents, loopVars, 0, bodyFactory);
+                return BuildLoopNestRecursive(extents, loopVars, 0, bodyFactory, loopMode);
             }
 
-            private Expr BuildLoopNestRecursive(IReadOnlyList<Dimension> extents, DimVar[] loopVars, int axis, Func<DimVar[], Expr> bodyFactory)
+            private Expr BuildLoopNestRecursive(IReadOnlyList<Dimension> extents, DimVar[] loopVars, int axis, Func<DimVar[], Expr> bodyFactory, LoopMode loopMode)
             {
                 if (axis == loopVars.Length)
                 {
@@ -209,8 +282,13 @@ namespace Nncase.Passes
                 }
 
                 var range = new TIR.Range(Dimension.Zero, extents[axis], Dimension.One);
-                var loopBuilder = T.Serial(out loopVars[axis], range, $"d{axis}");
-                var inner = BuildLoopNestRecursive(extents, loopVars, axis + 1, bodyFactory);
+                var loopBuilder = loopMode switch
+                {
+                    LoopMode.Serial => T.Serial(out loopVars[axis], range, $"d{axis}"),
+                    LoopMode.Unrolled => T.Unrolled(out loopVars[axis], range, $"d{axis}"),
+                    _ => throw new NotSupportedException($"Affine IO lowering does not support loop mode {loopMode}."),
+                };
+                var inner = BuildLoopNestRecursive(extents, loopVars, axis + 1, bodyFactory, loopMode);
                 return loopBuilder.Body(inner).Build();
             }
 
@@ -245,7 +323,7 @@ namespace Nncase.Passes
 
             private Expr[] GetDefaultValueIndices(TIR.Buffer buffer, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> domainValues)
             {
-                if (buffer.DistributedType is DistributedType)
+                if (buffer.Type is DistributedType)
                 {
                     return AffineIOLayoutEvaluator.GetStorageIndices(buffer, loopVars, domainValues);
                 }
@@ -371,6 +449,199 @@ namespace Nncase.Passes
                 return map;
             }
 
+            private Expr BufferLoad(Expr tensor, Expr[] indices) =>
+                new Call(new IR.Buffers.BufferLoad(), tensor, new IR.Tuple(indices));
+
+            private Expr BufferStore(Expr tensor, Expr[] indices, Expr value) =>
+                new Call(new IR.Buffers.BufferStore(), tensor, new IR.Tuple(indices), value);
+
+            private Dimension[] GetGlobalExtents(Shape shape, TensorView view)
+            {
+                if (shape is not { IsUnranked: false } rankedShape)
+                {
+                    return view.Shape;
+                }
+
+                var extents = rankedShape.ToArray();
+                if (extents.Length != view.Rank)
+                {
+                    throw new InvalidOperationException($"Affine IO global shape rank {extents.Length} does not match view rank {view.Rank}.");
+                }
+
+                return extents;
+            }
+
+            private Dimension[] GetIterationExtents(TensorView view)
+            {
+                if (view.DistributedTensorType is DistributedType distributedType &&
+                    view.GlobalOffsets.All(offset => offset == Dimension.Zero))
+                {
+                    return AffineIOLayoutEvaluator.GetIterationExtents(distributedType, $"affine IO view {view.Expr}");
+                }
+
+                if (view.Buffer is TIR.Buffer buffer && view.GlobalOffsets.All(offset => offset == Dimension.Zero))
+                {
+                    return AffineIOLayoutEvaluator.GetIterationExtents(buffer);
+                }
+
+                return view.Shape;
+            }
+
+            private bool RequiresUnrolledIteration(TensorView view, string context)
+            {
+                if (view.Buffer is not TIR.Buffer buffer)
+                {
+                    return false;
+                }
+
+                var storage = buffer.Storage.WithoutAlignment();
+                var memoryLevel = TryResolveMemoryLevel(storage, context);
+                return memoryLevel is { IsAddressable: false };
+            }
+
+            private Dimension[] GetUnrolledIterationExtents(TensorView view, string context)
+            {
+                foreach (var extent in view.Shape)
+                {
+                    if (!extent.IsFixed)
+                    {
+                        throw new InvalidOperationException($"{context} uses non-addressable storage and requires fixed local tile extents for T.Unrolled, got {extent} in shape [{string.Join(", ", view.Shape.Select(x => x.ToString()))}].");
+                    }
+                }
+
+                return view.Shape;
+            }
+
+            private MemoryHierarchyLevel? TryResolveMemoryLevel(BufferStorage storage, string context)
+            {
+                if (_targetOptions is null)
+                {
+                    throw new InvalidOperationException($"{context} uses buffer storage {storage}, but NTTAffineIOLoweringPass has no INTTTargetOptions. Pass target memory hierarchy attributes into affine IO lowering.");
+                }
+
+                var levels = _targetOptions.MemoryHierarchyLevels;
+                if ((uint)storage.Hierarchy < (uint)levels.Length)
+                {
+                    var indexedLevel = levels[storage.Hierarchy];
+                    if (indexedLevel.Scope == storage.Scope && indexedLevel.PhysicalLocation == storage.PhysicalLocation)
+                    {
+                        return indexedLevel;
+                    }
+                }
+
+                var matchingLevelIndex = Array.FindIndex(
+                    levels,
+                    level => level.Scope == storage.Scope && level.PhysicalLocation == storage.PhysicalLocation);
+                if (matchingLevelIndex >= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"{context} uses storage {storage}, but matching target hierarchy level is {matchingLevelIndex}: {levels[matchingLevelIndex]}. " +
+                        "Buffer storage hierarchy index and target memory hierarchy attributes must agree.");
+                }
+
+                return null;
+            }
+
+            private Dimension[] GetDomainValues(TensorView view, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> globalExtents)
+            {
+                if (view.DistributedTensorType is DistributedType distributedType &&
+                    view.GlobalOffsets.All(offset => offset == Dimension.Zero))
+                {
+                    return AffineIOLayoutEvaluator.GetDomainValues(distributedType, loopVars, globalExtents, $"affine IO view {view.Expr}");
+                }
+
+                if (view.Buffer is TIR.Buffer buffer && view.GlobalOffsets.All(offset => offset == Dimension.Zero))
+                {
+                    return AffineIOLayoutEvaluator.GetDomainValues(buffer, loopVars, globalExtents);
+                }
+
+                var domainValues = new Dimension[loopVars.Count];
+                for (int i = 0; i < loopVars.Count; i++)
+                {
+                    domainValues[i] = loopVars[i] + view.GlobalOffsets[i];
+                }
+
+                return domainValues;
+            }
+
+            private Expr[] GetStorageIndices(TensorView view, IReadOnlyList<DimVar> loopVars, IReadOnlyList<Dimension> domainValues)
+            {
+                if (view.DistributedTensorType is DistributedType distributedType &&
+                    view.GlobalOffsets.All(offset => offset == Dimension.Zero))
+                {
+                    return AffineIOLayoutEvaluator.GetStorageIndices(distributedType, loopVars, domainValues, $"affine IO view {view.Expr}");
+                }
+
+                if (view.Buffer is TIR.Buffer buffer && view.GlobalOffsets.All(offset => offset == Dimension.Zero))
+                {
+                    return AffineIOLayoutEvaluator.GetStorageIndices(buffer, loopVars, domainValues);
+                }
+
+                return loopVars.AsExprs();
+            }
+
+            private TensorView AnalyzeTensorView(BaseExpr expr, string role)
+            {
+                if (expr is Expr exprNode && _tensorViewBindings.TryGetValue(exprNode, out var boundView))
+                {
+                    return boundView with { Expr = exprNode };
+                }
+
+                if (expr is TIR.Buffer buffer)
+                {
+                    return new TensorView(buffer, buffer, buffer.Type as DistributedType, buffer.Dimensions.ToArray(), Enumerable.Repeat<Dimension>(Dimension.Zero, buffer.Rank).ToArray());
+                }
+
+                if (expr is Call { Target: IR.Buffers.AllocateBufferView } allocateBufferView &&
+                    allocateBufferView[IR.Buffers.AllocateBufferView.Buffer] is TIR.Buffer allocatedBuffer)
+                {
+                    return CreateTensorViewBinding((Expr)expr, allocatedBuffer);
+                }
+
+                if (expr is Call { Target: IR.Buffers.BufferSubview } subview)
+                {
+                    var parent = AnalyzeTensorView(subview[IR.Buffers.BufferSubview.Buffer], role);
+                    var offsets = ((RankedShape)subview[IR.Buffers.BufferSubview.Offset]).ToArray();
+                    var shape = ((RankedShape)subview[IR.Buffers.BufferSubview.Shape]).ToArray();
+                    if (offsets.Length != parent.Rank || shape.Length != parent.Rank)
+                    {
+                        throw new InvalidOperationException($"{role} subview rank does not match parent rank.");
+                    }
+
+                    var globalOffsets = new Dimension[offsets.Length];
+                    for (int i = 0; i < offsets.Length; i++)
+                    {
+                        globalOffsets[i] = parent.GlobalOffsets[i] + offsets[i];
+                    }
+
+                    return new TensorView((Expr)expr, parent.Buffer, parent.DistributedTensorType, shape, globalOffsets);
+                }
+
+                if (expr is Expr tensorExpr && tensorExpr.CheckedShape is { IsUnranked: false } shapeExpr)
+                {
+                    var distributedType = tensorExpr.CheckedType as DistributedType;
+                    return new TensorView(tensorExpr, null, distributedType, shapeExpr.ToArray(), Enumerable.Repeat<Dimension>(Dimension.Zero, shapeExpr.Rank).ToArray());
+                }
+
+                throw new NotSupportedException($"{role} must be a ranked tensor view, got {expr.GetType().Name}.");
+            }
+
+            private bool TryCreateTensorViewBinding(Expr varExpr, BaseExpr expression, [MaybeNullWhen(false)] out TensorView tensorView)
+            {
+                if (expression is Call { Target: IR.Buffers.AllocateBufferView } allocateBufferView &&
+                    allocateBufferView[IR.Buffers.AllocateBufferView.Buffer] is TIR.Buffer buffer)
+                {
+                    tensorView = CreateTensorViewBinding(varExpr, buffer);
+                    return true;
+                }
+
+                tensorView = null;
+                return false;
+            }
+
+            private TensorView CreateTensorViewBinding(Expr expr, TIR.Buffer buffer) =>
+                new(expr, buffer, buffer.Type as DistributedType, buffer.Dimensions.ToArray(), Enumerable.Repeat<Dimension>(Dimension.Zero, buffer.Rank).ToArray());
+
             private TIR.Buffer RequireBuffer(BaseExpr expr)
             {
                 if (expr is not TIR.Buffer buffer)
@@ -379,6 +650,32 @@ namespace Nncase.Passes
                 }
 
                 return buffer;
+            }
+
+            private (TensorView View, Expr? Setup) RequireReadableView(BaseExpr expr)
+            {
+                if (expr is TensorConst tensorConst)
+                {
+                    var buffer = T.AttachBuffer(tensorConst, out _, $"affine_scatter_source_{_bufferIndex++}");
+                    return (AnalyzeTensorView(buffer, "affine scatter source"), null);
+                }
+
+                if (expr is TIR.Buffer ||
+                    expr is Call { Target: IR.Buffers.AllocateBufferView or IR.Buffers.BufferSubview } ||
+                    (expr is Expr exprNode && _tensorViewBindings.ContainsKey(exprNode)))
+                {
+                    return (AnalyzeTensorView(expr, "affine scatter source"), null);
+                }
+
+                if (expr is Expr sourceExpr &&
+                    sourceExpr.CheckedType is not TensorType { Shape: RankedShape } &&
+                    sourceExpr.CheckedType is not DistributedType { TensorType: TensorType { Shape: RankedShape } })
+                {
+                    throw new NotSupportedException($"affine scatter source must be a ranked tensor or buffer, got {sourceExpr.CheckedType}.");
+                }
+
+                var (sourceBuffer, setup) = RequireReadableBuffer(expr);
+                return (AnalyzeTensorView(sourceBuffer, "affine scatter source"), setup);
             }
 
             private (TIR.Buffer Buffer, Expr? Setup) RequireReadableBuffer(BaseExpr expr)
@@ -417,11 +714,19 @@ namespace Nncase.Passes
                     }
 
                     var storage = DefaultTileSourceStorage;
-                    var sourceBuffer = T.CreateBuffer(tensorType, storage, out _, $"{bufferNamePrefix}_{_bufferIndex++}", distributedType);
+                    IRType sourceBufferType = distributedType is null ? tensorType : distributedType;
+                    var sourceBuffer = T.CreateBuffer(sourceBufferType, storage, out _, $"{bufferNamePrefix}_{_bufferIndex++}");
                     return (sourceBuffer, T.Memcopy(sourceBuffer, sourceExpr));
                 }
 
                 throw new NotSupportedException($"{role} must be an expression.");
+            }
+
+            private sealed record TensorView(Expr Expr, TIR.Buffer? Buffer, DistributedType? DistributedTensorType, Dimension[] Shape, Dimension[] GlobalOffsets)
+            {
+                public int Rank => Shape.Length;
+
+                public DataType ElemType => Expr.CheckedDataType;
             }
         }
     }

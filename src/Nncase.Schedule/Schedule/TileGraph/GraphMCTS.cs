@@ -43,11 +43,14 @@ public sealed class MCTState : IEnvironmentState<MergePoint>
         _path = searchPath;
         _graphTiler = graphTiler;
         ArgumentMemo = new();
+        EffectMemo = new(ReferenceEqualityComparer.Instance);
     }
 
     public long ObjectValue { get; private set; }
 
     public Dictionary<BufferIdentity, Expr> ArgumentMemo { get; }
+
+    public Dictionary<Grid, Expr> EffectMemo { get; }
 
     public MergePoint GetNextAction(int index)
     {
@@ -87,6 +90,11 @@ public sealed class MCTState : IEnvironmentState<MergePoint>
                 foreach (var item in res.ArgumentMemo)
                 {
                     ArgumentMemo.Add(item.Key, item.Value);
+                }
+
+                foreach (var item in res.EffectMemo)
+                {
+                    EffectMemo.Add(item.Key, item.Value);
                 }
             }
             catch (System.Exception e)

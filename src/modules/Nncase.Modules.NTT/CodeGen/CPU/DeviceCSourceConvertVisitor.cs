@@ -25,6 +25,7 @@ namespace Nncase.CodeGen.NTT;
 public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
 {
     protected readonly StringBuilder _deviceBuilder;
+    private readonly Dictionary<MemSpan, TensorViewAccess> _tensorViewAccesses = new(ReferenceEqualityComparer.Instance);
 
     public DeviceCSourceConvertVisitor()
     {
@@ -151,8 +152,10 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
             return symbol;
         }
 
-        var @var = Visit(expr.Var);
         var value = Visit(expr.Expression);
+        var @var = expr.Var is Var varExpr
+            ? new CSymbol(value.Type, varExpr.Name + "_" + varExpr.GlobalVarIndex.ToString())
+            : Visit(expr.Var);
         _exprMemo[(BaseExpr)expr.Var] = new(value.Type, @var.Name);
 
 #if DEBUG_PRINT
@@ -168,7 +171,35 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
             IndentScope.Writer.IndWrite($"{value.Type} {@var.Name} = {value.Name};\n");
         }
 
-        Visit(expr.Body);
+        TIR.Buffer? tensorViewBuffer = null;
+        TensorViewAccess oldTensorViewAccess = default;
+        var hasOldTensorViewAccess = false;
+        if (expr.Expression is Call { Target: IR.Buffers.AllocateBufferView } allocateView &&
+            allocateView.Arguments[0] is TIR.Buffer buffer)
+        {
+            tensorViewBuffer = buffer;
+            hasOldTensorViewAccess = _tensorViewAccesses.TryGetValue(buffer.MemSpan, out oldTensorViewAccess);
+            _tensorViewAccesses[buffer.MemSpan] = new(@var.Name, buffer.Type is DistributedType);
+        }
+
+        try
+        {
+            Visit(expr.Body);
+        }
+        finally
+        {
+            if (tensorViewBuffer is not null)
+            {
+                if (hasOldTensorViewAccess)
+                {
+                    _tensorViewAccesses[tensorViewBuffer.MemSpan] = oldTensorViewAccess;
+                }
+                else
+                {
+                    _tensorViewAccesses.Remove(tensorViewBuffer.MemSpan);
+                }
+            }
+        }
 
         symbol = new(string.Empty, string.Empty);
         _exprMemo.Add(expr, symbol);
@@ -185,11 +216,12 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
 
         var start = Visit(expr.Start);
         var size = Visit(expr.Size);
-        string name = expr.Location switch
+        var storage = expr.Storage.WithoutAlignment();
+        string name = storage switch
         {
-            MemoryLocation.Cache => $"tar::get_cache_address<{expr.Hierarchy}>()",
-            MemoryLocation.Input or MemoryLocation.Output => start.Name,
-            _ => throw new NotSupportedException(expr.Location.ToString()),
+            { Scope: BufferScope.ThreadLocal, PhysicalLocation: PhysicalMemorySpace.LocalAddressable } => $"tar::get_cache_address<{expr.Hierarchy}>()",
+            { Usage: BufferUsage.Input or BufferUsage.Output, Scope: BufferScope.Device, PhysicalLocation: PhysicalMemorySpace.GMem } => start.Name,
+            _ => throw new NotSupportedException($"Unsupported physical buffer storage for NTT device codegen: {expr.Storage}"),
         };
 
         var str = $"ntt::span<std::byte, {size.Name}>({name} + {start.Name}, {size.Name})";
@@ -223,7 +255,8 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
             return symbol;
         }
 
-        var dimensions = expr.DistributedType is null ? expr.Dimensions : ((RankedShape)expr.DistributedType.TensorType.Shape).Dimensions;
+        var distributedType = expr.Type as DistributedType;
+        var dimensions = distributedType is null ? expr.Dimensions : ((RankedShape)distributedType.TensorType.Shape).Dimensions;
         var isFixedDimensions = dimensions.AsValueEnumerable().All(x => x.IsFixed);
         var isFixedStrides = expr.Strides.AsValueEnumerable().All(x => x.IsFixed);
         var dimensionSymbols = dimensions.AsValueEnumerable().Select(Visit).ToArray();
@@ -287,13 +320,18 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
                 str = $"g_cpu_mt->sram_address(bid, tid) + {arguments[0].Name}";
                 break;
             case TIR.Load op:
-                str = $"{arguments[0].Name}[{arguments[1].Name}]";
+                str = TryGetTensorViewAccess(expr.Arguments[0], out var loadAccess)
+                    ? $"{FormatTensorViewAccess(loadAccess)}({arguments[1].Name})"
+                    : $"{arguments[0].Name}[{arguments[1].Name}]";
                 break;
             case TIR.Store op:
 #if DEBUG_PRINT
                 IndentScope.Writer.IndWrite($"runtime_util->printf(\"{arguments[0].Name}[%d]\\n\", {arguments[1].Name});\n");
 #endif
-                IndentScope.Writer.IndWrite($"{arguments[0].Name}[{arguments[1].Name}] = {arguments[2].Name};\n");
+                var storeTarget = TryGetTensorViewAccess(expr.Arguments[0], out var storeAccess)
+                    ? $"{FormatTensorViewAccess(storeAccess)}({arguments[1].Name})"
+                    : $"{arguments[0].Name}[{arguments[1].Name}]";
+                IndentScope.Writer.IndWrite($"{storeTarget} = {arguments[2].Name};\n");
                 break;
             case TIR.NTT.PtrOf op:
                 str = op.PtrName + ".data()";
@@ -314,14 +352,21 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
                 {
                     var arg0 = VisitDimOrShape(expr.Arguments[1], CShapeKind.Shape).Name;
                     var arg1 = VisitDimOrShape(expr.Arguments[2], CShapeKind.Shape).Name;
-                    str = $"{arguments[0].Name}.view({arg0}, {arg1})";
+                    str = expr.Arguments[0].CheckedType switch
+                    {
+                        DistributedType when expr.CheckedType is TensorType => $"{arguments[0].Name}.local().view({arg0}, {arg1})",
+                        DistributedType => throw new NotSupportedException($"Distributed BufferSubview must lower to a local TensorType view, got {expr.CheckedType}."),
+                        TensorType => $"{arguments[0].Name}.view({arg0}, {arg1})",
+                        var parentType => throw new NotSupportedException($"BufferSubview codegen expects TensorType or DistributedType parent, got {parentType}."),
+                    };
                 }
 
                 break;
             case IR.Buffers.AllocateBufferView op:
                 {
                     var buffer = (TIR.Buffer)expr.Arguments[0];
-                    var dimensions = buffer.DistributedType is null ? buffer.Dimensions : ((RankedShape)buffer.DistributedType.TensorType.Shape).Dimensions;
+                    var distributedType = buffer.Type as DistributedType;
+                    var dimensions = distributedType is null ? buffer.Dimensions : ((RankedShape)distributedType.TensorType.Shape).Dimensions;
                     var isFixedDimensions = dimensions.AsValueEnumerable().All(x => x.IsFixed);
                     var isFixedStrides = buffer.Strides.AsValueEnumerable().All(x => x.IsFixed);
                     var dimensionSymbols = dimensions.AsValueEnumerable().Select(Visit).ToArray();
@@ -330,7 +375,10 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
                     var dtypeStr = buffer.ElemType.ToC();
                     var dimensionStrs = dimensionSymbols.Select(x => x.Name);
                     var strideStrs = strideSymbols.Select(x => x.Name);
-                    str = $"make_tensor_view(typed_span_reinterpret<{dtypeStr}>({Visit(buffer.MemSpan).Name}), make_shape({StringUtility.Join(", ", dimensionStrs)}), make_strides({StringUtility.Join(", ", strideStrs)}))";
+                    var spanStr = GetTypedSpan(dtypeStr, Visit(buffer.MemSpan));
+                    str = distributedType is null
+                        ? $"make_tensor_view({spanStr}, make_shape({StringUtility.Join(", ", dimensionStrs)}), make_strides({StringUtility.Join(", ", strideStrs)}))"
+                        : $"make_sharded_tensor_view({spanStr}, make_shape({StringUtility.Join(", ", dimensionStrs)}), {KernelUtility.ShardingToC(distributedType)}, make_strides({StringUtility.Join(", ", strideStrs)}))";
                 }
 
                 break;
@@ -571,6 +619,11 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
 
     protected override CSymbol VisitFor(For expr)
     {
+        if (expr.Mode == LoopMode.Unrolled)
+        {
+            return VisitUnrolledFor(expr);
+        }
+
         if (_exprMemo.TryGetValue(expr, out var symbol))
         {
             return symbol;
@@ -662,11 +715,25 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
     {
         if (op is { CastMode: CastMode.Reinterpret, NewType: PointerType { ElemType: DataType elemType } })
         {
-            return $"typed_span_reinterpret<{elemType.ToC()}>({input.Name})";
+            return GetTypedSpan(elemType.ToC(), input);
         }
 
         return $"(({op.NewType.ToC()}){input.Name})";
     }
+
+    private static string GetTypedSpan(string elemType, CSymbol input) =>
+        IsTypedSpan(input.Type, elemType)
+            ? input.Name
+            : $"typed_span_reinterpret<{elemType}>({input.Name})";
+
+    private static bool IsTypedSpan(string type, string elemType)
+    {
+        var trimmed = type.Trim();
+        return trimmed.StartsWith($"ntt::span<{elemType},", StringComparison.Ordinal);
+    }
+
+    private static string FormatTensorViewAccess(TensorViewAccess access) =>
+        access.IsDistributed ? $"{access.Name}.local()" : access.Name;
 
     private static string FixedShapeValue(IReadOnlyList<int> dims) =>
         dims.Count == 0 ? "shape_t<>{}" : $"fixed_shape_v<{string.Join(",", dims)}>";
@@ -691,4 +758,22 @@ public class DeviceCSourceConvertVisitor : CSourceConvertVisitor
 
         return value;
     }
+
+    private bool TryGetTensorViewAccess(BaseExpr handle, out TensorViewAccess access)
+    {
+        while (handle is Call { Target: IR.Tensors.Cast { CastMode: CastMode.Reinterpret } } cast)
+        {
+            handle = cast.Arguments[0];
+        }
+
+        if (handle is MemSpan memSpan)
+        {
+            return _tensorViewAccesses.TryGetValue(memSpan, out access);
+        }
+
+        access = default;
+        return false;
+    }
+
+    private readonly record struct TensorViewAccess(string Name, bool IsDistributed);
 }

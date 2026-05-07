@@ -367,7 +367,7 @@ public sealed class UnitTestTileGraph : TestClassBase
 
         var tiler = new Schedule.GraphTiler();
 
-        var (argumentMemo, _) = tiler.SolveRootGraph(tileGraph, Targets.CPUTarget.Kind, targetOptions, Array.Empty<DimVar>());
+            var (argumentMemo, _, _) = tiler.SolveRootGraph(tileGraph, Targets.CPUTarget.Kind, targetOptions, Array.Empty<DimVar>());
         var replaces = new Dictionary<BaseExpr, BaseExpr>();
         foreach (var (bid, value) in argumentMemo)
         {

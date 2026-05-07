@@ -23,6 +23,9 @@
 #include <utility>
 
 namespace nncase::ntt {
+struct unrolled_t {};
+inline constexpr unrolled_t unrolled{};
+
 namespace detail {
 template <size_t Axis, class Index, class Shape, class TTile, class Offsets,
           class Callable, class TStrides>
@@ -53,6 +56,43 @@ apply_impl(Index &index, Offsets offsets, const Shape &shape, const TTile &tile,
         });
     }
 }
+
+template <size_t Axis, size_t StridesCount, FixedShape TShape,
+          FixedShape TIndex, class Callable, class TStrides>
+NTT_HOST_DEVICE NTT_ALWAYS_INLINE constexpr void
+apply_unrolled_impl(const TShape &shape, const TIndex &prefix,
+                    Callable &&callable, const TStrides &strides) {
+    constexpr auto extent =
+        std::remove_cvref_t<decltype(std::declval<TShape>()
+                                         .template at<Axis>())>::value;
+    ntt::loop<extent>([&](auto i) {
+        auto index = prefix.append(i);
+        if constexpr (Axis == TShape::rank() - 1) {
+            if constexpr (StridesCount) {
+                dynamic_shape_t<StridesCount> offsets{};
+                ntt::loop<StridesCount>([&](auto stride_index) {
+                    dim_t offset = 0;
+                    ntt::loop<TShape::rank()>([&](auto axis) {
+                        const auto &stride =
+                            ntt::get<decltype(stride_index)::value>(strides);
+                        offset += dim_value(index[axis]) *
+                                  dim_value(stride.at(axis));
+                    });
+                    offsets[stride_index] = offset;
+                });
+                auto call = [&]<size_t... I>(std::index_sequence<I...>) {
+                    callable(index, offsets.template at<I>()...);
+                };
+                call(std::make_index_sequence<StridesCount>{});
+            } else {
+                callable(index);
+            }
+        } else {
+            apply_unrolled_impl<Axis + 1, StridesCount>(
+                shape, index, std::forward<Callable>(callable), strides);
+        }
+    });
+}
 } // namespace detail
 
 template <Shape TShape, class Callable, Strides... TStrides>
@@ -69,6 +109,23 @@ apply(const TShape &shape, Callable &&callable, const TStrides &...strides) {
             callable(fixed_shape_v<>, (strides, (dim_t)0)...);
         } else {
             callable(fixed_shape_v<>);
+        }
+    }
+}
+
+template <FixedShape TShape, class Callable, Strides... TStrides>
+NTT_HOST_DEVICE NTT_ALWAYS_INLINE constexpr void
+apply(unrolled_t, const TShape &shape, Callable &&callable,
+      const TStrides &...strides) {
+    if constexpr (TShape::rank()) {
+        detail::apply_unrolled_impl<0, sizeof...(TStrides)>(
+            shape, shape_t<>{}, std::forward<Callable>(callable),
+            ntt::forward_as_tuple(strides...));
+    } else {
+        if constexpr (sizeof...(TStrides)) {
+            callable(shape_t<>{}, (strides, (dim_t)0)...);
+        } else {
+            callable(shape_t<>{});
         }
     }
 }

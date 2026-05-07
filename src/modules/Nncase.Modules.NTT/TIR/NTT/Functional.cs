@@ -243,9 +243,14 @@ public partial class NTT
         return new Call(new TIR.NTT.ScatterND(), input, indices, updates, output);
     }
 
+    public static Call AffineScatter(Expr source, Expr dest, IR.Affine.AffineRelation relation, RankedShape symbols, Shape shape)
+    {
+        return new Call(new TIR.NTT.AffineScatter(relation, symbols, shape), source, dest);
+    }
+
     public static Call AffineScatter(Expr source, Expr dest, IR.Affine.AffineRelation relation, RankedShape symbols)
     {
-        return new Call(new TIR.NTT.AffineScatter(relation, symbols), source, dest);
+        return AffineScatter(source, dest, relation, symbols, source.CheckedShape);
     }
 
     public static Expr Stack(Expr[] inputs, Expr ret, int axis)

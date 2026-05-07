@@ -29,6 +29,8 @@ public interface IGridBuilder : IExprBuilder<Grid>
     IGridBuilder Write(Expr buffer, AffineMap accessMap, out Var parameter);
 
     IGridBuilder Domain(int dims, out Var parameter);
+
+    Grid BuildEffect();
 }
 
 internal class GridBuilder : IGridBuilder
@@ -60,6 +62,22 @@ internal class GridBuilder : IGridBuilder
             CollectionsMarshal.AsSpan(_bodyParameters),
             _readMaps.Append(_writeMap ?? throw new InvalidOperationException("Write map is not set.")).ToArray(),
             _readBuffers.Append(_writeBuffer ?? throw new InvalidOperationException("Write buffer is not set.")).ToArray(),
+            CollectionsMarshal.AsSpan(_reads),
+            Sequential.Flatten(CollectionsMarshal.AsSpan(_body)));
+    }
+
+    public Grid BuildEffect()
+    {
+        if (_writeBuffer is not null || _writeMap is not null)
+        {
+            throw new InvalidOperationException("Effect grid must not have a write buffer.");
+        }
+
+        return new Grid(
+            _domainParameter ?? throw new InvalidOperationException("domain dims is not set."),
+            CollectionsMarshal.AsSpan(_bodyParameters),
+            CollectionsMarshal.AsSpan(_readMaps),
+            CollectionsMarshal.AsSpan(_readBuffers),
             CollectionsMarshal.AsSpan(_reads),
             Sequential.Flatten(CollectionsMarshal.AsSpan(_body)));
     }

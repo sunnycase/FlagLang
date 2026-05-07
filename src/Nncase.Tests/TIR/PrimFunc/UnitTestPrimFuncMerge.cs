@@ -124,11 +124,10 @@ internal sealed class PrimFuncEvaluateVisitor
     private static readonly int _pool_size = 1 * 4 * 8 * 9 * 4 * 30;
     private readonly PrimFunctionWrapper _wrapper;
     private readonly IValue[] _args;
-    private readonly Dictionary<TIR.MemoryLocation, byte[]> _poolMap = new() {
-          { TIR.MemoryLocation.Input, new byte[_pool_size] },
-          { TIR.MemoryLocation.Cache, new byte[_pool_size] },
-          { TIR.MemoryLocation.Data, new byte[_pool_size] },
-          { TIR.MemoryLocation.Output, new byte[_pool_size] },
+    private readonly Dictionary<TIR.BufferStorage, byte[]> _poolMap = new() {
+          { TIR.BufferStorage.GlobalInput(), new byte[_pool_size] },
+          { TIR.BufferStorage.ThreadLocalTemp(), new byte[_pool_size] },
+          { TIR.BufferStorage.GlobalOutput(), new byte[_pool_size] },
         };
 
     public PrimFuncEvaluateVisitor(PrimFunctionWrapper wrapper, params IValue[] args)
@@ -145,7 +144,7 @@ internal sealed class PrimFuncEvaluateVisitor
         /* foreach (var (arg, param) in _args.Zip(_wrapper.Target.Parameters[.._wrapper.ParametersCount].ToArray()))
         {
            Assert.Equal(param.MemSpan.Size.Evaluate().AsTensor().ToScalar<int>(), arg.AsTensor().BytesBuffer.Length);
-           arg.AsTensor().BytesBuffer.CopyTo(_poolMap[param.MemSpan.Location].AsSpan(param.MemSpan.Start.Evaluate().AsTensor().ToScalar<int>()));
+           arg.AsTensor().BytesBuffer.CopyTo(_poolMap[param.Storage.WithoutAlignment()].AsSpan(param.MemSpan.Start.Evaluate().AsTensor().ToScalar<int>()));
         }
         // 2. start l2 computing
         foreach (var statement in _wrapper.Target.Body.Fields)
@@ -211,6 +210,6 @@ internal sealed class PrimFuncEvaluateVisitor
     private Span<byte> GetBufferSpan(BaseExpr expr)
     {
         var buffer = Assert.IsType<TIR.Buffer>(expr);
-        return _poolMap[buffer.MemSpan.Buffer.Location].AsSpan<byte>(buffer.MemSpan.Buffer.Start.Evaluate().AsTensor().ToScalar<int>(), buffer.MemSpan.Buffer.Size.Evaluate().AsTensor().ToScalar<int>());
+        return _poolMap[buffer.Storage.WithoutAlignment()].AsSpan<byte>(buffer.MemSpan.Buffer.Start.Evaluate().AsTensor().ToScalar<int>(), buffer.MemSpan.Buffer.Size.Evaluate().AsTensor().ToScalar<int>());
     }
 }

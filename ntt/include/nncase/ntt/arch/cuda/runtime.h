@@ -16,6 +16,7 @@
 #include "../../profiling.h"
 #include "../../runtime.h"
 #include "../../std_containers.h"
+#include <array>
 #include <cstdint>
 
 namespace nncase::ntt::runtime {
@@ -30,7 +31,10 @@ struct cuda_block_entry_params_t {
     ntt::span<const std::byte> rdata;
     std::byte *output;
     const uint64_t *thread_local_rdata_header;
+    const uint64_t *thread_local_cache_header;
     ntt::span<const std::byte> thread_local_rdata;
+    ntt::span<const std::byte> thread_local_cache;
+    std::array<int32_t, 3> thread_local_cache_starts;
     const uint64_t *warp_local_rdata_header;
     ntt::span<const std::byte> warp_local_rdata;
     const uint64_t *block_local_rdata_header;
@@ -47,6 +51,7 @@ struct cuda_thread_context_t {
     uint8_t enable_profiling;
     ntt::span<profile_record> profile_records;
     uint32_t *profile_record_counts;
+    std::array<uintptr_t, 3> thread_local_cache_ptrs;
 
     NTT_DEVICE static cuda_thread_context_t &current() noexcept;
 };

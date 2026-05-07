@@ -288,7 +288,7 @@ internal sealed class ScriptPrintVisitor : ExprFunctor<IPrintSymbol, string>
         var start = Visit(expr.Start);
         var size = Visit(expr.Size);
         _scope.Push();
-        _scope.Append($"PhysicalBuffer({start}, {size})@<{expr.Hierarchy}, {expr.Location}, {expr.Storage}>");
+        _scope.Append($"PhysicalBuffer({start}, {size})@<{expr.Storage}>");
         doc = new(_scope.Pop().ToString());
         _exprMemo.Add(expr, doc);
         return doc;
@@ -769,9 +769,8 @@ internal sealed class ScriptPrintVisitor : ExprFunctor<IPrintSymbol, string>
 
         _scope.Push();
         var memSpan = Visit(expr.MemSpan);
-        var distributedType = expr.DistributedType == null ? string.Empty : VisitType(expr.DistributedType);
-        var elemType = expr.ElemType.ToString();
-        _scope.Append($"T.Buffer({expr.Name}, {elemType}, {memSpan.Span}, [{string.Join(',', expr.Dimensions.AsValueEnumerable().Select(Visit).Select(e => e.Span.ToString()).ToArray())}], [{string.Join(',', expr.Strides.AsValueEnumerable().Select(Visit).Select(e => e.Span.ToString()).ToArray())}], {distributedType})");
+        var type = VisitType(expr.Type);
+        _scope.Append($"T.Buffer({expr.Name}, {type}, {memSpan.Span}, [{string.Join(',', expr.Dimensions.AsValueEnumerable().Select(Visit).Select(e => e.Span.ToString()).ToArray())}], [{string.Join(',', expr.Strides.AsValueEnumerable().Select(Visit).Select(e => e.Span.ToString()).ToArray())}])");
         doc = new(_scope.Pop().ToString(), expr.Name, true);
         _exprMemo.Add(expr, doc);
         return doc;

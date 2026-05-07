@@ -7,6 +7,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reactive;
@@ -125,6 +126,53 @@ public abstract class CSourceConvertVisitor : ExprFunctor<CSymbol, Unit>
     protected readonly Dictionary<BaseExpr, CSymbol> _exprMemo = new(ReferenceEqualityComparer.Instance);
 
     public PrimFunction VisitEntry => (TIR.PrimFunction)VisitRoot!;
+
+    protected static (long Start, long Stop, long Step, long TripCount) GetFixedUnrolledRange(For expr)
+    {
+        var domain = expr.Domain;
+        if (!domain.Start.IsFixed || !domain.Stop.IsFixed || !domain.Step.IsFixed)
+        {
+            throw new InvalidOperationException(
+                $"Unrolled loop '{expr.LoopVar.Name}' requires fixed start/stop/step for ntt::apply(ntt::unrolled), got ({domain.Start}, {domain.Stop}, {domain.Step}).");
+        }
+
+        var start = domain.Start.FixedValue;
+        var stop = domain.Stop.FixedValue;
+        var step = domain.Step.FixedValue;
+        if (step <= 0)
+        {
+            throw new InvalidOperationException($"Unrolled loop '{expr.LoopVar.Name}' requires a positive fixed step, got {step}.");
+        }
+
+        var tripCount = start >= stop ? 0 : ((stop - start) + step - 1) / step;
+        return (start, stop, step, tripCount);
+    }
+
+    protected static string FormatTemplateDim(long value) => value.ToString(CultureInfo.InvariantCulture);
+
+    protected CSymbol VisitUnrolledFor(For expr)
+    {
+        if (_exprMemo.TryGetValue(expr, out var symbol))
+        {
+            return symbol;
+        }
+
+        var loopVar = Visit(expr.LoopVar);
+        var (start, _, step, tripCount) = GetFixedUnrolledRange(expr);
+        var indexName = $"{loopVar.Name}_index";
+        IndentScope.Writer.IndWrite($"ntt::apply(ntt::unrolled, fixed_shape_t<{FormatTemplateDim(tripCount)}>{{}}, [&](auto {indexName}) {{\n");
+        using (new IndentScope())
+        {
+            IndentScope.Writer.IndWrite($"constexpr auto {loopVar.Name} = fixed_dim_v<{FormatTemplateDim(start)}> + ({indexName}[fixed_dim_v<0>] * fixed_dim_v<{FormatTemplateDim(step)}>);\n");
+            Visit(expr.Body);
+        }
+
+        IndentScope.Writer.IndWrite("});\n");
+
+        symbol = new(string.Empty, string.Empty);
+        _exprMemo.Add(expr, symbol);
+        return symbol;
+    }
 
     protected void WriteDimVars()
     {

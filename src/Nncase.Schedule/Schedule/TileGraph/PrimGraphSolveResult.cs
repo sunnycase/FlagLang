@@ -3,9 +3,11 @@
 
 using System.Diagnostics.CodeAnalysis;
 using System.Reactive;
+using System.Reflection;
 using Google.OrTools.Sat;
 using Nncase.IR;
 using Nncase.IR.Affine;
+using Nncase.IR.Logics;
 using Nncase.TIR;
 using Nncase.TIR.Builders;
 using Nncase.Utilities;
@@ -354,6 +356,7 @@ public sealed class TreeSolveResult : TreeSolverBase<long>, ITreeNodeVisitor<Tre
         var domain = new IR.Tuple(currentOffsets.Select(off => new IR.Tuple(IR.F.Shapes.AsTensor(off), (Expr)0L)).ToArray());
         bodyVarReplaces.Add(value.Grid.DomainParameter, domain);
         var nestBody = new ReplacingExprCloner(bodyVarReplaces).Clone(value.Grid.Body, default);
+        nestBody = new AffineIOTileOffsetRebaser(currentOffsets).Clone(nestBody, default);
         parentbuilder.Body(nestBody);
         return default;
     }
@@ -363,6 +366,18 @@ public sealed class TreeSolveResult : TreeSolverBase<long>, ITreeNodeVisitor<Tre
         var maxAlign = 0L;
         foreach (var (level, nodeBufferInfos) in LevelNodeBufferInfos)
         {
+            var memoryLevel = TargetOptions.GetRequired(level, "Auto tiling buffer scheduling");
+            if (!memoryLevel.IsAddressable)
+            {
+                foreach (var (key, info) in nodeBufferInfos)
+                {
+                    maxAlign = Math.Max(maxAlign, key.Id.Node.GetBufferElemSize(key.Id.Index));
+                    info.Offset = 0;
+                }
+
+                continue;
+            }
+
             var model = new CpModel();
             var rectangles = new Dictionary<NodeWithBuffer, (IntervalVar XInterval, IntervalVar YInterval)>();
             int count = 0;
@@ -421,9 +436,9 @@ public sealed class TreeSolveResult : TreeSolverBase<long>, ITreeNodeVisitor<Tre
         };
     }
 
-    private DistributedType GetBufferDistributedType(Expr expr)
+    private DistributedType? GetBufferDistributedType(Expr expr)
     {
-        DistributedType GetTensorType(IRType type) => type switch
+        DistributedType? GetTensorType(IRType type) => type switch
         {
             TensorType => null!,
             DistributedType dt => dt,
@@ -464,13 +479,21 @@ public sealed class TreeSolveResult : TreeSolverBase<long>, ITreeNodeVisitor<Tre
         TIR.Buffer AllocateBuffer(TileNode tileNode, BufferIdentity bid)
         {
             var expr = bid.Node.Grid.Buffers[bid.Index];
-            var tensorType = GetBufferTensorType(expr);
-            tensorType = new TensorType(tensorType.DType, shape); // according to subtensor shape.
+            var distributedType = GetBufferDistributedType(expr);
+            var tensorType = distributedType?.TensorType ?? GetBufferTensorType(expr);
             var info = LevelNodeBufferInfos[storeLevel][new NodeWithBuffer(tileNode, bid)];
             var alignment = tensorType.DType.SizeInBytes;
             var strides = info.Strides.Select(i => (Dimension)i).ToArray(); // using fixed strides.
-            var physicalBuffer = new PhysicalBuffer(alignment, Tensor.FromPointer(info.Offset, tensorType.DType), info.Size, MemoryLocation.Cache, storeLevel);
-            return new TIR.Buffer($"{bid}", tensorType.DType, new MemSpan(physicalBuffer), shape.Dimensions.ToArray(), strides, null);
+            var memoryLevel = TargetOptions.GetRequired(storeLevel, "Auto tiling buffer allocation");
+            var storage = memoryLevel.ToTileStorage(BufferUsage.Temp, storeLevel);
+            var physicalBuffer = memoryLevel.IsAddressable
+                ? new PhysicalBuffer(alignment, Tensor.FromPointer(info.Offset, tensorType.DType), info.Size, storage)
+                : new PhysicalBuffer(alignment, info.Size, storage);
+            var dimensions = distributedType is null
+                ? shape.Dimensions.ToArray()
+                : ((RankedShape)distributedType.TensorType.Shape).Dimensions.ToArray();
+            IRType bufferType = distributedType is null ? tensorType : distributedType;
+            return new TIR.Buffer($"{bid}", bufferType, new MemSpan(physicalBuffer), dimensions, strides);
         }
 
         Expr GetViewExpr(ViewInfo? parentInfo, Expr buffer, RankedShape forwardOffsets, RankedShape relatedOffsets, RankedShape shape)
@@ -573,6 +596,256 @@ public sealed class TreeSolveResult : TreeSolverBase<long>, ITreeNodeVisitor<Tre
         }
 
         return -1;
+    }
+
+    private sealed class AffineIOTileOffsetRebaser : ExprCloner<Unit>
+    {
+        private const BindingFlags AttributeFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        private readonly Dimension[] _domainOffsets;
+
+        public AffineIOTileOffsetRebaser(IReadOnlyList<Dimension> domainOffsets)
+        {
+            CloneUnmutated = false;
+            _domainOffsets = domainOffsets.ToArray();
+        }
+
+        protected override BaseExpr VisitLeafCall(Call expr, Unit context)
+        {
+            var target = Clone(expr.Target, context);
+            var arguments = CloneArray(expr.Arguments, context);
+            if (TryRebaseTarget(target, out var rebasedTarget))
+            {
+                return new Call(rebasedTarget, arguments).InheritMetaData(expr);
+            }
+
+            if (!ReferenceEquals(target, expr.Target) || !AreSameArguments(arguments, expr.Arguments))
+            {
+                return expr.With(target: target, arguments: arguments);
+            }
+
+            return expr;
+        }
+
+        private bool TryRebaseTarget(Expr target, [MaybeNullWhen(false)] out Expr rebasedTarget)
+        {
+            rebasedTarget = null;
+            var type = target.GetType();
+            var relationProperty = type.GetProperty(nameof(AffineRelation), AttributeFlags)
+                ?? type.GetProperty("Relation", AttributeFlags);
+            var symbolsProperty = type.GetProperty("Symbols", AttributeFlags);
+            if (relationProperty is null ||
+                symbolsProperty is null ||
+                relationProperty.PropertyType != typeof(AffineRelation) ||
+                symbolsProperty.PropertyType != typeof(RankedShape))
+            {
+                return false;
+            }
+
+            var relation = (AffineRelation?)relationProperty.GetValue(target)
+                ?? throw new InvalidOperationException($"{type.Name}.Relation is null.");
+            var symbols = (RankedShape?)symbolsProperty.GetValue(target)
+                ?? throw new InvalidOperationException($"{type.Name}.Symbols is null.");
+
+            if (relation.Domains.Length > _domainOffsets.Length)
+            {
+                throw new InvalidOperationException(
+                    $"{type.Name} relation rank {relation.Domains.Length} exceeds tiled domain rank {_domainOffsets.Length}.");
+            }
+
+            ValidateCanonicalRelation(relation, type.Name);
+
+            var domainOffsetSymbols = new Dictionary<int, int>();
+            var appendedSymbolValues = new List<Dimension>();
+            for (int i = 0; i < relation.Domains.Length; i++)
+            {
+                var offset = _domainOffsets[i];
+                if (IsZero(offset))
+                {
+                    continue;
+                }
+
+                domainOffsetSymbols.Add(i, relation.Symbols.Length + appendedSymbolValues.Count);
+                appendedSymbolValues.Add(offset);
+            }
+
+            if (appendedSymbolValues.Count == 0)
+            {
+                return false;
+            }
+
+            var relationSymbols = relation.Symbols.ToArray();
+            if (symbols.Rank != relationSymbols.Length)
+            {
+                throw new InvalidOperationException(
+                    $"{type.Name} symbol payload rank {symbols.Rank} does not match relation symbol rank {relationSymbols.Length}.");
+            }
+
+            var newRelationSymbols = relationSymbols
+                .Concat(appendedSymbolValues.Select((offset, i) =>
+                {
+                    var symbol = new AffineSymbol(relationSymbols.Length + i)
+                    {
+                        Metadata = { Range = offset.Metadata.Range },
+                    };
+                    return symbol;
+                }))
+                .ToArray();
+            var newSymbolValues = new RankedShape(symbols.Dimensions.ToArray().Concat(appendedSymbolValues).ToArray());
+            var newResults = relation.Results.ToArray()
+                .Select(result => RebaseAffineExpr(result, domainOffsetSymbols))
+                .ToArray();
+            var newConstraint = (LogicalExpr)new DomainConstraintRebaser(_domainOffsets, relation.Domains.Length)
+                .Clone(relation.Constraint, default);
+            var newRelation = relation.With(symbols: newRelationSymbols, results: newResults, constraint: newConstraint);
+            rebasedTarget = RecreateTarget(target, newRelation, newSymbolValues);
+            return true;
+        }
+
+        private bool IsZero(Dimension dim) => dim.IsFixed && dim.FixedValue == 0;
+
+        private void ValidateCanonicalRelation(AffineRelation relation, string opName)
+        {
+            for (int i = 0; i < relation.Domains.Length; i++)
+            {
+                if (relation.Domains[i].Position != i)
+                {
+                    throw new InvalidOperationException(
+                        $"{opName} relation domain at index {i} has non-canonical position {relation.Domains[i].Position}.");
+                }
+            }
+
+            for (int i = 0; i < relation.Symbols.Length; i++)
+            {
+                if (relation.Symbols[i].Position != i)
+                {
+                    throw new InvalidOperationException(
+                        $"{opName} relation symbol at index {i} has non-canonical position {relation.Symbols[i].Position}.");
+                }
+            }
+        }
+
+        private AffineExpr RebaseAffineExpr(AffineExpr expr, IReadOnlyDictionary<int, int> domainOffsetSymbols)
+        {
+            return expr switch
+            {
+                AffineDim dim when domainOffsetSymbols.TryGetValue(dim.Position, out var symbolPosition) => dim + new AffineSymbol(symbolPosition),
+                AffineDim or AffineExtent or AffineSymbol or AffineConstant => expr,
+                AffineAddBinary add => RebaseAffineExpr(add.Lhs, domainOffsetSymbols) + RebaseAffineExpr(add.Rhs, domainOffsetSymbols),
+                AffineMulBinary mul => new AffineMulBinary(RebaseAffineExpr(mul.Lhs, domainOffsetSymbols), RebaseAffineExpr(mul.Rhs, domainOffsetSymbols)),
+                AffineDivBinary div => new AffineDivBinary(div.BinaryOp, RebaseAffineExpr(div.Lhs, domainOffsetSymbols), RebaseAffineExpr(div.Rhs, domainOffsetSymbols)),
+                _ => throw new NotSupportedException($"Unsupported affine expression node {expr.GetType().Name}."),
+            };
+        }
+
+        private bool AreSameArguments(IReadOnlyList<BaseExpr> lhs, ReadOnlySpan<BaseExpr> rhs)
+        {
+            if (lhs.Count != rhs.Length)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < lhs.Count; i++)
+            {
+                if (!ReferenceEquals(lhs[i], rhs[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private Expr RecreateTarget(Expr target, AffineRelation relation, RankedShape symbols)
+        {
+            var type = target.GetType();
+            foreach (var ctor in type.GetConstructors(AttributeFlags))
+            {
+                var args = TryBuildConstructorArguments(target, ctor, relation, symbols);
+                if (args is not null)
+                {
+                    return (Expr)ctor.Invoke(args);
+                }
+            }
+
+            throw new InvalidOperationException($"Cannot recreate affine IO target {type.FullName} with rebased relation.");
+        }
+
+        private object?[]? TryBuildConstructorArguments(Expr target, ConstructorInfo constructor, AffineRelation relation, RankedShape symbols)
+        {
+            var type = target.GetType();
+            var parameters = constructor.GetParameters();
+            var args = new object?[parameters.Length];
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var parameter = parameters[i];
+                if (parameter.ParameterType == typeof(AffineRelation))
+                {
+                    args[i] = relation;
+                    continue;
+                }
+
+                if (parameter.ParameterType == typeof(RankedShape))
+                {
+                    args[i] = symbols;
+                    continue;
+                }
+
+                var property = type.GetProperties(AttributeFlags)
+                    .FirstOrDefault(prop =>
+                        prop.GetIndexParameters().Length == 0 &&
+                        string.Equals(prop.Name, parameter.Name, StringComparison.OrdinalIgnoreCase) &&
+                        parameter.ParameterType.IsAssignableFrom(prop.PropertyType));
+                if (property is null)
+                {
+                    return null;
+                }
+
+                args[i] = property.GetValue(target);
+            }
+
+            return args;
+        }
+
+        private sealed class DomainConstraintRebaser : ExprCloner<Unit>
+        {
+            private readonly IReadOnlyList<Dimension> _domainOffsets;
+            private readonly int _domainRank;
+
+            public DomainConstraintRebaser(IReadOnlyList<Dimension> domainOffsets, int domainRank)
+            {
+                CloneUnmutated = false;
+                _domainOffsets = domainOffsets;
+                _domainRank = domainRank;
+            }
+
+            protected override BaseExpr VisitLeafDimVar(DimVar expr, Unit context)
+            {
+                if (TryGetDomainIndex(expr, out var index))
+                {
+                    var offset = _domainOffsets[index];
+                    return IsZero(offset) ? expr : expr + offset;
+                }
+
+                return expr;
+            }
+
+            private bool IsZero(Dimension dim) => dim.IsFixed && dim.FixedValue == 0;
+
+            private bool TryGetDomainIndex(DimVar dimVar, out int index)
+            {
+                if (dimVar.Name.Length > 1 &&
+                    dimVar.Name[0] == 'd' &&
+                    int.TryParse(dimVar.Name[1..], out index) &&
+                    index >= 0 &&
+                    index < _domainRank)
+                {
+                    return true;
+                }
+
+                index = -1;
+                return false;
+            }
+        }
     }
 
     public sealed record Context(ISequentialBuilder<Expr> ParentBuilder, Dimension[] ForwardOffsets, Dimension[] ForwardExtents)

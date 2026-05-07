@@ -51,6 +51,8 @@ public partial class NTTAffineSelectionPass : AffineSelectionPass
                 return SelectDevectorize(op, call, output);
             case IR.Math.Binary op:
                 return SelectBinary(op, call, output);
+            case IR.Affine.Gather op:
+                return SelectAffineGather(op, call, output);
             case IR.Math.MatMul:
                 return SelectMatMul((Op)call.Target, call, output);
             case IR.Math.Unary op:
@@ -67,6 +69,10 @@ public partial class NTTAffineSelectionPass : AffineSelectionPass
                 return SelectVectorizedCast(op, call, output);
             case IR.Tensors.Transpose op:
                 return SelectTranspose(op, call, output);
+            case IR.Tensors.Gather op:
+                return SelectGather(op, call, output);
+            case IR.Tensors.ScatterND op:
+                return SelectScatterND(op, call, output);
             case IR.Tensors.Where op:
                 return SelectWhere(op, call, output);
             case IR.Math.Compare op:
@@ -80,4 +86,10 @@ public partial class NTTAffineSelectionPass : AffineSelectionPass
                 return call;
         }
     }
+
+    protected override Expr SelectVoidCall(Call call) => call.Target switch
+    {
+        IR.Affine.Scatter op => SelectAffineScatter(op, call),
+        _ => call,
+    };
 }

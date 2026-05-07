@@ -88,6 +88,8 @@ public class NTTTargetOptions : INTTTargetOptions
     [CommandLine.AllowMultiplePerToken]
     public int[] MemoryBandWidths { get; set; } = new[] { 64, 8 };
 
+    public MemoryHierarchyLevel[] MemoryHierarchyLevels { get; set; } = Nncase.MemoryHierarchyLevels.CudaDefault();
+
     [DisplayName("--register-tile-budget-bytes")]
     [Description("Maximum bytes allowed for one thread-local register tile.")]
     [DefaultValue(4096L)]

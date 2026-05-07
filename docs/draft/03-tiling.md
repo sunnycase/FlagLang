@@ -12,19 +12,19 @@
 但这条路径还没有真正的 tiling 和内存层级选择：
 
 - `src/Nncase.Compiler/Compiler.cs` 中 `AutoTilingPass` 仍在主 `CompileAsync` 中注释掉，普通 Python/Triton 编译不会经过 tiler。
-- `src/Nncase.Schedule/Transforms/TIRSelectionPass.cs` 的 `CreateOutputBuffer` 默认把非 entry 中间结果建成 `MemoryLocation.Data`；非 entry caller 追加输出 buffer 时也固定用 `IR.F.Buffer.Uninitialized(..., MemoryLocation.Data, ...)`。
-- `src/modules/Nncase.Modules.NTT/Passes/NTTAffineIOLoweringPass.cs` 对 `AffineGather/Scatter` 只继承已有 buffer 的 memory location；当 source 不是 readable buffer 时，`RequireReadableBuffer` 也会新建 `MemoryLocation.Data` buffer。
-- 当前 `MemoryLocation` 把三类事实混在一起：usage 包含 `Rdata` / `Data` / `Input` / `Output`，visibility 包含 `ThreadLocal` / `WarpLocal` / `BlockLocal`，physical location 又用 `Cache` / `Data` 等名字隐式表达。这会让 tiling 和 bufferization 无法正确决策，也让 codegen 难以区分 register、smem、tmem、gmem。
+- `src/Nncase.Schedule/Transforms/TIRSelectionPass.cs` 的 `CreateOutputBuffer` 若要创建中间结果，必须提供显式 `BufferStorage`；非 entry caller 追加输出 buffer 也不能隐式创建 thread-local temp。
+- `src/modules/Nncase.Modules.NTT/Passes/NTTAffineIOLoweringPass.cs` 对 `AffineGather/Scatter` 需要继承或消费显式 buffer storage；当 source 不是 readable buffer 时，`RequireReadableBuffer` 不能新建无决策的 thread-local temp buffer。
+- 旧组合 memory-location API 已删除；后续 tiling 和 bufferization 必须继续保持 usage、scope、physical location 三个维度独立决策，codegen 也必须按这三个维度分派 register、smem、tmem、gmem。
 - 当前 `DistributedType` 的 `SBP.S(axis)` 主要表达均分式 split，不能覆盖 Triton blocked layout 中常见的 strided per-thread ownership、lane/warp permutation、CTA order，也不能和 smem bank swizzle、register fragment layout 清晰分工。
 - 当前 CUDA dump 中可见 `flaglang_thread_local_data_storage[...]`，这种 address-taken per-thread byte array 很容易在 PTX 中表现为 `.local` load/store；它不是寄存器级表达。
-- `MemoryLocation.BlockLocalData` / `WarpLocalData` / `Cache` 已存在，runtime/codegen 也有 `block_local_data`、`warp_local_data`、`tar::get_cache_address<level>()` 等入口，但当前 pipeline 没有根据 tile/lifetime/reuse 做自动选择。
-- `AutoTilePass` 和 `GraphTiler` 已有旧实现：它能基于 `IR.Affine.Grid` 求解 tile、生成 `MemoryLocation.Cache` physical buffer，并有 `DumpFlags.Tiling`。问题是它没有接到当前 Triton direct `Affine.Gather/Scatter` 路线，且 `MemoryLocation.Cache` 到 CUDA smem/register 的代码生成语义还未作为验收闭环固定下来。
+- `BufferStorage.BlockLocalSMem()`、`BufferStorage.WarpLocalTemp()`、`BufferStorage.ThreadLocalTemp()` 已存在，runtime/codegen 也有 `block_local_data`、`warp_local_data`、thread-local addressable pool 等入口，但当前 pipeline 没有根据 tile/lifetime/reuse 做自动选择。
+- `AutoTilePass` 和 `GraphTiler` 已有旧实现：它能基于 `IR.Affine.Grid` 求解 tile、生成 thread-local addressable physical buffer，并有 `DumpFlags.Tiling`。问题是它没有接到当前 Triton direct `Affine.Gather/Scatter` 路线，且 smem/register 的代码生成语义还未作为验收闭环固定下来。
 
 ## 目标
 
 ### G0: 拆分 buffer usage、visibility 和 physical location
 
-Buffer IR 必须把三个维度拆开表达，不能继续用一个 `MemoryLocation` 同时编码语义用途、可见范围和物理存储位置：
+Buffer IR 必须把三个维度拆开表达，不能恢复用一个组合 enum 同时编码语义用途、可见范围和物理存储位置：
 
 - Usage: buffer 的语义用途，例如 `Input`、`Output`、`Rdata/Const`、`Temp`、`Scratch`。usage 只回答“这块数据为什么存在”，不回答放在哪、谁可见。
 - Visibility: buffer 的可见范围，例如 `ThreadLocal`、`WarpLocal`、`BlockLocal`、`Grid/Global`。visibility 决定别名边界、同步需求和 distributed/thread mapping。
@@ -99,8 +99,8 @@ Map 表达能力需要受限但足够通用：affine、floordiv、mod、常见 p
 
 - 对 block 内多线程复用的数据，tiling 结果必须生成 block scope tile buffer，并映射到 CUDA smem。
 - 对 thread-private、小型、无 address-escape 的临时 tile，tiling 结果必须保留为 SSA/scalar 或 register-fragment 形式；不能把它表达成 address-taken `thread_local_data` byte array 后期待 CUDA 编译器自动救回来。
-- 对需要跨 warp 或跨 block 的数据，必须显式说明其 scope 和同步边界；不能静默退回 `MemoryLocation.Data`。
-- `MemoryLocation.Data` 只允许作为明确的 global/runtime data pool 语义，不允许作为 tiling 失败后的兜底中间缓存。
+- 对需要跨 warp 或跨 block 的数据，必须显式说明其 scope 和同步边界；不能静默退回 implicit thread-local temp storage。
+- Thread-local temp storage 只允许作为显式 storage decision，不允许作为 tiling 失败后的兜底中间缓存。
 
 ### G4: 建立 tile、lifetime、capacity 的统一决策
 
@@ -141,20 +141,20 @@ global logical index
 - 不要求替代 CUDA 编译器的寄存器分配器；本阶段只要求 compiler IR/codegen 不主动把 register-eligible intermediate 变成 address-taken local memory。
 - 不要求一次性完成全自动 cost model 搜索；可以先用确定性 tile policy，但 IR 和 dump 必须保留 cost model 所需特征。
 - 不做跨 kernel、跨 block 的全局缓存优化，也不引入新的 collective 语义。
-- 不允许 fallback/workaround：tiling 失败不能静默走 `MemoryLocation.Data`、gmem、local mem 或旧 non-tiled pipeline。
+- 不允许 fallback/workaround：tiling 失败不能静默走 implicit thread-local temp storage、gmem、local mem 或旧 non-tiled pipeline。
 
 ## 现有代码与目标差距
 
 | Area | Existing | Gap | Required change |
 | --- | --- | --- | --- |
-| Buffer model | `MemoryLocation` 混合 usage、visibility、physical location | tiling/bufferization/codegen 无法独立决策 register、smem、gmem 和同步范围 | 引入 `Usage x Visibility x Location` 三元模型，并迁移 IR/TIR/bufferize/codegen |
+| Buffer model | 旧组合 memory-location API 已删除，但仍需防止新路径重新混合 usage、scope、physical location | tiling/bufferization/codegen 必须独立决策 register、smem、gmem 和同步范围 | 保持 `Usage x Visibility x Location` 三元模型贯穿 IR/TIR/bufferize/codegen |
 | Distribution model | `NdSBP.S(axis)` 主要表达均分 split | 无法表达 strided ownership、Triton blocked layout、lane/warp permutation | 引入双向 `DistributionLayout`，让 SBP 成为 sugar |
 | Storage layout | shape/stride 和 distributed local shard 混在 buffer/type 里 | 无法表达 smem swizzle、bank layout、register fragment、tmem layout | 新增 local-domain `StorageLayout`，只描述 owner 本地物理表示 |
 | Pass pipeline | `AutoDistributedPass` 默认运行，`AutoTilingPass` 在 `CompileAsync` 中注释 | 主 Python/Triton 路线完全跳过 tiler | 启用 tiling pass，并保证它消费当前 distributed affine DAG |
 | Tiling IR 输入 | 旧 `AutoTilePass` 主要处理 `IR.Affine.Grid` | 当前 Triton path 是 direct `IR.Affine.Gather/Scatter` | 增加 direct affine IO tiling，或在不丢语义的前提下统一到 tileable grid/dataflow |
-| Buffer allocation | `TIRSelectionPass` 默认 `MemoryLocation.Data` | 中间结果先被物化，再谈优化，容易进入 thread-local/local memory | 在 TIR selection 前确定 tile memory scope，或让 selection 接收 schedule annotation |
+| Buffer allocation | `TIRSelectionPass` 默认 implicit thread-local temp storage | 中间结果先被物化，再谈优化，容易进入 thread-local/local memory | 在 TIR selection 前确定 tile memory scope，或让 selection 接收 schedule annotation |
 | Affine IO lowering | lowering 按现有 buffer shape/load-store loop 生成代码 | 没有 tile-local buffer、tile loop、smem/register placement | 让 lowering 使用 tile domain、tile offset 和 chosen memory scope |
-| Memory hierarchy | enum 已有 `WarpLocalData`、`BlockLocalData`、`Cache` | 自动选择缺失；`Cache` 到 CUDA smem/register 语义未验收 | 固定 CUDA scope 映射，并把 capacity/lifetime 接到 bufferize/codegen |
+| Memory hierarchy | `BufferStorage` factory 已有 warp/block/scratch 表达 | 自动选择缺失；scratch 到 CUDA smem/register 的语义未验收 | 固定 CUDA scope 映射，并把 capacity/lifetime 接到 bufferize/codegen |
 | Register path | 小中间结果通常仍是 buffer/tensor view | address-taken byte array 可能变成 `.local` | 对 thread-private tile 做 scalarization/SSA/register fragment lowering |
 | Smem path | runtime 有 `block_local_data` 和同步插入 | normal vector-add dump 中 block pool 为 1 byte，未用于 tile caching | 生成真实 block tile storage，并验证 shared-memory PTX |
 | Diagnostics | 现有代码多处默认 `Data` 或通用 buffer | 失败原因会被隐藏成慢路径 | 对 unsupported tiling shape/scope/capacity 直接抛 diagnostic |
@@ -165,7 +165,7 @@ global logical index
 
 - 主 `CompileAsync` 中存在 tiling 阶段，且位于 `AutoDistributedPass` 之后、`TIRPass` 之前或有明确等价理由。
 - 对当前 Triton vector-add pipeline，dump 中出现 tiling pass 输出；没有命中旧 cache。
-- 对 tiling-eligible intermediate，不允许出现无诊断的 `MemoryLocation.Data` fallback。
+- 对 tiling-eligible intermediate，不允许出现无诊断的 implicit thread-local temp storage fallback。
 - 新 buffer API 或 annotation 明确暴露 usage、visibility、physical location；新增 code 不允许继续引入把这三个维度拼到同一个 enum value 的路径。
 - `DistributedType` 新增或等价暴露 `DistributionLayout`；新增 code 不允许只靠 `SBP.S(axis)` 表达 Triton blocked/strided ownership。
 
@@ -227,7 +227,7 @@ python python/tutorials/01-vector-add.py --only_unit_test
 
 ### A6: Fail-fast 验收
 
-- 禁用 smem/register tiling 所需的 scope mapping 后，tiling-eligible kernel 必须编译失败，不能自动回退到 `MemoryLocation.Data`。
+- 禁用 smem/register tiling 所需的 scope mapping 后，tiling-eligible kernel 必须编译失败，不能自动回退到 implicit thread-local temp storage。
 - 遇到 unsupported `DistributionLayout`、缺失 inverse map、layout domain 不匹配、或无法证明 producer/consumer ownership 时必须 fail fast。
 - 破坏 smem capacity 配置或设置过小 budget 时，必须报 capacity diagnostic。
 - 破坏 affine relation 或 mask constraint 时，必须报 relation/tileability diagnostic。
@@ -245,7 +245,7 @@ python python/tutorials/01-vector-add.py --only_unit_test
 
 - 让主 pipeline 运行 tiling pass，并对当前 direct affine IO path 产生 dump。
 - 暂时只接受可证明的一维 elementwise tile；其他 case fail fast。
-- 增加 negative tests 防止静默 `Data` fallback。
+- 增加 negative tests 防止静默 thread-local temp fallback。
 
 ### M3: Register-resident elementwise tile
 
@@ -270,7 +270,7 @@ python python/tutorials/01-vector-add.py --only_unit_test
   - 门禁：先用 dump 证明 tiling 输入包含当前 Triton kernel 的真实 dataflow。
 - 风险：`DistributionLayout` 和 `StorageLayout` 边界不清，会重新混淆 ownership 与 physical representation。
   - 门禁：verifier 必须检查 owner/local map 和 storage local domain，producer/consumer layout 不一致时必须显式 reshard。
-- 风险：`MemoryLocation.Cache` 的 CUDA codegen 路径和当前 Triton cubin path 不一致。
+- 风险：scratch/smem CUDA codegen 路径和当前 Triton cubin path 不一致。
   - 门禁：smem 验收必须看 CUDA source/PTX/SASS，不只看 IR memory enum。
 - 风险：寄存器是否实际分配由 CUDA 编译器决定。
   - 门禁：IR/codegen 不能生成 address-taken local buffer；PTX `.local` 只能作为真实 spill 诊断处理。

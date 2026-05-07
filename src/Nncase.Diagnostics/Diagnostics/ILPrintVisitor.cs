@@ -577,7 +577,7 @@ internal sealed class ILPrintVisitor : ExprFunctor<string, string>
         }
 
         var name = GetNextSSANumber();
-        var type = expr.DistributedType == null ? VisitType(expr.CheckedType) : VisitType(expr.DistributedType);
+        var type = VisitType(expr.Type);
         _writer.WInd().WriteLine($"{name} = buffer({type})");
         return name;
     }

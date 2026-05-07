@@ -40,18 +40,11 @@ public static class Buffer
     /// </summary>
     public static Call StrideOf(Expr input) => new Call(new StrideOf(), input);
 
-    /// <summary>
-    /// create the uninitialized buffer.
-    /// </summary>
-    public static Call Uninitialized(DataType dataType, TIR.MemoryLocation memoryLocation, Shape shape) => Uninitialized(dataType, TIR.BufferStorage.FromLegacy(memoryLocation), shape);
-
     public static Call Uninitialized(DataType dataType, TIR.BufferStorage storage, Shape shape) => new Call(new Uninitialized(dataType, storage, new IRArray<SBP>(), new Placement(new IRArray<int>(), string.Empty)), shape);
-
-    public static Call Uninitialized(DataType dataType, TIR.MemoryLocation memoryLocation, Shape shape, IRArray<SBP> ndsbp, Placement placement) => Uninitialized(dataType, TIR.BufferStorage.FromLegacy(memoryLocation), shape, ndsbp, placement);
 
     public static Call Uninitialized(DataType dataType, TIR.BufferStorage storage, Shape shape, IRArray<SBP> ndsbp, Placement placement) => new Call(new Uninitialized(dataType, storage, ndsbp, placement), shape);
 
-    public static Call Allocate(Expr size, DataType dataType, TIR.MemoryLocation location, bool malloc = true) => new Call(new Allocate(dataType, location, malloc), size);
+    public static Call Allocate(Expr size, DataType dataType, TIR.BufferStorage storage, bool malloc = true) => new Call(new Allocate(dataType, storage, malloc), size);
 
     public static Call AllocateBufferView(Expr buffer) => new Call(new AllocateBufferView(), buffer);
 

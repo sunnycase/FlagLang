@@ -23,9 +23,6 @@ public sealed partial class Uninitialized : Op
     public TIR.BufferStorage Storage { get; }
 
     [Browsable(false)]
-    public TIR.MemoryLocation MemoryLocation => Storage.ToLegacyMemoryLocation();
-
-    [Browsable(false)]
     public IRArray<SBP> NdSBP { get; }
 
     [Browsable(false)]
@@ -35,7 +32,7 @@ public sealed partial class Uninitialized : Op
     public override bool CanFoldConstCall => false;
 
     /// <inheritdoc/>
-    public override string DisplayProperty() => $"{DType.GetCSharpName()}, Storage: {Storage}, Legacy: MemoryLocation.{MemoryLocation}, {NdSBP}, {Placement}";
+    public override string DisplayProperty() => $"{DType.GetCSharpName()}, Storage: {Storage}, {NdSBP}, {Placement}";
 
     public TIR.BufferStorage GetStorage() => Storage;
 }

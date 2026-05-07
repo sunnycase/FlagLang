@@ -280,9 +280,6 @@ public sealed class DirectAffineTilingPass : FunctionPass
                 case IR.Tensors.Where:
                     AttachElementwiseDecisionIfTilingInput(call, "Where");
                     break;
-                case PrimFunctionWrapper:
-                    AttachElementwiseDecisionIfTilingInput(call, "PrimFunctionWrapper");
-                    break;
             }
         }
 
@@ -707,9 +704,6 @@ public sealed class DirectAffineTilingPass : FunctionPass
                 IR.Math.Binary => arguments.Length == 2 && TryCollectAllRegisterExpressions(arguments, registerCalls),
                 IR.Tensors.Cast => arguments.Length == 1 && TryCollectAllRegisterExpressions(arguments, registerCalls),
                 IR.Tensors.Where where => !where.IsTfWhere && arguments.Length == 3 && TryCollectAllRegisterExpressions(arguments, registerCalls),
-                PrimFunctionWrapper => arguments.Length == 2 &&
-                    arguments.All(argument => argument is Call { Target: Gather }) &&
-                    TryCollectAllRegisterExpressions(arguments, registerCalls),
                 _ => false,
             };
 

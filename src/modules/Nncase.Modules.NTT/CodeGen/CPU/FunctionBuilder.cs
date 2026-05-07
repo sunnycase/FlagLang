@@ -24,10 +24,12 @@ internal class FunctionBuilder
     private readonly IReadOnlyList<BinaryWriter> _threadLocalRdataWriters;
     private readonly IReadOnlyList<BinaryWriter> _warpLocalRdataWriters;
     private readonly IReadOnlyList<BinaryWriter> _blockLocalRdataWriters;
+    private readonly string _moduleKind;
 
-    public FunctionBuilder(uint id, BinaryWriter rdataWriter, IReadOnlyList<BinaryWriter> threadLocalRdataWriters, IReadOnlyList<BinaryWriter> warpLocalRdataWriters, IReadOnlyList<BinaryWriter> blockLocalRdataWriters, Targets.NTTTargetOptions targetOptions)
+    public FunctionBuilder(uint id, string moduleKind, BinaryWriter rdataWriter, IReadOnlyList<BinaryWriter> threadLocalRdataWriters, IReadOnlyList<BinaryWriter> warpLocalRdataWriters, IReadOnlyList<BinaryWriter> blockLocalRdataWriters, Targets.NTTTargetOptions targetOptions)
     {
         _id = id;
+        _moduleKind = moduleKind;
         _sectionManager = new();
         _textWriter = _sectionManager.GetWriter(WellknownSectionNames.Text);
         _rdataWriter = rdataWriter;
@@ -67,7 +69,9 @@ internal class FunctionBuilder
                 var blockLocalRdataPoolSize = SerializeLocalRdata(primFunc.SchedResult.BlockLocalRdatas, _blockLocalRdataWriters);
 
                 // 3. build function.
-                var visitor = new KernelCSourceConvertVisitor(TargetOptions);
+                var visitor = _moduleKind == CUDATarget.Kind
+                    ? new CudaKernelCSourceConvertVisitor(TargetOptions)
+                    : new KernelCSourceConvertVisitor(TargetOptions);
                 visitor.Visit(primFunc);
                 var functionCSource = visitor.GetCSource();
 
@@ -94,7 +98,9 @@ internal class FunctionBuilder
             }
             else
             {
-                var visitor = new DeviceCSourceConvertVisitor();
+                var visitor = _moduleKind == CUDATarget.Kind
+                    ? new CudaDeviceCSourceConvertVisitor()
+                    : new DeviceCSourceConvertVisitor();
                 visitor.Visit(primFunc);
                 var header = visitor.GetHeader();
                 return new LinkableDeviceFunction(_id, primFunc, header, _sectionManager.GetContent(WellknownSectionNames.Text)!);

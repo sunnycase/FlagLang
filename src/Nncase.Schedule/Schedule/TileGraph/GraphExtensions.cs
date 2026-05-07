@@ -50,7 +50,7 @@ public static class GraphExtensions
                         domainCell.Cells.Add(new() { Text = $"read: {item}", Port = $"R{i}" });
                     }
 
-                    domainCell.Cells.Add(new() { Text = $"write: {arg.Vertex.WriteAccess}", Port = $"W" });
+                    domainCell.Cells.Add(new() { Text = arg.Vertex.HasOutput ? $"write: {arg.Vertex.WriteAccess}" : "effect", Port = $"W" });
 
                     for (int i = 0; i < arg.Vertex.DomainBounds.Length; i++)
                     {
@@ -263,7 +263,17 @@ public static class GraphExtensions
     public static IR.Expr GetArgument(this IR.Affine.Grid grid, int index)
     {
         // note why we use bufferof wrapper the reads?
-        return index >= grid.Reads.Length ? grid.Buffers[^1] : grid.Reads[index];
+        if (index < grid.Reads.Length)
+        {
+            return grid.Reads[index];
+        }
+
+        if (grid.HasOutput && index == grid.Reads.Length)
+        {
+            return grid.Buffers[^1];
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(index), $"Grid argument index {index} is invalid for {grid.Reads.Length} reads and HasOutput={grid.HasOutput}.");
     }
 
     public static (HashSet<BufferIdentity> Inputs, HashSet<BufferIdentity> Outputs) GetInputsOutputs(this BufferGraph g, BufferGraph? parent)
@@ -276,8 +286,16 @@ public static class GraphExtensions
             targets.Add(item.Target);
         }
 
+        foreach (var vertex in g.Vertices)
+        {
+            if (!targets.Contains(vertex))
+            {
+                sources.Add(vertex);
+            }
+        }
+
         var inputs = new HashSet<BufferIdentity>(sources.Except(targets));
-        var outputs = new HashSet<BufferIdentity>(targets.Except(sources));
+        var outputs = new HashSet<BufferIdentity>(targets.Except(sources).Where(bid => bid.IsOutput));
         foreach (var item in g.Vertices)
         {
             if (item.IsOutputLiveOut)

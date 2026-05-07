@@ -79,7 +79,7 @@ public abstract class TIRSelectionPass : FunctionPass
     {
         return argument switch
         {
-            TIR.Buffer b => b.DistributedType ?? b.CheckedType,
+            TIR.Buffer b => b.Type,
             _ => argument.CheckedType,
         };
     }
@@ -264,13 +264,7 @@ public abstract class TIRSelectionPass : FunctionPass
                 throw new InvalidOperationException($"TIR selection cannot materialize register storage {storage} as an addressable buffer. Run tile-aware SSA/register lowering before TIR buffer creation.");
             }
 
-            var tensorType = type switch
-            {
-                DistributedType dt => dt.TensorType,
-                TensorType tt => tt,
-                _ => throw new ArgumentException($"Unsupported type: {type}"),
-            };
-            return T.CreateBuffer(tensorType, storage, out _, $"buffer_{_bufferIndex++}", type as DistributedType);
+            return T.CreateBuffer(type, storage, out _, $"buffer_{_bufferIndex++}");
         }
     }
 }

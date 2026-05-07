@@ -11,7 +11,9 @@ using System.Threading.Tasks;
 using DryIoc.ImTools;
 using Nncase.CodeGen.NTT;
 using Nncase.Diagnostics;
+using Nncase.IR;
 using Nncase.Targets;
+using Nncase.TIR;
 
 namespace Nncase.CodeGen.NTT;
 
@@ -152,6 +154,7 @@ internal sealed class LinkableModule : ILinkableModule
             {
                 var scheduleResult = mainFunc.SourceFunction.SchedResult;
                 var memoryPoolDesc = mainFunc.MemoryPoolDesc;
+                var threadLocalCachePoolSizes = GetThreadLocalCachePoolSizes();
 
                 writer.Write(CSourceBuiltn.ThreadMainHeader);
                 foreach (var file in kernelFiles)
@@ -167,11 +170,55 @@ internal sealed class LinkableModule : ILinkableModule
                     blockLocalDataPoolSize: scheduleResult.BlockLocalDataPoolSize,
                     rdataPoolSize: memoryPoolDesc.RdataPoolSize,
                     threadLocalRdataPoolSize: memoryPoolDesc.ThreadLocalRdataPoolSize,
+                    threadLocalCachePoolSizes: threadLocalCachePoolSizes,
                     warpLocalRdataPoolSize: memoryPoolDesc.WarpLocalRdataPoolSize,
                     blockLocalRdataPoolSize: memoryPoolDesc.BlockLocalRdataPoolSize,
                     options: _targetOptions));
             }
         }
+    }
+
+    private ulong[] GetThreadLocalCachePoolSizes()
+    {
+        const int MaxCacheLevels = 3;
+        var sizes = new ulong[MaxCacheLevels];
+        foreach (var primFunction in _functions.Select(function => function.SourceFunction).OfType<TIR.PrimFunction>())
+        {
+            foreach (var physicalBuffer in ExprCollector.Collect(primFunction).OfType<PhysicalBuffer>())
+            {
+                if (physicalBuffer.Storage.WithoutAlignment() is not { Scope: BufferScope.ThreadLocal, PhysicalLocation: PhysicalMemorySpace.LocalAddressable })
+                {
+                    continue;
+                }
+
+                if (physicalBuffer.Hierarchy is < 0 or >= MaxCacheLevels)
+                {
+                    throw new NotSupportedException($"CUDA thread-local cache supports at most {MaxCacheLevels} levels, got hierarchy {physicalBuffer.Hierarchy} for {physicalBuffer}.");
+                }
+
+                var start = GetFixedBufferStart(physicalBuffer.Start);
+                var size = GetFixedBufferSize(physicalBuffer.Size);
+                sizes[physicalBuffer.Hierarchy] = Math.Max(sizes[physicalBuffer.Hierarchy], checked(start + size));
+            }
+        }
+
+        return sizes;
+    }
+
+    private ulong GetFixedBufferStart(Expr start) => start switch
+    {
+        TensorConst tensorConst => tensorConst.Value.ToScalar<ulong>(),
+        _ => throw new NotSupportedException($"CUDA thread-local cache physical buffer start must be a fixed pointer tensor, got {start.GetType().Name}."),
+    };
+
+    private ulong GetFixedBufferSize(Dimension size)
+    {
+        if (!size.IsFixed)
+        {
+            throw new NotSupportedException($"CUDA thread-local cache physical buffer size must be fixed, got {size}.");
+        }
+
+        return checked((ulong)size.FixedValue);
     }
 
     private void WriteCMakeLists(string codegenDir)

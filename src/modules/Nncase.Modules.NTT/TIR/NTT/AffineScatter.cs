@@ -20,5 +20,7 @@ public sealed partial class AffineScatter : NTTKernelOp
 
     public RankedShape Symbols { get; }
 
-    public override string DisplayProperty() => $"{Relation}, Symbols: {Symbols}";
+    public Shape Shape { get; }
+
+    public override string DisplayProperty() => $"{Relation}, Symbols: {Symbols}, Shape: {Shape}";
 }

@@ -10,7 +10,12 @@ public class TensorLoadEvaluator : ITypeInferencer<TensorLoad>
 {
     public IRType Visit(ITypeInferenceContext context, TensorLoad target)
     {
-        _ = context.CheckArgumentType<TensorType>(target, TensorLoad.Dest);
+        var destType = context.GetArgumentType(target, TensorLoad.Dest);
+        if (destType is not TensorType and not DistributedType)
+        {
+            throw new TypeInferenceInterruptException(new InvalidType($"TensorLoad.dest must be TensorType or DistributedType, got {destType}."));
+        }
+
         _ = context.CheckArgumentType<IRType>(target, TensorLoad.Src);
         return TupleType.Void;
     }

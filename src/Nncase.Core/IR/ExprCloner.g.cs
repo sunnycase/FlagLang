@@ -521,7 +521,7 @@ public partial class ExprCloner<TContext>
                 return true;
             }
 
-            if (IsMutatedType(expr.DistributedType, context))
+            if (IsMutatedType(expr.Type, context))
             {
                 return true;
             }
@@ -535,7 +535,7 @@ public partial class ExprCloner<TContext>
                 memSpan: Clone(expr.MemSpan, context),
                 dimensions: CloneArray(expr.Dimensions, context),
                 strides: CloneArray(expr.Strides, context),
-                distributedType: CloneType(expr.DistributedType, context)
+                type: CloneType(expr.Type, context)
             );
         }
 

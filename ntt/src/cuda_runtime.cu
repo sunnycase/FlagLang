@@ -75,6 +75,14 @@ block_entry(const cuda_block_entry_params_t &params) {
     auto thread_local_rdata = params.thread_local_rdata.subspan(
         thread_local_rdata_offset, thread_local_rdata_size);
 
+    // Get thread local cache
+    auto thread_local_cache_offset =
+        (size_t)params.thread_local_cache_header[linear_tid * 2];
+    auto thread_local_cache_size =
+        (size_t)params.thread_local_cache_header[linear_tid * 2 + 1];
+    auto thread_local_cache = params.thread_local_cache.subspan(
+        thread_local_cache_offset, thread_local_cache_size);
+
     // Get thread local data
     auto thread_local_chip_data = params.thread_local_data;
     const auto thread_local_data_size =
@@ -119,12 +127,6 @@ block_entry(const cuda_block_entry_params_t &params) {
     auto profile_records = block_profile_records.subspan(
         profile_records_size * linear_tid, profile_records_size);
 
-    cuda_thread_context_t::current() = {
-        .cid = params.cid,
-        .enable_profiling = params.enable_profiling,
-        .profile_records = profile_records,
-        .profile_record_counts = params.profile_record_counts + linear_tid};
-
     const auto program_ids = make_shape(params.cid, bid(), wid(), tid());
 
     // Set distributed pointers
@@ -138,12 +140,32 @@ block_entry(const cuda_block_entry_params_t &params) {
     local_data_desc[0] = (uintptr_t)thread_local_data.data();
     local_data_desc[1] =
         (uintptr_t)(thread_local_data.data() + thread_local_data.size_bytes());
+    auto thread_local_cache_desc =
+        ntt::distributed::detail::global_thread_local_cache_desc(program_ids);
+    std::array<uintptr_t, 3> thread_local_cache_ptrs{};
+    for (size_t i = 0; i < params.thread_local_cache_starts.size(); i++) {
+        if (params.thread_local_cache_starts[i] >= 0) {
+            thread_local_cache_ptrs[i] =
+                (uintptr_t)(thread_local_cache.data() +
+                            params.thread_local_cache_starts[i]);
+            thread_local_cache_desc[i] = thread_local_cache_ptrs[i];
+        } else {
+            thread_local_cache_desc[i] = 0;
+        }
+    }
     auto block_local_rdata_desc =
         ntt::distributed::detail::global_block_local_rdata_desc(program_ids);
     block_local_rdata_desc[0] = (uintptr_t)params.block_local_rdata.data();
     block_local_rdata_desc[1] =
         (uintptr_t)(params.block_local_rdata.data() +
                     params.block_local_rdata.size_bytes());
+
+    cuda_thread_context_t::current() = {
+        .cid = params.cid,
+        .enable_profiling = params.enable_profiling,
+        .profile_records = profile_records,
+        .profile_record_counts = params.profile_record_counts + linear_tid,
+        .thread_local_cache_ptrs = thread_local_cache_ptrs};
 
     distributed::topology_synchronize();
     thread_main(params.input_descs, params.output_descs, params.rdata.data(),

@@ -61,6 +61,7 @@ result<void> cpu_runtime_module::initialize_before_functions(
                 if (i < cache_levels) {
                     this->thread_local_cache_starts_[i] =
                         reader.template read<int32_t>();
+                    reader.template read<int32_t>();
                 } else {
                     this->thread_local_cache_starts_[i] = -1;
                 }

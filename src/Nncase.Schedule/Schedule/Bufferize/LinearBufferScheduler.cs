@@ -12,11 +12,6 @@ namespace Nncase.Schedule.Bufferize;
 
 public sealed class LinearBufferScheduler : BufferScheduler
 {
-    public LinearBufferScheduler(MemoryLocation memoryLocation)
-        : this(BufferStorage.FromLegacy(memoryLocation))
-    {
-    }
-
     public LinearBufferScheduler(BufferStorage storage)
         : base(storage)
     {

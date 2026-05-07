@@ -95,8 +95,7 @@ internal sealed partial class TypeInferenceVisitor : ExprVisitor<IRType, Unit>
             VerifySubField(expr, r, TypePatternUtility.IsDimensionType());
         }
 
-        var type = new TensorType(expr.ElemType, new RankedShape(expr.Dimensions));
-        return type;
+        return expr.Type;
     }
 
     /// <inheritdoc/>
@@ -283,7 +282,7 @@ internal sealed partial class TypeInferenceVisitor : ExprVisitor<IRType, Unit>
 
         VerifySubField(expr, expr.Body);
 
-        return expr.Buffers[^1].CheckedType;
+        return expr.HasOutput ? expr.Buffers[^1].CheckedType : TupleType.Void;
     }
 
     protected override IRType VisitLeafAffineExpr(AffineExpr expr) => TensorType.Scalar(DataTypes.Int64);

@@ -17,18 +17,38 @@ namespace Nncase.TIR;
 /// </summary>
 public sealed class Buffer : Expr
 {
-    public Buffer(string name, DataType elemType, MemSpan memSpan, Dimension[] dimensions, Dimension[] strides, DistributedType? distributedType)
+    public Buffer(string name, IRType type, MemSpan memSpan, Dimension[] dimensions, Dimension[] strides)
         : base(new BaseExpr[] { memSpan }.Concat(dimensions).Concat(strides))
     {
+        var tensorType = GetTensorType(type, name);
+        if (tensorType.Shape is not RankedShape rankedShape)
+        {
+            throw new InvalidOperationException($"TIR buffer {name} requires a ranked tensor type, got {tensorType.Shape}.");
+        }
+
+        if (rankedShape.Rank != dimensions.Length)
+        {
+            throw new InvalidOperationException($"TIR buffer {name} type rank {rankedShape.Rank} does not match buffer rank {dimensions.Length}.");
+        }
+
+        if (strides.Length != dimensions.Length)
+        {
+            throw new InvalidOperationException($"TIR buffer {name} stride rank {strides.Length} does not match buffer rank {dimensions.Length}.");
+        }
+
         Name = name;
-        ElemType = elemType;
+        Type = type;
+        TensorType = tensorType;
         Rank = dimensions.Length;
-        DistributedType = distributedType;
     }
 
     public string Name { get; }
 
-    public DataType ElemType { get; }
+    public IRType Type { get; }
+
+    public TensorType TensorType { get; }
+
+    public DataType ElemType => TensorType.DType;
 
     /// <summary>
     /// Gets rank of the tensor: number of dimensions.
@@ -58,12 +78,10 @@ public sealed class Buffer : Expr
     /// </summary>
     public ReadOnlySpan<Dimension> Strides => SpanUtility.UnsafeCast<BaseExpr, Dimension>(Operands[(1 + Rank)..(1 + Rank + Rank)]);
 
-    public DistributedType? DistributedType { get; }
-
     public override TExprResult Accept<TExprResult, TTypeResult, TContext>(ExprFunctor<TExprResult, TTypeResult, TContext> functor, TContext context) => functor.VisitBuffer(this, context);
 
-    public Buffer With(string? name = null, DataType? elemType = null, MemSpan? memSpan = null, Dimension[]? dimensions = null, Dimension[]? strides = null, Expr[]? globalShape = null, DistributedType? distributedType = null)
-        => new Buffer(name ?? Name, elemType ?? ElemType, memSpan ?? MemSpan, dimensions ?? Dimensions.ToArray(), strides ?? Strides.ToArray(), distributedType ?? DistributedType);
+    public Buffer With(string? name = null, IRType? type = null, MemSpan? memSpan = null, Dimension[]? dimensions = null, Dimension[]? strides = null, Expr[]? globalShape = null)
+        => new Buffer(name ?? Name, type ?? Type, memSpan ?? MemSpan, dimensions ?? Dimensions.ToArray(), strides ?? Strides.ToArray());
 
     /// <inheritdoc/>
     public override bool Equals(object? obj)
@@ -73,8 +91,15 @@ public sealed class Buffer : Expr
             return true;
         }
 
-        return obj is TIR.Buffer other && GetHashCode() == other.GetHashCode() && Name == other.Name && ElemType == other.ElemType && Rank == other.Rank && Operands.SequenceEqual(other.Operands);
+        return obj is TIR.Buffer other && GetHashCode() == other.GetHashCode() && Name == other.Name && Type == other.Type && Rank == other.Rank && Operands.SequenceEqual(other.Operands);
     }
 
-    protected override int GetHashCodeCore() => HashCode.Combine(Name, ElemType, Rank, base.GetHashCodeCore());
+    protected override int GetHashCodeCore() => HashCode.Combine(Name, Type, Rank, base.GetHashCodeCore());
+
+    private static TensorType GetTensorType(IRType type, string name) => type switch
+    {
+        TensorType tensorType => tensorType,
+        DistributedType distributedType => distributedType.TensorType,
+        _ => throw new InvalidOperationException($"TIR buffer {name} requires TensorType or DistributedType, got {type}."),
+    };
 }

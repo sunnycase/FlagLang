@@ -10,7 +10,7 @@
 
 ## 验收标准
 
-以下标准按 TDD 思路组织。每项都包含正向测试和负向测试，且所有失败路径必须 fail fast，不能静默退回旧 `MemoryLocation.Data`、non-tiled pipeline、gmem 或 local memory。
+以下标准按 TDD 思路组织。每项都包含正向测试和负向测试，且所有失败路径必须 fail fast，不能静默退回 implicit thread-local temp storage、non-tiled pipeline、gmem 或 local memory。
 
 - AC-1: Buffer storage model 拆分 usage、visibility/scope 和 physical location
   - 正向测试（预期通过）:
@@ -22,7 +22,7 @@
   - 负向测试（预期失败）:
     - 新增 code 把 usage、scope 和 physical location 拼回同一个 enum value 时，static/verifier test 失败。
     - `GpuRegister` buffer 被建成 addressable `MemSpan` 或可动态取地址 buffer 时，verifier 失败。
-    - transient intermediate 没有明确 storage decision 却被创建成 `MemoryLocation.Data` 或等价旧路径时，pipeline test 失败。
+    - transient intermediate 没有明确 storage decision 却被创建成 implicit thread-local temp storage 时，pipeline test 失败。
 
 - AC-2: `DistributedType` 支持双向 `DistributionLayout` ownership map
   - 正向测试（预期通过）:
@@ -153,14 +153,14 @@
     - smem/register capacity 失败时，错误信息包含 requested bytes、budget bytes、tile shape、scope、location。
     - affine relation、mask constraint 或 dynamic shape 无法 tile 时，错误信息指向具体 relation 或 dimension。
   - 负向测试（预期失败）:
-    - 任何 unsupported case 自动退回 `MemoryLocation.Data`、gmem、local mem、旧 `AutoTilePass` 成功路径或 non-tiled pipeline 时，negative test 失败。
+    - 任何 unsupported case 自动退回 implicit thread-local temp storage、gmem、local mem、旧 `AutoTilePass` 成功路径或 non-tiled pipeline 时，negative test 失败。
     - error message 只有通用 `NotSupportedException` 且没有可定位上下文时，diagnostic quality test 失败。
 
 ## 路径边界
 
 ### 上界（最大可接受范围）
 
-完整实现 buffer/distribution/storage model 改造，启用主 pipeline tiling，支持 direct `IR.Affine.Gather/Scatter` 的 register-resident elementwise tile 和 block-local smem tile，完成 verifier、bufferization、codegen、PTX/SASS artifact 检查、vector add 端到端性能门禁和一个 smem 复用 microkernel。允许迁移现有 `MemoryLocation`、`DistributedType`、`TIR.Buffer`、`PhysicalBuffer`、bufferize scheduler、NTT CUDA codegen 和相关 tests。
+完整实现 buffer/distribution/storage model 改造，启用主 pipeline tiling，支持 direct `IR.Affine.Gather/Scatter` 的 register-resident elementwise tile 和 block-local smem tile，完成 verifier、bufferization、codegen、PTX/SASS artifact 检查、vector add 端到端性能门禁和一个 smem 复用 microkernel。允许迁移现有 `DistributedType`、`TIR.Buffer`、`PhysicalBuffer`、bufferize scheduler、NTT CUDA codegen 和相关 tests。
 
 ### 下界（最小可接受范围）
 
@@ -179,7 +179,6 @@
 - 可以使用: 现有 `AutoTilePass`、`GraphTiler`、`TileGraph` 和 OR-Tools 代码作为实现参考，但必须支持当前 direct `IR.Affine.Gather/Scatter` route，不能只支持旧 `IR.Affine.Grid`。
 - 可以使用: 受限 index map 表达 affine、floordiv、mod、power-of-two permutation、xor swizzle 和 named map primitive。
 - 可以使用: named map primitive 表达 Triton blocked layout、MMA fragment layout、non-affine swizzle，但每个 primitive 必须有 forward、inverse、domain、cost features 和 codegen lowering。
-- 可以使用: 兼容适配层让旧 `MemoryLocation` 暂时映射到新 `BufferStorage`，但新增逻辑必须消费新模型。
 - 可以使用: 先用确定性 tile policy，后续再接 cost model/autotune。
 - 不可以使用: 手写 vector-add 特例、Python backend PTX shortcut、hidden non-tiled fallback、旧 cache、`/tmp` dump、缺失 `test.runsettings` 的 managed test。
 - 不可以使用: 将 smem bank swizzle 放进 `DistributionLayout` 并改变 owner 语义。
@@ -209,9 +208,9 @@ global logical index
 ### 相关引用
 
 - `src/Nncase.Core/DistributedType.cs` - 当前 `SBP`、`Placement`、`DistributedType` 定义，新增 `DistributionLayout` 的主要入口。
-- `src/Nncase.Core/IR/Buffers/Uninitialized.cs` - 当前 buffer usage 和 `MemoryLocation` 入口，需要迁移到 `BufferStorage`。
+- `src/Nncase.Core/IR/Buffers/Uninitialized.cs` - buffer storage 入口，必须直接消费 `BufferStorage`。
 - `src/Nncase.Core/IR/Buffers/Functional.cs` - buffer construction API，需要新增 storage-aware overload。
-- `src/Nncase.Core/TIR/PhysicalBuffer.cs` - 当前 `MemoryLocation` 定义和 physical buffer，需拆分 storage 语义。
+- `src/Nncase.Core/TIR/PhysicalBuffer.cs` - physical buffer 必须只持有 `BufferStorage`，不得恢复组合 memory-location API。
 - `src/Nncase.Core/TIR/Buffer.cs` - TIR buffer 持有 `MemSpan`、shape、stride、`DistributedType`，需接入 storage/layout。
 - `src/Nncase.Core/TIR/Script.cs` - `T.CreateBuffer` / `AttachBuffer` API，需要 storage-aware construction。
 - `src/Nncase.Diagnostics/Diagnostics/ScriptPrintVisitor.cs` - dump 新模型的关键位置。
@@ -221,12 +220,12 @@ global logical index
 - `src/Nncase.Compiler/Compiler.cs` - `CompileAsync` 主 pipeline，启用 tiling 阶段的位置。
 - `src/Nncase.Schedule/Transforms/AutoTilePass.cs` - 旧 tiling pass，可作为结构参考。
 - `src/Nncase.Schedule/Schedule/GraphTiler.cs` - 旧 graph tiler 和 cost/schedule 逻辑。
-- `src/Nncase.Schedule/Schedule/TileGraph/PrimGraphSolveResult.cs` - 旧 `MemoryLocation.Cache` physical buffer 生成点。
-- `src/Nncase.Schedule/Transforms/TIRSelectionPass.cs` - 当前默认 `MemoryLocation.Data` 的中间 buffer 分配点。
+- `src/Nncase.Schedule/Schedule/TileGraph/PrimGraphSolveResult.cs` - tile storage decision 和 addressable physical buffer 生成点。
+- `src/Nncase.Schedule/Transforms/TIRSelectionPass.cs` - implicit thread-local temp storage 的中间 buffer 分配点，必须由显式 storage decision 驱动。
 - `src/Nncase.Schedule/Schedule/Bufferize/BufferizeVisitor.cs` - buffer lifetime、pool size、data/warp/block local pool 分配。
 - `src/modules/Nncase.Modules.NTT/Passes/NTTAffineIOLoweringPass.cs` - tile-aware affine IO lowering 的主要落点。
 - `src/modules/Nncase.Modules.NTT/CodeGen/CPU/KernelCSourceConvertVisitor.cs` - TIR buffer 到 CUDA/NTT source 的主要 visitor。
-- `src/modules/Nncase.Modules.NTT/CodeGen/CPU/DeviceCSourceConvertVisitor.cs` - `MemoryLocation.Cache` 到 `tar::get_cache_address<level>()` 的现有路径。
+- `src/modules/Nncase.Modules.NTT/CodeGen/CPU/DeviceCSourceConvertVisitor.cs` - thread-local addressable storage 到 runtime address pool 的路径。
 - `src/modules/Nncase.Modules.NTT/CodeGen/CPU/Templates/thread_main.cpp.cshtml` - CUDA entry 中 local data pool 生成点。
 - `ntt/src/cuda_runtime.cu` - CUDA runtime thread/warp/block local data pool 与 shared context。
 - `python/tutorials/01-vector-add.py` - register path 的端到端验收用例。
@@ -248,7 +247,7 @@ global logical index
    - 增加 tiling dump 和 capacity/lifetime diagnostics。
 
 3. 改造 TIR selection 和 bufferization
-   - 阻断 `TIRSelectionPass` 对 tiling-eligible intermediate 默认创建 `MemoryLocation.Data`。
+   - 阻断 `TIRSelectionPass` 对 tiling-eligible intermediate 默认创建 implicit thread-local temp storage。
    - 让 bufferization 按 `BufferStorage + StorageLayout + Lifetime` 分配 addressable storage。
    - 对 register path 保持 SSA/scalar/register fragment，不进入 addressable buffer pool。
    - 对 smem path 分配 block-local storage，并做 lifetime slot reuse。

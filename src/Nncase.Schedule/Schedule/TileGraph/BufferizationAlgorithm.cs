@@ -68,6 +68,11 @@ public sealed class BufferizationAlgorithm : AlgorithmBase<TieredTileGraph>
             Visit(rootGraph, rootBufferGraph, rootGraph);
             foreach (var edge in rootGraph.Edges)
             {
+                if (!edge.Source.HasOutput)
+                {
+                    throw new InvalidOperationException("Effect-only Grid cannot be used as a producer.");
+                }
+
                 var source = new BufferIdentity(edge.Source, edge.Source.ReadAccesses.Length);
                 var target = new BufferIdentity(edge.Target, edge.Tag);
                 rootBufferGraph.AddEdge(new(source, target, BufferEdgeKind.Inter));
@@ -85,10 +90,21 @@ public sealed class BufferizationAlgorithm : AlgorithmBase<TieredTileGraph>
             foreach (var item in graph.Vertices)
             {
                 opnodes.Add(item);
-                var outBid = new BufferIdentity(item, item.ReadAccesses.Length);
-                for (int i = 0; i < item.ReadAccesses.Length; i++)
+                if (item.HasOutput)
                 {
-                    bufferGraph.AddVerticesAndEdge(new(new(item, i), outBid, BufferEdgeKind.Intra));
+                    var outBid = new BufferIdentity(item, item.ReadAccesses.Length);
+                    bufferGraph.AddVertex(outBid);
+                    for (int i = 0; i < item.ReadAccesses.Length; i++)
+                    {
+                        bufferGraph.AddVerticesAndEdge(new(new(item, i), outBid, BufferEdgeKind.Intra));
+                    }
+                }
+                else
+                {
+                    for (int i = 0; i < item.ReadAccesses.Length; i++)
+                    {
+                        bufferGraph.AddVertex(new(item, i));
+                    }
                 }
             }
         }
@@ -109,6 +125,11 @@ public sealed class BufferizationAlgorithm : AlgorithmBase<TieredTileGraph>
         {
             if (opnodes.Contains(edge.Source) && opnodes.Contains(edge.Target))
             {
+                if (!edge.Source.HasOutput)
+                {
+                    throw new InvalidOperationException("Effect-only Grid cannot be used as a producer.");
+                }
+
                 var source = new BufferIdentity(edge.Source, edge.Source.ReadAccesses.Length);
                 var target = new BufferIdentity(edge.Target, edge.Tag);
                 bufferGraph.AddEdge(new(source, target, BufferEdgeKind.Inter));

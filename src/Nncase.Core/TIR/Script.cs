@@ -223,60 +223,69 @@ public static class T
     /// <summary>
     /// create the buffer by tensortype.
     /// </summary>
-    public static Var CreateBufferVar(TensorType tensorType, out Var buffer, [CallerArgumentExpression("buffer")] string name = "", DistributedType? distributedType = null)
+    public static Var CreateBufferVar(TensorType tensorType, out Var buffer, [CallerArgumentExpression("buffer")] string name = "")
+    {
+        return CreateBufferVar((IRType)tensorType, out buffer, name);
+    }
+
+    public static Var CreateBufferVar(IRType type, out Var buffer, [CallerArgumentExpression("buffer")] string name = "")
     {
         if (name.StartsWith("var "))
         {
             name = name[4..];
         }
 
-        buffer = new Var(name, (IRType?)distributedType ?? tensorType);
+        _ = GetBufferTensorType(type, name);
+        buffer = new Var(name, type);
         return buffer;
     }
 
     /// <summary>
     /// create the buffer by tensortype.
     /// </summary>
-    public static Buffer CreateBuffer(TensorType tensorType, MemoryLocation location, out Buffer buffer, [CallerArgumentExpression("buffer")] string name = "", DistributedType? distributedType = null)
-        => CreateBuffer(tensorType, BufferStorage.FromLegacy(location), out buffer, name, distributedType);
+    public static Buffer CreateBuffer(TensorType tensorType, BufferStorage storage, out Buffer buffer, [CallerArgumentExpression("buffer")] string name = "")
+    {
+        return CreateBuffer((IRType)tensorType, storage, out buffer, name);
+    }
 
-    /// <summary>
-    /// create the buffer by tensortype.
-    /// </summary>
-    public static Buffer CreateBuffer(TensorType tensorType, BufferStorage storage, out Buffer buffer, [CallerArgumentExpression("buffer")] string name = "", DistributedType? distributedType = null)
+    public static Buffer CreateBuffer(IRType type, BufferStorage storage, out Buffer buffer, [CallerArgumentExpression("buffer")] string name = "")
     {
         if (name.StartsWith("var "))
         {
             name = name[4..];
         }
 
+        var tensorType = GetBufferTensorType(type, name);
         var alignment = tensorType.DType.SizeInBytes;
         var dimensions = ((RankedShape)tensorType.Shape).Dimensions.ToArray();
         (var size, var strides) = storage.Usage is BufferUsage.Input or BufferUsage.Output
-            ? TensorUtilities.GetTensorSizeAndContiguousStrides(tensorType, distributedType)
-            : TensorUtilities.GetTensorMaxSizeAndStridesExpr(tensorType, distributedType);
+            ? TensorUtilities.GetTensorSizeAndContiguousStrides(type)
+            : TensorUtilities.GetTensorMaxSizeAndStridesExpr(type);
         var physicalBuffer = new PhysicalBuffer(alignment, size, storage);
-        buffer = new Buffer(name, tensorType.DType, new MemSpan(physicalBuffer), dimensions, strides, distributedType);
+        buffer = new Buffer(name, type, new MemSpan(physicalBuffer), dimensions, strides);
         return buffer;
     }
 
-    public static Buffer AttachBuffer(Expr start, TensorType tensorType, MemoryLocation location, int hierarchy, out Buffer buffer, [CallerArgumentExpression("buffer")] string name = "", DistributedType? distributedType = null)
-        => AttachBuffer(start, tensorType, BufferStorage.FromLegacy(location, hierarchy), out buffer, name, distributedType);
+    public static Buffer AttachBuffer(Expr start, TensorType tensorType, BufferStorage storage, out Buffer buffer, [CallerArgumentExpression("buffer")] string name = "")
+    {
+        return AttachBuffer(start, (IRType)tensorType, storage, out buffer, name);
+    }
 
-    public static Buffer AttachBuffer(Expr start, TensorType tensorType, BufferStorage storage, out Buffer buffer, [CallerArgumentExpression("buffer")] string name = "", DistributedType? distributedType = null)
+    public static Buffer AttachBuffer(Expr start, IRType type, BufferStorage storage, out Buffer buffer, [CallerArgumentExpression("buffer")] string name = "")
     {
         if (name.StartsWith("var "))
         {
             name = name[4..];
         }
 
+        var tensorType = GetBufferTensorType(type, name);
         var alignment = tensorType.DType.SizeInBytes;
         var dimensions = ((RankedShape)tensorType.Shape).Dimensions.ToArray();
         (var size, var strides) = storage.Usage is BufferUsage.Input or BufferUsage.Output
-            ? TensorUtilities.GetTensorSizeAndContiguousStrides(tensorType, distributedType)
-            : TensorUtilities.GetTensorMaxSizeAndStridesExpr(tensorType, distributedType);
+            ? TensorUtilities.GetTensorSizeAndContiguousStrides(type)
+            : TensorUtilities.GetTensorMaxSizeAndStridesExpr(type);
         var physicalBuffer = new PhysicalBuffer(alignment, start, size, storage);
-        buffer = new Buffer(name, tensorType.DType, new MemSpan(physicalBuffer), dimensions, strides, distributedType);
+        buffer = new Buffer(name, type, new MemSpan(physicalBuffer), dimensions, strides);
         return buffer;
     }
 
@@ -290,11 +299,13 @@ public static class T
             name = name[4..];
         }
 
-        var alignment = @const.Value.ElementType.SizeInBytes;
+        var type = @const.ValueType;
+        var tensorType = GetBufferTensorType(type, name);
+        var alignment = tensorType.DType.SizeInBytes;
         var dimensions = @const.Value.Dimensions.AsValueEnumerable().Select(x => (Dimension)x).ToArray();
-        (var maxSize, var strides) = TensorUtilities.GetTensorMaxSizeAndStrides(@const.CheckedTensorType, @const.ValueType as DistributedType);
-        var physicalBuffer = new PhysicalBuffer(alignment, IR.F.Buffer.AddressOf(@const), maxSize, @const.GetMemoryLocation());
-        buffer = new Buffer(name, @const.CheckedDataType, new MemSpan(physicalBuffer), dimensions, strides.Select(i => (Dimension)i).ToArray(), @const.ValueType as DistributedType);
+        (var maxSize, var strides) = TensorUtilities.GetTensorMaxSizeAndStrides(type);
+        var physicalBuffer = new PhysicalBuffer(alignment, IR.F.Buffer.AddressOf(@const), maxSize, @const.GetBufferStorage());
+        buffer = new Buffer(name, type, new MemSpan(physicalBuffer), dimensions, strides.Select(i => (Dimension)i).ToArray());
         return buffer;
     }
 
@@ -372,4 +383,11 @@ public static class T
     public static Call MatchBuffer(TIR.Buffer buffer) => new Call(new IR.Buffers.MatchBuffer(), buffer);
 
     public static Return Return(params Expr[] values) => new Return(values);
+
+    private static TensorType GetBufferTensorType(IRType type, string name) => type switch
+    {
+        TensorType tensorType => tensorType,
+        DistributedType distributedType => distributedType.TensorType,
+        _ => throw new InvalidOperationException($"TIR buffer {name} requires TensorType or DistributedType, got {type}."),
+    };
 }

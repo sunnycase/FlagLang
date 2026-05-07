@@ -2,6 +2,7 @@
 // Licensed under the Apache license. See LICENSE file in the project root for full license information.
 
 using System.Reactive;
+using System.Text;
 using Google.OrTools.ConstraintSolver;
 using Microsoft.Extensions.DependencyInjection;
 using NetFabric.Hyperlinq;
@@ -29,6 +30,13 @@ public sealed class GraphTiler
         int[] memCapacities = targetOptions.MemoryCapacities;
         int[] memBandWidths = targetOptions.MemoryBandWidths;
         var levelCount = memCapacities.Length - 1;
+        if (levelCount > targetOptions.MemoryHierarchyLevels.Length)
+        {
+            throw new InvalidOperationException(
+                $"Auto tiling has {levelCount} storage levels from MemoryCapacities, but target defines only " +
+                $"{targetOptions.MemoryHierarchyLevels.Length} memory hierarchy levels.");
+        }
+
         TreeSolverInitializer.Init(primTree, bufferGraphMemo, levelCount, targetOptions, out var solver, out var opNodeMemo, out var tileNodeMemo, out var tileableNodeMemo);
 
         // 0. each level buffer store at last accessed loop.
@@ -453,7 +461,7 @@ public sealed class GraphTiler
         }
     }
 
-    public (Dictionary<BufferIdentity, Expr> ArgumentMemo, long ObjectValue) SolveRootGraph(TieredTileGraph rootGraph, string moduleKind, INTTTargetOptions targetOptions, DimVar[] dynamicDimVars)
+    public (Dictionary<BufferIdentity, Expr> ArgumentMemo, Dictionary<Grid, Expr> EffectMemo, long ObjectValue) SolveRootGraph(TieredTileGraph rootGraph, string moduleKind, INTTTargetOptions targetOptions, DimVar[] dynamicDimVars)
     {
         if (Diagnostics.DumpScope.Current.IsEnabled(Diagnostics.DumpFlags.Tiling))
         {
@@ -491,6 +499,7 @@ public sealed class GraphTiler
         var rootTree = TileNode.FromTileGraph(rootGraph, out var treeGraphMemo);
 
         var argumentMemo = bufferGraphMemo[rootGraph].GetInputsOutputs(null).Inputs.ToDictionary(k => k, k => k.Node.Grid.GetArgument(k.Index));
+        var effectMemo = new Dictionary<Grid, Expr>(ReferenceEqualityComparer.Instance);
         long objectValue = 0;
         foreach (var (primGraph, i) in condensedGraph.TopologicalSort().Select((s, i) => (s, i)))
         {
@@ -509,11 +518,14 @@ public sealed class GraphTiler
                 var initOffsets = Enumerable.Repeat(new DimConst(0), primTree.DomainBoundExprs.Length).ToArray();
                 var initBounds = primTree.DomainBoundExprs.ToArray();
                 result.Visit(primTree, new(bodyBuilder, initOffsets, initBounds));
-                var parameters = inputBids.Select(k => result.InputOutputVars[k]).Concat(
-                    dynamicDimVars.Select(v => (IVar)v.With())).Concat(
-                    outputBids.Select(k => result.InputOutputVars[k])).ToArray();
-                var funcBuilder = T.PrimFunc(funcName, moduleKind, parameters).Body(bodyBuilder);
+                var body = bodyBuilder.Build();
+                var inputParameters = inputBids.Select(k => result.InputOutputVars[k]).ToArray();
+                var outputParameters = outputBids.Select(k => result.InputOutputVars[k]).ToArray();
+                var captureArguments = CollectCaptureArguments(body, inputParameters.Concat(outputParameters), dynamicDimVars);
+                var parameters = inputParameters.Concat(captureArguments).Concat(outputParameters).ToArray();
+                var funcBuilder = T.PrimFunc(funcName, moduleKind, parameters).Body(body);
                 var primFunc = funcBuilder.Build();
+                TilingDumpWriter.Dump(result, primFunc, maxAlign);
                 {
                     // note noneed to rewrite shapeof, because we don't use shapeof new.
                     // var gridBufferToVarMap = inputBids.Concat(outputBids).Select(bid => bid.Node.Grid.GetArgument(bid.Index)).Zip(parameters.Where(p => p is not DimVar)).ToDictionary(p => p.First, p => (Expr)p.Second, (IEqualityComparer<Expr>)ReferenceEqualityComparer.Instance);
@@ -523,7 +535,12 @@ public sealed class GraphTiler
 
                 primFunc.SchedResult.IsScheduled = true; // avoid buffersize pass schedule it again.
                 primFunc.SchedResult.DataAlign = (ulong)maxAlign;
-                tiled = new(new PrimFunctionWrapper(primFunc, inputBids.Count + dynamicDimVars.Length, inputBids.Select(bid => bid.Node.Grid.GetArgument(bid.Index).CheckedType).Concat(dynamicDimVars.Select(v => new DimensionType(DimensionKind.Dynamic))).Concat(outputBids.Select(bid => bid.Node.Grid.GetArgument(bid.Index).CheckedType)).ToArray()), result.ObjectiveValue);
+                var inputCount = inputParameters.Length + captureArguments.Length;
+                var typeHints = inputBids.Select(bid => bid.Node.Grid.GetArgument(bid.Index).CheckedType)
+                    .Concat(captureArguments.Select(v => v.CheckedType))
+                    .Concat(outputBids.Select(bid => bid.Node.Grid.GetArgument(bid.Index).CheckedType))
+                    .ToArray();
+                tiled = new(new PrimFunctionWrapper(primFunc, inputCount, typeHints), captureArguments.Cast<BaseExpr>().ToArray(), result.ObjectiveValue);
                 SolveMemo.Add(primTree, tiled);
             }
             else
@@ -532,7 +549,14 @@ public sealed class GraphTiler
             }
 
             objectValue += tiled.ObjectValue;
-            var finalCall = new Call(tiled.Func, inputBids.Select(bid => argumentMemo[bid]).Concat(dynamicDimVars.OfType<BaseExpr>()).ToArray());
+            var finalCall = new Call(tiled.Func, inputBids.Select(bid => argumentMemo[bid]).Concat(tiled.CaptureArguments).ToArray());
+            if (outputBids.Count == 0)
+            {
+                foreach (var effectGrid in primGraph.Vertices.Where(grid => !grid.HasOutput && primGraph.OutDegree(grid) == 0))
+                {
+                    effectMemo.TryAdd(effectGrid.Grid, finalCall);
+                }
+            }
 
             // save the output.
             foreach (var (outputBid, outputIndex) in outputBids.Select((b, i) => (b, i)))
@@ -563,12 +587,19 @@ public sealed class GraphTiler
             }
         }
 
-        return (argumentMemo, objectValue);
+        return (argumentMemo, effectMemo, objectValue);
     }
 
     public BaseExpr Tile(BaseExpr preExpr, string moduleKind, INTTTargetOptions targetOptions, DimVar[] dynamicDimVars)
     {
         var levelCount = targetOptions.MemoryCapacities.Length - 1;
+        if (levelCount > targetOptions.MemoryHierarchyLevels.Length)
+        {
+            throw new InvalidOperationException(
+                $"Auto tiling has {levelCount} storage levels from MemoryCapacities, but target defines only " +
+                $"{targetOptions.MemoryHierarchyLevels.Length} memory hierarchy levels.");
+        }
+
         var rootGraph = TieredTileGraphBuilder.Build(preExpr, levelCount, out var exprMemo);
 #if false
         if (Diagnostics.DumpScope.Current.IsEnabled(Diagnostics.DumpFlags.Tiling))
@@ -602,6 +633,23 @@ public sealed class GraphTiler
         }
 
         var bestState = (MCTState)searcher.BestMCTNode!.State;
+        if (Diagnostics.DumpScope.Current.IsEnabled(Diagnostics.DumpFlags.Tiling))
+        {
+            var rolloutDump = $"RollOut{bestState.SearchPath()}";
+            using var stream = Diagnostics.DumpScope.Current.OpenFile("best_tiling.md");
+            using var writer = new StreamWriter(stream, new UTF8Encoding(false));
+            writer.WriteLine("# Best Auto Tiling");
+            writer.WriteLine();
+            writer.WriteLine($"- search_path: {bestState.SearchPath()}");
+            writer.WriteLine($"- rollout_dump: {rolloutDump}");
+            writer.WriteLine($"- objective: {bestState.ObjectValue}");
+            writer.WriteLine($"- summary_glob: {rolloutDump}/device_func*/auto_tiling_summary.md");
+            writer.WriteLine($"- dot_glob: {rolloutDump}/device_func*/auto_tiling_schedule.dot");
+            writer.WriteLine($"- svg_glob: {rolloutDump}/device_func*/auto_tiling_schedule.svg");
+            writer.WriteLine();
+            writer.WriteLine("Each rollout device function also keeps root_tile_graph.dot, root_buffer_graph.dot, root_condensed_graph.dot, and modeling.yaml.");
+        }
+
         var replaces = new Dictionary<BaseExpr, BaseExpr>();
 
         foreach (var (bid, value) in bestState.ArgumentMemo)
@@ -612,6 +660,11 @@ public sealed class GraphTiler
             {
                 replaces.Add(oldExpr, value);
             }
+        }
+
+        foreach (var (grid, value) in bestState.EffectMemo)
+        {
+            replaces.TryAdd(grid, value);
         }
 
         var cloner = new ReplacingExprCloner(replaces);
@@ -642,7 +695,126 @@ public sealed class GraphTiler
         }
     }
 
-    public sealed record TiledFunc(PrimFunctionWrapper Func, long ObjectValue)
+    private static IVar[] CollectCaptureArguments(Sequential body, IEnumerable<IVar> explicitParameters, IReadOnlyList<DimVar> dynamicDimVars)
+    {
+        var explicitSet = new HashSet<IVar>(explicitParameters, ReferenceEqualityComparer.Instance);
+        var bound = CollectBoundVars(body);
+        bound.UnionWith(explicitSet);
+
+        var captures = new List<IVar>();
+        var seen = new HashSet<IVar>(ReferenceEqualityComparer.Instance);
+        var seenDimCaptures = new Dictionary<string, DimVar>(StringComparer.Ordinal);
+
+        foreach (var var in dynamicDimVars)
+        {
+            AddCapture(var);
+        }
+
+        foreach (var var in ExprCollector.Collect(body).OfType<IVar>())
+        {
+            AddCapture(var);
+        }
+
+        foreach (var attribute in CollectCallAttributeExprs(body))
+        {
+            foreach (var var in ExprCollector.Collect(attribute).OfType<IVar>())
+            {
+                AddCapture(var);
+            }
+        }
+
+        return captures.ToArray();
+
+        void AddCapture(IVar var)
+        {
+            if (bound.Contains(var) || !seen.Add(var))
+            {
+                return;
+            }
+
+            if (var.CheckedType is AnyType)
+            {
+                throw new InvalidOperationException($"Auto tiling cannot capture untyped variable {var.Name}.");
+            }
+
+            if (var is DimVar dimVar && !TryAddDimCapture(dimVar))
+            {
+                return;
+            }
+
+            captures.Add(var);
+        }
+
+        bool TryAddDimCapture(DimVar dimVar)
+        {
+            if (!seenDimCaptures.TryGetValue(dimVar.Name, out var existing))
+            {
+                seenDimCaptures.Add(dimVar.Name, dimVar);
+                return true;
+            }
+
+            if (!Equals(existing.CheckedType, dimVar.CheckedType) ||
+                existing.Metadata.Range != dimVar.Metadata.Range)
+            {
+                throw new InvalidOperationException(
+                    $"Auto tiling found conflicting dynamic dimension captures named {dimVar.Name}: " +
+                    $"existing type/range=({existing.CheckedType}, {existing.Metadata.Range}), " +
+                    $"new type/range=({dimVar.CheckedType}, {dimVar.Metadata.Range}).");
+            }
+
+            return false;
+        }
+    }
+
+    private static HashSet<IVar> CollectBoundVars(BaseExpr body)
+    {
+        var bound = new HashSet<IVar>(ReferenceEqualityComparer.Instance);
+        foreach (var expr in ExprCollector.Collect(body))
+        {
+            switch (expr)
+            {
+                case TIR.For forExpr:
+                    bound.Add(forExpr.LoopVar);
+                    break;
+                case Let let:
+                    bound.Add(let.Var);
+                    break;
+                case Sequential sequential:
+                    foreach (var parameter in sequential.Parameters)
+                    {
+                        bound.Add(parameter);
+                    }
+
+                    break;
+            }
+        }
+
+        return bound;
+    }
+
+    private static IEnumerable<BaseExpr> CollectCallAttributeExprs(BaseExpr body)
+    {
+        const System.Reflection.BindingFlags Flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public;
+        foreach (var call in ExprCollector.Collect(body).OfType<Call>())
+        {
+            foreach (var property in call.Target.GetType().GetProperties(Flags))
+            {
+                if (property.DeclaringType != call.Target.GetType() ||
+                    property.GetIndexParameters().Length != 0 ||
+                    !typeof(Shape).IsAssignableFrom(property.PropertyType))
+                {
+                    continue;
+                }
+
+                if (property.GetValue(call.Target) is BaseExpr expr)
+                {
+                    yield return expr;
+                }
+            }
+        }
+    }
+
+    public sealed record TiledFunc(PrimFunctionWrapper Func, BaseExpr[] CaptureArguments, long ObjectValue)
     {
     }
 

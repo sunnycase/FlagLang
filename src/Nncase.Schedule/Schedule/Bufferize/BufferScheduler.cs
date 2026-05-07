@@ -28,11 +28,6 @@ public abstract class BufferScheduler
 
     public BufferStorage Storage { get; }
 
-    public MemoryLocation MemoryLocation => Storage.ToLegacyMemoryLocation();
-
-    public static BufferScheduleResult Schedule(MemoryLocation memoryLocation, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> lifetimes, BufferScheduleOptions options) =>
-        Schedule(BufferStorage.FromLegacy(memoryLocation), lifetimes, options);
-
     public static BufferScheduleResult Schedule(BufferStorage storage, IReadOnlyDictionary<TIR.PhysicalBuffer, BufferLifetime> lifetimes, BufferScheduleOptions options)
     {
         storage = storage.WithoutAlignment();

@@ -10,9 +10,21 @@ namespace Nncase.Evaluator.Buffers;
 /// <summary>
 /// Evaluator for BufferOf.
 /// </summary>
-[TypeInferGenerator]
 public partial class BufferStoreEvaluator : ITypeInferencer<BufferStore>, IOpPrinter<BufferStore>
 {
+    public IRType Visit(ITypeInferenceContext context, BufferStore target)
+    {
+        var input = context.CheckArgumentType<IRType>(target, BufferStore.Input);
+        var indices = context.CheckArgumentType<TupleType>(target, BufferStore.Indices);
+        var value = context.CheckArgumentType<TensorType>(target, BufferStore.Value);
+        return input switch
+        {
+            TensorType tensorType => Visit(tensorType, indices, value),
+            DistributedType distributedType => Visit(distributedType, indices, value),
+            _ => new InvalidType($"BufferStore input must be TensorType or DistributedType, got {input}."),
+        };
+    }
+
     public string Visit(IPrintOpContext context, BufferStore target)
     {
         if (context.Flags.HasFlag(PrinterFlags.Inline) || context.Flags.HasFlag(PrinterFlags.Script))
@@ -44,5 +56,10 @@ public partial class BufferStoreEvaluator : ITypeInferencer<BufferStore>, IOpPri
         }
 
         return TupleType.Void;
+    }
+
+    private IRType Visit(DistributedType input, TupleType indices, TensorType value)
+    {
+        return Visit(input.TensorType, indices, value);
     }
 }

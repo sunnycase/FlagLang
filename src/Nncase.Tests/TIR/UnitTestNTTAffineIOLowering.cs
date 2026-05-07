@@ -161,9 +161,10 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
         var temp = CreateVectorBuffer("temp");
         var output = CreateDistributedVectorBuffer("output", globalSize: 4, threadShards: 2);
+        var outputType = Assert.IsType<DistributedType>(output.Type);
         var (relation, symbols) = CreateIdentityRelation();
         var gather = Nncase.TIR.F.NTT.AffineGather(source, None.Default, temp, relation, symbols, new RankedShape(4));
-        var tensorLoad = Nncase.TIR.F.NTT.TensorLoad(output, temp, output.DistributedType!.AxisPolicies, output.DistributedType.Placement);
+        var tensorLoad = Nncase.TIR.F.NTT.TensorLoad(output, temp, outputType.AxisPolicies, outputType.Placement);
         var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(gather, tensorLoad));
 
         var lowered = Assert.IsType<PrimFunction>(await new NTTAffineIOLoweringPass().RunAsync(function, new()));
@@ -186,10 +187,11 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         var source = new Var("source", TensorType.Pointer(DataTypes.Float32));
         var temp = CreateVectorBuffer("temp");
         var output = CreateDistributedVectorBuffer("output", globalSize: 4, threadShards: 2);
+        var outputType = Assert.IsType<DistributedType>(output.Type);
         var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
         var (relation, symbols) = CreateIdentityRelation();
         var gather = Nncase.TIR.F.NTT.AffineGather(source, None.Default, temp, relation, symbols, new RankedShape(4));
-        var tensorLoad = Nncase.TIR.F.NTT.TensorLoad(output, temp, output.DistributedType!.AxisPolicies, output.DistributedType.Placement);
+        var tensorLoad = Nncase.TIR.F.NTT.TensorLoad(output, temp, outputType.AxisPolicies, outputType.Placement);
         var scatter = Nncase.TIR.F.NTT.AffineScatter(temp, dest, relation, symbols);
         var function = new PrimFunction("main", CUDATarget.Kind, T.Sequential(gather, tensorLoad, scatter));
 
@@ -289,7 +291,7 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         var placement = new Placement([2], "t");
         var layout = DistributionLayout.FromAxisPolicies(tensorType, [SBP.S(0)], placement);
         var distributedType = DistributedType.FromLayouts(tensorType, placement, layout);
-        var source = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, "source", distributedType);
+        var source = T.CreateBuffer(distributedType, BufferStorage.ThreadLocalTemp(), out _, "source");
         var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
         var (relation, symbols) = CreateIdentityRelation();
         var call = Nncase.TIR.F.NTT.AffineScatter(source, dest, relation, symbols);
@@ -323,7 +325,7 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
                 ["0<=p0<2"],
                 Inverse: "LogicalToPhysical"));
         var distributedType = DistributedType.FromLayouts(tensorType, placement, layout, storageLayout);
-        var source = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, "source", distributedType);
+        var source = T.CreateBuffer(distributedType, BufferStorage.ThreadLocalTemp(), out _, "source");
         var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
         var (relation, symbols) = CreateIdentityRelation();
         var call = Nncase.TIR.F.NTT.AffineScatter(source, dest, relation, symbols);
@@ -356,7 +358,7 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
                 CTAOrder: [0],
                 ThreadElementOrder: TritonThreadElementOrder.Strided));
         var distributedType = DistributedType.FromLayouts(tensorType, new Placement([2], "t"), layout);
-        var source = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, "source", distributedType);
+        var source = T.CreateBuffer(distributedType, BufferStorage.ThreadLocalTemp(), out _, "source");
         var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
         var (relation, symbols) = CreateIdentityRelation();
         var call = Nncase.TIR.F.NTT.AffineScatter(source, dest, relation, symbols);
@@ -389,7 +391,7 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
                 CTAOrder: [0]));
         var unsupported = baseLayout with { Kind = "xor_swizzle_owner" };
         var distributedType = DistributedType.FromLayouts(tensorType, new Placement([2], "t"), unsupported);
-        var source = T.CreateBuffer(tensorType, MemoryLocation.Data, out _, "source", distributedType);
+        var source = T.CreateBuffer(distributedType, BufferStorage.ThreadLocalTemp(), out _, "source");
         var dest = new Var("dest", TensorType.Pointer(DataTypes.Float32));
         var (relation, symbols) = CreateIdentityRelation();
         var call = Nncase.TIR.F.NTT.AffineScatter(source, dest, relation, symbols);
@@ -416,7 +418,7 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
 
     private static Nncase.TIR.Buffer CreateVectorBuffer(string name)
     {
-        return T.CreateBuffer(new TensorType(DataTypes.Float32, new RankedShape(4)), MemoryLocation.Data, out _, name);
+        return T.CreateBuffer(new TensorType(DataTypes.Float32, new RankedShape(4)), BufferStorage.ThreadLocalTemp(), out _, name);
     }
 
     private static Nncase.TIR.Buffer CreateDistributedVectorBuffer(string name, int globalSize, int threadShards)
@@ -424,7 +426,7 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         var tensorType = new TensorType(DataTypes.Float32, new RankedShape(globalSize));
         var placement = new Placement(new[] { threadShards }, "t");
         var distributedType = new DistributedType(tensorType, new SBP[] { SBP.S(0) }, placement);
-        return T.CreateBuffer(tensorType, MemoryLocation.Data, out _, name, distributedType);
+        return T.CreateBuffer(distributedType, BufferStorage.ThreadLocalTemp(), out _, name);
     }
 
     private static Nncase.TIR.Buffer CreateExplicitDistributedVectorBuffer(string name, int globalSize, int threadShards, Func<Shape, StorageLayout> storageLayoutFactory)
@@ -435,7 +437,7 @@ public sealed class UnitTestNTTAffineIOLowering : TestClassBase
         var distributionLayout = DistributionLayout.FromAxisPolicies(tensorType, axisPolicies, placement);
         var storageLayout = storageLayoutFactory(distributionLayout.LocalShape);
         var distributedType = DistributedType.FromLayouts(tensorType, placement, distributionLayout, storageLayout);
-        return T.CreateBuffer(tensorType, MemoryLocation.Data, out _, name, distributedType);
+        return T.CreateBuffer(distributedType, BufferStorage.ThreadLocalTemp(), out _, name);
     }
 
     private static StorageLayout CreateReverseLocalStorageLayout(Shape localShape)

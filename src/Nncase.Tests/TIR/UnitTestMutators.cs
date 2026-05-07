@@ -30,7 +30,7 @@ public sealed class UnitTestMutators : TestClassBase
     [Fact]
     public void TestFlattenBufferKeepsFlatTypedAccessStable()
     {
-        T.CreateBuffer(new TensorType(DataTypes.Float32, new[] { 4 }), MemoryLocation.Data, out var buffer);
+        T.CreateBuffer(new TensorType(DataTypes.Float32, new[] { 4 }), BufferStorage.ThreadLocalTemp(), out var buffer);
         var load = T.BufferLoad(buffer, 0);
         var store = T.BufferStore(buffer, new Expr[] { 0 }, 1.0f);
         var rewriter = new FlattenBuffer();
@@ -42,7 +42,7 @@ public sealed class UnitTestMutators : TestClassBase
     [Fact]
     public void TestFlattenBufferRewritesMultiDimAccessOnce()
     {
-        T.CreateBuffer(new TensorType(DataTypes.Float32, new[] { 2, 3 }), MemoryLocation.Data, out var buffer);
+        T.CreateBuffer(new TensorType(DataTypes.Float32, new[] { 2, 3 }), BufferStorage.ThreadLocalTemp(), out var buffer);
         var load = T.BufferLoad(buffer, 1, 2);
         var rewriter = new FlattenBuffer();
 
@@ -52,11 +52,52 @@ public sealed class UnitTestMutators : TestClassBase
     }
 
     [Fact]
+    public void TestFlattenBufferResolvesSubviewLetToUnderlyingBuffer()
+    {
+        T.CreateBuffer(new TensorType(DataTypes.Float32, new[] { 8 }), BufferStorage.ThreadLocalTemp(), out var buffer);
+        var view = new Var("view", new TensorType(DataTypes.Float32, new[] { 8 }));
+        var subview = IR.F.Buffer.BufferSubview(
+            view,
+            new RankedShape(new Dimension[] { 1 }),
+            new RankedShape(new Dimension[] { 4 }));
+        var store = new Call(
+            new IR.Buffers.BufferStore(),
+            subview,
+            new IR.Tuple(new Expr[] { 0 }),
+            (Expr)1.0f);
+        var let = new Let(view, IR.F.Buffer.AllocateBufferView(buffer), T.Sequential(store));
+
+        var rewritten = new FlattenBuffer().Rewrite(let);
+        var rewrittenCalls = ExprCollector.Collect(rewritten).OfType<Call>().ToArray();
+        var flattenedStore = Assert.Single(rewrittenCalls.Where(call => call.Target is Store));
+
+        AssertReinterpretHandle(flattenedStore[Store.Handle], DataTypes.Float32);
+        Assert.DoesNotContain(rewrittenCalls, call => call.Target is IR.Buffers.BufferStore or IR.Buffers.BufferLoad);
+        Assert.DoesNotContain(ExprCollector.Collect(rewritten), expr => ReferenceEquals(expr, view));
+    }
+
+    [Fact]
+    public void TestFlattenBufferResolvesPointerSubviewLoad()
+    {
+        var input = Var.Handle("input", DataTypes.Float32);
+        var view = new Var("input_view", TensorType.Pointer(DataTypes.Float32));
+        var load = T.Load(IR.F.Buffer.BufferSubview(view, Shape.Scalar, Shape.Scalar), 7);
+        var let = new Let(view, IR.F.Buffer.BufferSubview(input, Shape.Scalar, Shape.Scalar), T.Sequential(load));
+
+        var rewritten = new FlattenBuffer().Rewrite(let);
+        var flattenedLoad = Assert.Single(ExprCollector.Collect(rewritten).OfType<Call>().Where(call => call.Target is Load));
+
+        Assert.Same(input, flattenedLoad[Load.Handle]);
+        Assert.Equal(7, Assert.IsType<DimConst>(flattenedLoad[Load.Index]).Value);
+        Assert.DoesNotContain(ExprCollector.Collect(rewritten).OfType<Call>(), call => call.Target is IR.Buffers.BufferSubview);
+    }
+
+    [Fact]
     public async Task TestFoldConstCallWithTuple()
     {
         T.CreateBufferVar(new TensorType(DataTypes.BFloat16, new[] { 48 }), out var ddr_if);
-        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 9 }), MemoryLocation.Data, out var glb_if_ping);
-        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 9 }), MemoryLocation.Data, out var glb_if_pong);
+        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 9 }), BufferStorage.ThreadLocalTemp(), out var glb_if_ping);
+        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 9 }), BufferStorage.ThreadLocalTemp(), out var glb_if_pong);
         PrimFunction main;
         {
             main = T.PrimFunc("main", BaseFunction.CPUModuleKind, ddr_if).Body(
@@ -142,8 +183,8 @@ public sealed class UnitTestMutators : TestClassBase
     [Fact]
     public async Task TestUnRollLoopSequential2()
     {
-        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 3, 16, 24, 24 }), MemoryLocation.Input, out var ddr_if);
-        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 3, 10, 5, 9 }), MemoryLocation.Data, out var glb_if);
+        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 3, 16, 24, 24 }), BufferStorage.GlobalInput(), out var ddr_if);
+        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 3, 10, 5, 9 }), BufferStorage.ThreadLocalTemp(), out var glb_if);
 
         PrimFunction main;
         {
@@ -225,8 +266,8 @@ public sealed class UnitTestMutators : TestClassBase
     [Fact]
     public async Task TestUnRollLoopSequential3()
     {
-        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 3, 16, 24, 24 }), MemoryLocation.Input, out var ddr_if);
-        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 3, 10, 5, 9 }), MemoryLocation.Data, out var glb_if);
+        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 3, 16, 24, 24 }), BufferStorage.GlobalInput(), out var ddr_if);
+        T.CreateBuffer(new TensorType(DataTypes.BFloat16, new[] { 3, 10, 5, 9 }), BufferStorage.ThreadLocalTemp(), out var glb_if);
 
         PrimFunction main;
         {
@@ -407,7 +448,7 @@ public sealed class UnitTestMutators : TestClassBase
     {
         T.CreateBufferVar(new(DataTypes.BFloat16, new[] { 3, 16, 24, 24 }), out var ddr_if);
         T.CreateBufferVar(new(DataTypes.BFloat16, new[] { 3, 16, 24, 24 }), out var ddr_of);
-        T.CreateBuffer(new(DataTypes.BFloat16, new[] { 3, 10, 5, 9 }), MemoryLocation.Data, out var glb_if);
+        T.CreateBuffer(new(DataTypes.BFloat16, new[] { 3, 10, 5, 9 }), BufferStorage.ThreadLocalTemp(), out var glb_if);
         var bufferIndexMap = new Dictionary<Expr, int>() {
           { ddr_if, 2 },
           { ddr_of, 4 },

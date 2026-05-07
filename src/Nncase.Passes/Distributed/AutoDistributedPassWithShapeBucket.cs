@@ -144,13 +144,7 @@ public sealed partial class AutoDistributedWithShapeBucketPass : FunctionPass
 
     private TIR.Buffer CreateBuffer(IRType type, BufferStorage storage)
     {
-        var tensorType = type switch
-        {
-            DistributedType dt => dt.TensorType,
-            TensorType tt => tt,
-            _ => throw new ArgumentException($"Unsupported type: {type}"),
-        };
-        return T.CreateBuffer(tensorType, storage, out _, $"buffer_{_bufferIndex++}", type as DistributedType);
+        return T.CreateBuffer(type, storage, out _, $"buffer_{_bufferIndex++}");
     }
 
     private sealed class DistributeConstCloner : ExprCloner<Unit>

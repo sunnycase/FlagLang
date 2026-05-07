@@ -128,9 +128,11 @@ public sealed class TileGrid : ITileable
 
     public ImmutableArray<ImmutableArray<long>> BufferShapes { get; }
 
-    public ReadOnlySpan<AffineMap> ReadAccesses => Grid.AccessMaps[..^1];
+    public bool HasOutput => Grid.HasOutput;
 
-    public AffineMap WriteAccess => Grid.AccessMaps[^1];
+    public ReadOnlySpan<AffineMap> ReadAccesses => HasOutput ? Grid.AccessMaps[..^1] : Grid.AccessMaps;
+
+    public AffineMap WriteAccess => HasOutput ? Grid.AccessMaps[^1] : throw new InvalidOperationException("Effect-only Grid does not have a write access.");
 
     public long GetBufferElemSize(int i) => Grid.Buffers[i].CheckedDataType.SizeInBytes;
 

@@ -41,6 +41,7 @@ cuda_runtime_module::cuda_runtime_module() noexcept
 cuda_runtime_module::~cuda_runtime_module() {
     release_device_section(rdata_);
     release_device_section(thread_local_rdata_);
+    release_device_section(thread_local_cache_);
     release_device_section(warp_local_rdata_);
     release_device_section(block_local_rdata_);
 }
@@ -54,6 +55,17 @@ result<void> cuda_runtime_module::initialize_before_functions(
             this->wdim_ = header.wdim;
             this->bdim_ = header.bdim;
             this->cdim_ = header.cdim;
+            auto cache_levels = reader.template read<int32_t>();
+
+            for (size_t i = 0; i < thread_local_cache_starts_.size(); i++) {
+                if (i < (size_t)cache_levels) {
+                    this->thread_local_cache_starts_[i] =
+                        reader.template read<int32_t>();
+                    reader.template read<int32_t>();
+                } else {
+                    this->thread_local_cache_starts_[i] = -1;
+                }
+            }
             return ok();
         }));
 
@@ -61,6 +73,8 @@ result<void> cuda_runtime_module::initialize_before_functions(
     try_set(rdata_, initialize_section(context, ".rdata"));
     try_set(thread_local_rdata_,
             initialize_section(context, ".thread_local_rdata"));
+    try_set(thread_local_cache_,
+            initialize_section(context, ".thread_local_cache"));
     try_set(warp_local_rdata_,
             initialize_section(context, ".warp_local_rdata"));
     try_set(block_local_rdata_,

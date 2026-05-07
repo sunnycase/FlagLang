@@ -24,7 +24,7 @@ namespace Nncase.CodeGen.NTT;
 /// <summary>
 /// convert single prim function to c source.
 /// </summary>
-internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisposable
+internal class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisposable
 {
     private readonly HashSet<string> _excludedVars = new() { "data", "warp_local_data", "block_local_data" };
     private readonly StringBuilder _kernelBuilder;
@@ -286,17 +286,19 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
             return symbol;
         }
 
-        var dimensions = expr.DistributedType is null ? expr.Dimensions : ((RankedShape)expr.DistributedType.TensorType.Shape).Dimensions;
+        var distributedType = expr.Type as DistributedType;
+        var dimensions = distributedType is null ? expr.Dimensions : ((RankedShape)distributedType.TensorType.Shape).Dimensions;
         var dimensionTypes = dimensions.AsValueEnumerable().Select(x => Visit(x).Type).ToArray();
         var strideTypes = expr.Strides.AsValueEnumerable().Select(x => Visit(x).Type).ToArray();
         var dtypeStr = expr.ElemType.ToC();
         var dimensionStr = $"shape_t<{StringUtility.Join(", ", dimensionTypes)}>";
         var strideStr = $"strides_t<{StringUtility.Join(", ", strideTypes)}>";
 
-        var type = expr.MemSpan.Buffer.Location is MemoryLocation.Rdata or MemoryLocation.ThreadLocalRdata or MemoryLocation.BlockLocalRdata || expr.MemSpan.Buffer.Start is TensorConst
-            ? (expr.DistributedType == null
+        var isConstBuffer = expr.MemSpan.Buffer.Storage is { Usage: BufferUsage.Const, PhysicalLocation: PhysicalMemorySpace.ConstMem };
+        var type = isConstBuffer || expr.MemSpan.Buffer.Start is TensorConst
+            ? (distributedType is null
              ? $"tensor_view<{dtypeStr}, {dimensionStr}, {strideStr}> "
-             : $"sharded_tensor_view<{dtypeStr}, {dimensionStr}, {KernelUtility.ShardingToC(expr.DistributedType)}, {strideStr}> ")
+             : $"sharded_tensor_view<{dtypeStr}, {dimensionStr}, {KernelUtility.ShardingToC(distributedType)}, {strideStr}> ")
             : $"tensor<{dtypeStr}, {dimensionStr}, {strideStr}> ";
 
         symbol = new(type, expr.Name);
@@ -448,7 +450,7 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
                                 Arguments = args.Select(x => new KernelArgument { Symbol = VisitBuffer(x, local: true) }).ToArray(),
                             }).Result,
                             "matmul");
-                        if (args[0] is TIR.Buffer a && a.DistributedType?.AxisPolicies[dimInfo.Lk] is SBPSplit s)
+                        if (args[0] is TIR.Buffer a && a.Type is DistributedType aDistributedType && aDistributedType.AxisPolicies[dimInfo.Lk] is SBPSplit s)
                         {
                             var reduceKind = "tar::reduce_kind::" + string.Join("_", Enumerable.Range(0, TargetOptions.HierarchyNames.Length).Select(i => (s.Axes.Contains(i) ? "r" : string.Empty) + TargetOptions.HierarchyNames[i]));
                             WriteIndWithProfiler($"tac::tensor_reduce_sync<reduce_op::{ReduceOp.Sum.ToC()}, {reduceKind}>({VisitBuffer(args[2], local: true).Name}, {VisitBuffer(args[2], local: true).Name});\n");
@@ -475,7 +477,7 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
                                 Arguments = args.Select(x => new KernelArgument { Symbol = VisitBuffer(x, local: true) }).ToArray(),
                             }).Result,
                             "packed_matmul");
-                        if (args[0] is TIR.Buffer a && a.DistributedType?.AxisPolicies[dimInfo.Lk] is SBPSplit s)
+                        if (args[0] is TIR.Buffer a && a.Type is DistributedType aDistributedType && aDistributedType.AxisPolicies[dimInfo.Lk] is SBPSplit s)
                         {
                             var reduceKind = "tar::reduce_kind::" + string.Join("_", Enumerable.Range(0, TargetOptions.HierarchyNames.Length).Select(i => (s.Axes.Contains(i) ? "r" : string.Empty) + TargetOptions.HierarchyNames[i]));
                             WriteIndWithProfiler($"tac::tensor_reduce_sync<reduce_op::{ReduceOp.Sum.ToC()}, {reduceKind}>({VisitBuffer(args[2], local: true).Name}, {VisitBuffer(args[2], local: true).Name});\n");
@@ -489,7 +491,7 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
                 case TIR.NTT.Gather gather:
                     {
                         WriteWithProfiler($"gather({VisitBuffer(args[0], local: false).Name}, {VisitBuffer(args[1], local: true).Name}, {VisitBuffer(args[2], local: true).Name}, {gather.Axis}_dim);\n");
-                        if (args[0] is TIR.Buffer b && b.DistributedType?.AxisPolicies[gather.Axis] is SBPSplit s)
+                        if (args[0] is TIR.Buffer b && b.Type is DistributedType bDistributedType && bDistributedType.AxisPolicies[gather.Axis] is SBPSplit s)
                         {
                             var reduceKind = "tar::reduce_kind::" + string.Join("_", Enumerable.Range(0, TargetOptions.HierarchyNames.Length).Select(i => (s.Axes.Contains(i) ? "r" : string.Empty) + TargetOptions.HierarchyNames[i]));
                             WriteIndWithProfiler($"tac::tensor_reduce_sync<reduce_op::{ReduceOp.Sum.ToC()}, {reduceKind}>({VisitBuffer(args[2], local: true).Name}, {VisitBuffer(args[2], local: true).Name});\n");
@@ -777,6 +779,11 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
 
     protected override CSymbol VisitFor(For expr)
     {
+        if (expr.Mode == LoopMode.Unrolled)
+        {
+            return VisitUnrolledFor(expr);
+        }
+
         if (_exprMemo.TryGetValue(expr, out var symbol))
         {
             return symbol;
@@ -833,8 +840,11 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
             return symbol;
         }
 
-        var var = Visit(expr.Var);
         var value = Visit(expr.Expression);
+        var var = expr.Var is Var varExpr
+            ? new CSymbol(value.Type, IRHelpers.GetIdentityName(varExpr.Name) + "_" + varExpr.GlobalVarIndex.ToString())
+            : Visit(expr.Var);
+        _exprMemo[(BaseExpr)expr.Var] = new(value.Type, var.Name);
         IndentScope.Writer.IndWrite($"{var.Type} {var.Name} = {value.Name};\n");
         using (new IndentScope())
         {
@@ -999,7 +1009,7 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
     private CSymbol VisitBuffer(BaseExpr buffer, bool local)
     {
         var symbol = Visit(buffer);
-        if (local && ((buffer.CheckedType is DistributedType) || (buffer is TIR.Buffer b && b.DistributedType != null)))
+        if (local && ((buffer.CheckedType is DistributedType) || (buffer is TIR.Buffer { Type: DistributedType })))
         {
             return new CSymbol(symbol.Type, $"{symbol.Name}.local()");
         }
@@ -1029,12 +1039,13 @@ internal sealed class KernelCSourceConvertVisitor : CSourceConvertVisitor, IDisp
             {
                 // If the buffer has a start, we create a tensor view
                 var dtypeStr = buffer.ElemType.ToC();
-                var dimensions = buffer.DistributedType is null ? buffer.Dimensions : ((RankedShape)buffer.DistributedType.TensorType.Shape).Dimensions;
+                var distributedType = buffer.Type as DistributedType;
+                var dimensions = distributedType is null ? buffer.Dimensions : ((RankedShape)distributedType.TensorType.Shape).Dimensions;
                 var spanStr = $"typed_span_reinterpret<{dtypeStr}>({Visit(buffer.MemSpan).Name})";
                 var dimensionValues = dimensions.AsValueEnumerable().Select(x => Visit(x).Name);
                 var strideValues = buffer.Strides.AsValueEnumerable().Select(x => Visit(x).Name);
 
-                if (buffer.DistributedType is DistributedType distributedType)
+                if (distributedType is not null)
                 {
                     IndentScope.Writer.IndWrite($"= make_sharded_tensor_view({spanStr}, make_shape({StringUtility.Join(", ", dimensionValues)}), {KernelUtility.ShardingToC(distributedType)}, make_strides({StringUtility.Join(", ", strideValues)}))");
                 }

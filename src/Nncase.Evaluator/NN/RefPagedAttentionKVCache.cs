@@ -256,7 +256,7 @@ public sealed record RefPagedAttentionKVCache(
             vectorizedQuery = IR.F.NN.PagedAttention(
                 vectorizedQuery,
                 updatedKVCache,
-                IR.F.Buffer.Uninitialized(config.KVPrimType, Nncase.TIR.MemoryLocation.Data, extraShape), // [head_q, max_query_len, max_seq_len] + [head_q, max_query_len, 1]
+                IR.F.Buffer.Uninitialized(config.KVPrimType, Nncase.TIR.BufferStorage.ThreadLocalTemp(), extraShape), // [head_q, max_query_len, max_seq_len] + [head_q, max_query_len, 1]
                 Tensor.FromScalar(1.0f).CastTo(config.KVPrimType, CastMode.KDefault),
                 layerId,
                 qLayout,
